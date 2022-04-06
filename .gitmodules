@@ -1,0 +1,9 @@
+[submodule "thirdParty/eastl"]
+	path = thirdParty/eastl
+	url = https://github.com/electronicarts/EASTL.git
+[submodule "thirdParty/EAAssert"]
+	path = thirdParty/EAAssert
+	url = https://github.com/electronicarts/EAAssert.git
+[submodule "thirdParty/EATest"]
+	path = thirdParty/EATest
+	url = https://github.com/electronicarts/EATest.git
