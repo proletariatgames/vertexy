@@ -15,6 +15,7 @@
 #include "constraints/CardinalityConstraint.h"
 #include "constraints/DisjunctionConstraint.h"
 #include "constraints/IffConstraint.h"
+#include "constraints/SumConstraint.h"
 #include "SignedClause.h"
 #include "variable/BooleanVariablePropagator.h"
 #include "variable/GenericVariablePropagator.h"
@@ -224,6 +225,29 @@ ClauseConstraint& ConstraintSolver::clause(const vector<SignedClause>& clauses)
 ClauseConstraint& ConstraintSolver::nogood(const vector<SignedClause>& clauses)
 {
 	return makeConstraint<ClauseConstraint>(ENoGood::NoGood, clauses);
+}
+
+SumConstraint& ConstraintSolver::sum(const VarID sum, const vector<VarID>& vars)
+{
+	vector<VarID> intermediarySums;
+	// Generate intermediate sums & constraints since the constraint handles three vars in the form of A = B + C
+	for (int i = 1; i < vars.size() - 1; ++i)
+	{
+		int minVal = getDomain(vars[i - 1]).getMin() + getDomain(vars[i]).getMin();
+		int maxVal = getDomain(vars[i - 1]).getMax() + getDomain(vars[i]).getMax();
+		VarID intermediarySum = makeVariable({wstring::CtorSprintf(), TEXT("IntSum%d"), i}, SolverVariableDomain(minVal, maxVal));
+		intermediarySums.push_back(intermediarySum);
+		makeConstraint<SumConstraint>(intermediarySum, vars[i - 1], vars[i]);
+	}
+	// Generate the final sum using our intermediate sums if they exist or the given vars if they don't
+	if (intermediarySums.size() > 0)
+	{
+		return makeConstraint<SumConstraint>(sum, intermediarySums[intermediarySums.size() - 1], vars[vars.size() - 1]);
+	}
+	else
+	{
+		return makeConstraint<SumConstraint>(sum, vars[0], vars[1]);
+	}
 }
 
 IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<SignedClause>& body)

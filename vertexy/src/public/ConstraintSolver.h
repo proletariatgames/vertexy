@@ -313,6 +313,7 @@ public:
 	class OffsetConstraint& offset(VarID sum, VarID term, int delta);
 	class InequalityConstraint& inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide);
 	class CardinalityConstraint& cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues);
+	class SumConstraint& sum(const VarID sum, const vector<VarID>& vars);
 	class DisjunctionConstraint& disjunction(ISolverConstraint* consA, ISolverConstraint* consB);
 
 	//

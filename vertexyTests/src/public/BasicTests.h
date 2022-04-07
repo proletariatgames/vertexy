@@ -21,6 +21,7 @@ public:
 	static int solveCardinalityShiftProblem(int times, int seed, bool printVerbose = true);
 	static int solveClauseBasic(int times, int seed, bool printVerbose = true);
 	static int solveInequalityBasic(int times, int seed, bool printVerbose = true);
+	static int solveSumBasic(int times, int seed, bool printVerbose = true);
 };
 
 }

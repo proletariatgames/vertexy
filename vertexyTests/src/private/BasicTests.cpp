@@ -273,3 +273,44 @@ int TestSolvers::solveAllDifferentSmall(int times, int seed, bool printVerbose)
 	}
 	return nErrorCount;
 }
+
+int TestSolvers::solveSumBasic(int times, int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	for (int time = 0; time < times; ++time)
+	{
+		ConstraintSolver solver(TEXT("Sum_Basic"), seed);
+
+		SolverVariableDomain domain(0, 10);
+		VarID sum = solver.makeVariable(TEXT("Sum"), domain);
+		vector<VarID> vars = {
+			solver.makeVariable(TEXT("X1"), vector{1,7}),
+			solver.makeVariable(TEXT("X2"), vector{2,15}),
+			solver.makeVariable(TEXT("X3"), domain)
+		};
+
+		solver.sum(sum, vars);
+		solver.solve();
+
+		if (printVerbose)
+		{
+			for (auto vi : solver.getSolution())
+			{
+				VERTEXY_LOG("    %s = %d", vi.second.name.c_str(), vi.second.value);
+			}
+		}
+
+		solver.dumpStats(printVerbose);
+		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+
+		int summedVars = 0;
+		for (auto var : vars)
+		{
+			summedVars += solver.getSolvedValue(var);
+		}
+		EATEST_VERIFY(solver.getSolvedValue(sum) == summedVars);
+	}
+
+	return nErrorCount;
+}

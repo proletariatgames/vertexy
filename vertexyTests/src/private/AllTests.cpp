@@ -17,6 +17,7 @@ void AllTests::runAllTests(int seed, int numTimes)
 	TestSolvers::solveCardinalityShiftProblem(numTimes, seed, false);
 	TestSolvers::solveAllDifferentLarge(numTimes, seed, false);
 	TestSolvers::solveAllDifferentSmall(numTimes, seed, false);
+	TestSolvers::solveSumBasic(numTimes, seed, false);
 	NQueensSolvers::solveUsingGraph(numTimes, 25, seed, false);
 	NQueensSolvers::solveUsingTable(numTimes, 25, seed, false);
 	NQueensSolvers::solveUsingAllDifferent(numTimes, 25, seed, false);
