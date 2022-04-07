@@ -20,10 +20,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 set(CMAKE_USER_MAKE_RULES_OVERRIDE_CXX ${CMAKE_CURRENT_SOURCE_DIR}/cxx_flag_overrides.cmake)
 
-project ("ConstraintSystem")
+project ("Vertexy")
 cmake_policy(SET CMP0077 NEW)
 set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
-add_subdirectory(../csolver ./csolver)
-add_subdirectory(../csolverTests ./csolverTests)
-add_subdirectory(../testHarness ./testHarness)
+add_subdirectory(../vertexy ./vertexy)
+add_subdirectory(../vertexyTests ./vertexyTests)
+add_subdirectory(../vertexyTestHarness ./vertexyTestHarness)

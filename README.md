@@ -1,14 +1,14 @@
 ## Introduction
 
-CSOLVERNAME is a [conflict-driven learning constraint solver](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning) that is focused on solving problems within graphs. Its primary development goal is to aid in **procedural content generation** (PCG) for games, but can be used for a variety of other purposes.
+Vertexy is a [conflict-driven learning constraint solver](https://en.wikipedia.org/wiki/Conflict-driven_clause_learning) that is focused on solving problems within graphs. Its primary development goal is to aid in **procedural content generation** (PCG) for games, but can be used for a variety of other purposes.
 
 Constraint solvers allow the user to specify a set of variables and a set of constraints between variables that must be met. The solver generates one or more assignments to the variables that satisfy all constraints, assuming a solution exists.
 
 Constraint solvers are interesting in the context of PCG because that they allow designers to specify high-level rules for content that must be satisfied, which can be difficult or impossible in traditional algorithmic or noise-based PCG methods.
 
-The primary distinguishing feature of CSOLVERNAME apart from other constraint solvers is the ability for designers to define arbitrary graphs representing topological or causal relationships between variables. Whereas other solvers learn individual implied constraints as it searches for a solution, CSOLVERNAME can recognize implied constraints that apply to the entire graph. This can vastly reduce the search space and make otherwise intractable formulas solveable.
+The primary distinguishing feature of Vertexy apart from other constraint solvers is the ability for designers to define arbitrary graphs representing topological or causal relationships between variables. Whereas other solvers learn individual implied constraints as it searches for a solution, Vertexy can recognize implied constraints that apply to the entire graph. This can vastly reduce the search space and make otherwise intractable formulas solveable.
 
-CSOLVERNAME is still a work-in-progress and is missing many planned features and optimizations.
+Vertexy is still a work-in-progress and is missing many planned features and optimizations.
 
 ## Current Features
 
@@ -45,13 +45,13 @@ cmake .
 
 This will generate a ConstraintSystem.sln file, which you can open in the IDE. 
 
-* The **CSolverLib** project builds the main static library that includes the solver and constraint types.
-* The **CSolverTestsLib** project builds a static library of various example problems.
-* The **TestHarness** project builds an executable that runs the CSolverTestsLib problems and reports results.
+* The **VertexyLib** project builds the main static library that includes the solver and constraint types.
+* The **VertexyTestsLib** project builds a static library of various example problems.
+* The **VertexyTestHarness** project builds an executable that runs the VertexyTestsLib problems and reports results.
 * Other projects are EASTL and dependencies.
 
 Three build configurations are provided:
-* **Debug**: No inlining, many "sanity" checks. Intended for CSOLVERNAME internal development.
+* **Debug**: No inlining, many "sanity" checks. Intended for Vertexy internal development.
 * **Development**: Inlining of many common functions, fewer asserts. Intended for every day developer usage.
 * **Release**: Fully optimized build.
 
