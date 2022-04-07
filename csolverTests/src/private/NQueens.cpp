@@ -2,7 +2,7 @@
 #include "NQueens.h"
 
 #include "ConstraintSolver.h"
-#include "../../ThirdParty/eastl/test/packages/EATest/include/EATest/EATest.h"
+#include "EATest/EATest.h"
 #include "constraints/TableConstraint.h"
 #include "constraints/IffConstraint.h"
 #include "topology/GridTopology.h"

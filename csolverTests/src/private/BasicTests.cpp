@@ -4,7 +4,7 @@
 #include <EASTL/hash_map.h>
 
 #include "ConstraintSolver.h"
-#include "../../ThirdParty/eastl/test/packages/EATest/include/EATest/EATest.h"
+#include "EATest/EATest.h"
 #include "variable/SolverVariableDomain.h"
 
 using namespace csolverTests;

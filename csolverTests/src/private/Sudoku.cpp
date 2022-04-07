@@ -2,7 +2,7 @@
 #include "Sudoku.h"
 
 #include "ConstraintSolver.h"
-#include "../../ThirdParty/eastl/test/packages/EATest/include/EATest/EATest.h"
+#include "EATest/EATest.h"
 #include "constraints/TableConstraint.h"
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"

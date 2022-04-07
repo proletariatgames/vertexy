@@ -7,3 +7,15 @@
 [submodule "thirdParty/EATest"]
 	path = thirdParty/EATest
 	url = https://github.com/electronicarts/EATest.git
+[submodule "thirdParty/EABase"]
+	path = thirdParty/EABase
+	url = https://github.com/electronicarts/EABase.git
+[submodule "thirdParty/EAMain"]
+	path = thirdParty/EAMain
+	url = https://github.com/electronicarts/EAMain.git
+[submodule "thirdParty/EAThread"]
+	path = thirdParty/EAThread
+	url = https://github.com/electronicarts/EAThread.git
+[submodule "thirdParty/EAStdC"]
+	path = thirdParty/EAStdC
+	url = https://github.com/electronicarts/EAStdC.git

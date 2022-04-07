@@ -1,0 +1,29 @@
+tags
+cscope.out
+**/*.swp
+**/*.swo
+.swp
+*.swp
+.swo
+.TMP
+.p4config
+
+## CMake generated files
+CMakeCache.txt
+cmake_install.cmake
+
+## For Visual Studio Generated projects
+*.sln
+**/*.vcxproj
+**/*.vcxproj.filters
+*.VC.opendb
+*.sdf
+**/*.suo
+**/*.user
+.vs/*
+**/Debug/*
+CMakeFiles/*
+x64/*
+%ALLUSERSPROFILE%/*
+
+build/**/*
