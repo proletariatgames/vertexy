@@ -55,8 +55,8 @@ int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 			solver.allDifferent(squares[i]);
 		}
 
-		// Initialize the puzzle with N values
-		//initializePuzzle(n, &solver, variables, printVerbose);
+		// Initialize the puzzle
+		initializePuzzle(&solver, variables, printVerbose);
 
 		solver.solve();
 		solver.dumpStats(printVerbose);
@@ -77,21 +77,26 @@ int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
-void SudokuSolver::initializePuzzle(int n, ConstraintSolver* solver, const vector<VarID>& vars, bool printVerbose)
+void SudokuSolver::initializePuzzle(ConstraintSolver* solver, const vector<VarID>& vars, bool printVerbose)
 {
-	// Make sure the given number of constants is valid
-	if (n < 0)
-	{
-		n = 0;
-	}
-	else if (n > 80)
-	{
-		n = 80;
-	}
-
-	for (int i = 0; i < n; ++i)
-	{
-	}
+	// Start with a standard puzzle
+	solver->setInitialValues(vars[14], vector{ 3 });
+	solver->setInitialValues(vars[16], vector{ 8 });
+	solver->setInitialValues(vars[17], vector{ 5 });
+	solver->setInitialValues(vars[20], vector{ 1 });
+	solver->setInitialValues(vars[22], vector{ 2 });
+	solver->setInitialValues(vars[30], vector{ 5 });
+	solver->setInitialValues(vars[32], vector{ 7 });
+	solver->setInitialValues(vars[38], vector{ 4 });
+	solver->setInitialValues(vars[42], vector{ 1 });
+	solver->setInitialValues(vars[46], vector{ 9 });
+	solver->setInitialValues(vars[54], vector{ 5 });
+	solver->setInitialValues(vars[61], vector{ 7 });
+	solver->setInitialValues(vars[62], vector{ 3 });
+	solver->setInitialValues(vars[65], vector{ 2 });
+	solver->setInitialValues(vars[67], vector{ 1 });
+	solver->setInitialValues(vars[76], vector{ 4 });
+	solver->setInitialValues(vars[80], vector{ 9 });
 
 	// Print out the initial puzzle before it's solved
 	if (printVerbose)
