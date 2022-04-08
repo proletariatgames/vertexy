@@ -287,7 +287,9 @@ int TestSolvers::solveSumBasic(int times, int seed, bool printVerbose)
 		vector<VarID> vars = {
 			solver.makeVariable(TEXT("X1"), vector{1,7}),
 			solver.makeVariable(TEXT("X2"), vector{2,15}),
-			solver.makeVariable(TEXT("X3"), domain)
+			solver.makeVariable(TEXT("X3"), domain),
+			solver.makeVariable(TEXT("X4"), domain),
+			solver.makeVariable(TEXT("X5"), domain)
 		};
 
 		solver.sum(sum, vars);
