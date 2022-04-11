@@ -293,9 +293,6 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 
 void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)
 {
-	if (getID() == 3789) EA_DEBUG_BREAK();
-
-
 	vxy_assert(litIndex >= 0 && litIndex < m_numLiterals);
 	if (litIndex < 2 && m_watches[litIndex] != INVALID_WATCHER_HANDLE)
 	{
