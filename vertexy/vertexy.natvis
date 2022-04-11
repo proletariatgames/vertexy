@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
-	<Type Name="csolver::ClauseConstraint">
+	<Type Name="Vertexy::ClauseConstraint">
       <DisplayString>{{ID={m_id} Num={m_numLiterals}}</DisplayString>
       <Expand>
         <Item Name="ID">m_id</Item>
@@ -14,7 +14,7 @@
         </ArrayItems>
       </Expand>
 	</Type>
-    <Type Name="csolver::TValueBitset&lt;*&gt;">
+    <Type Name="Vertexy::TValueBitset&lt;*&gt;">
         <DisplayString Condition="m_numBits == 0">Empty</DisplayString>
         <DisplayString Condition="m_numBits &lt; 0">Invalid</DisplayString>
         <DisplayString Condition="m_numBits &gt; 0">NumBits={m_numBits}</DisplayString>
