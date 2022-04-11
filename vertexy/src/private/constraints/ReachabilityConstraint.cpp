@@ -994,35 +994,39 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 	vector<VarID> tempSources;
 	for (VarID potentialSource : m_initialPotentialSources)
 	{
-		if (db->anyPossible(potentialSource, m_sourceMask) && m_reachabilitySources.find(potentialSource) == m_reachabilitySources.end())
+		if (db->anyPossible(potentialSource, m_sourceMask))
 		{
-			tempSources.push_back(potentialSource);
+			if (m_reachabilitySources.find(potentialSource) == m_reachabilitySources.end())
+			{
+				tempSources.push_back(potentialSource);
 
-			int vertexIndex = m_variableToSourceVertexIndex[potentialSource];
+				int vertexIndex = m_variableToSourceVertexIndex[potentialSource];
 
-			ReachabilitySourceData data;
-			#if REACHABILITY_USE_RAMAL_REPS
-			data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
-			#else
-			Data.maxReachability = make_shared<ESTreeType>(MaxGraph);
-			#endif
-			data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
+				ReachabilitySourceData data;
+				#if REACHABILITY_USE_RAMAL_REPS
+					data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
+				#else
+					Data.maxReachability = make_shared<ESTreeType>(MaxGraph);
+				#endif
+				data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 
-			m_reachabilitySources[potentialSource] = data;
+				m_reachabilitySources[potentialSource] = data;
+			}
+		}
+		else if (potentialSource != sourceVar)
+		{
+			lits.push_back(Literal(potentialSource, m_sourceMask));
 		}
 	}
 
 	int removedSourceLitIdx = -1;
 	if (removedSource.isValid())
 	{
-		vxy_assert(m_reachabilitySources.find(removedSource) == m_reachabilitySources.end());
-
 		// This became a required source because RemovedSource was removed, and some definitely-reachable vertices were
 		// only reachable by this source.
-
 		vxy_assert(!db->anyPossible(removedSource, m_sourceMask));
-		removedSourceLitIdx = lits.size();
-		lits.push_back(Literal(removedSource, m_sourceMask));
+		removedSourceLitIdx = indexOfPredicate(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == removedSource; });
+		vxy_assert(removedSourceLitIdx >= 0);
 	}
 
 	//
@@ -1051,10 +1055,12 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 				if (!reachableFromAnotherSource)
 				{
 					vxy_assert(m_reachabilitySources[sourceVar].maxReachability->isReachable(vertex));
-					if (vertexVar == removedSource) // make sure we don't add the same literal twice!
+					// make sure we don't add the same literal twice!
+					auto found = find_if(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == vertexVar; });
+					if (found != lits.end())
 					{
-						vxy_assert(lits[removedSourceLitIdx].variable == vertexVar);
-						lits[removedSourceLitIdx].values.include(m_notReachableMask);
+						vxy_assert(found->variable == vertexVar);
+						found->values.include(m_notReachableMask);
 					}
 					else
 					{
