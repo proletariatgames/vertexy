@@ -132,7 +132,11 @@ public:
 		return nullptr;
 	}
 
+	bool propagateAndStrengthen(IVariableDatabase* db, vector<VarID>& outVarsRemoved);
+	void removeLiteralAt(IVariableDatabase* db, int litIndex);
+
 	void getLiterals(vector<Literal>& outLiterals) const;
+	const Literal* getLiterals() const { return m_literals; }
 	vector<Literal> getLiteralsCopy() const;
 
 	inline float getActivity() const
@@ -214,6 +218,15 @@ public:
 		m_extendedInfo->stepLearned_ForDebugging = step;
 		#endif
 	}
+
+	using const_iterator = const Literal*;
+	const_iterator beginLiterals() const { return m_literals; }
+	const_iterator endLiterals() const { return m_literals+m_numLiterals; }
+
+	// not exposed: not really safe to mutate literals after construction.
+	// using iterator = Literal*;
+	//iterator beginLiterals() { return m_literals; }
+	//iterator endLiterals() { return m_literals+m_numLiterals; }
 
 protected:
 	// NOTE: We attempt to pack data tightly here. Be careful increasing the size of this class, as it can

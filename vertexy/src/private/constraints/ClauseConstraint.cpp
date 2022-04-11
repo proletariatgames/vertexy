@@ -160,6 +160,36 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, ISolverConstraint* oute
 	return true;
 }
 
+bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarID>& outVarsRemoved)
+{
+	outVarsRemoved.clear();
+
+	// Remove any literals that are impossible
+	for (int i = 0; i < m_numLiterals;)
+	{
+		if (db->anyPossible(m_literals[i].variable, m_literals[i].values))
+		{
+			++i;
+		}
+		else
+		{
+			outVarsRemoved.push_back(m_literals[i].variable);
+			removeLiteralAt(db, i);
+		}
+	}
+
+	if (m_numLiterals == 0)
+	{
+		return false;
+	}
+	else if (m_numLiterals == 1)
+	{
+		return db->constrainToValues(m_literals[0].variable, m_literals[0].values, this, nullptr);
+	}
+
+	return true;
+}
+
 void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 {
 	vxy_assert(isLearned());
@@ -259,6 +289,61 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 		return false;
 	}
 	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this, nullptr);
+}
+
+void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)
+{
+	if (getID() == 3789) EA_DEBUG_BREAK();
+
+
+	vxy_assert(litIndex >= 0 && litIndex < m_numLiterals);
+	if (litIndex < 2 && m_watches[litIndex] != INVALID_WATCHER_HANDLE)
+	{
+		vxy_sanity(m_watches[litIndex] != INVALID_WATCHER_HANDLE);
+		db->removeVariableWatch(m_literals[litIndex].variable, m_watches[litIndex], this);
+		m_watches[litIndex] = INVALID_WATCHER_HANDLE;
+	}
+
+	if (litIndex != m_numLiterals-1)
+	{
+		swap(m_literals[litIndex], m_literals[m_numLiterals-1]);
+		if (m_numLiterals <= 2)
+		{
+			swap(m_watches[litIndex], m_watches[m_numLiterals-1]);
+		}
+	}
+	--m_numLiterals;
+
+	if (litIndex < 2 && litIndex < m_numLiterals)
+	{
+		if (!db->anyPossible(m_literals[litIndex].variable, m_literals[litIndex].values))
+		{
+			// attempt to keep both two watched literals positive
+			for (int j = 2; j < m_numLiterals; ++j)
+			{
+				if (db->anyPossible(m_literals[j].variable, m_literals[j].values))
+				{
+					swap(m_literals[litIndex], m_literals[j]);
+					if (m_watches[litIndex] != INVALID_WATCHER_HANDLE)
+					{
+						db->removeVariableWatch(m_literals[litIndex].variable, m_watches[litIndex], this);
+						m_watches[litIndex] = INVALID_WATCHER_HANDLE;
+					}
+					break;
+				}
+			}
+		}
+
+		if (m_watches[litIndex] == INVALID_WATCHER_HANDLE)
+		{
+			m_watches[litIndex] = db->addVariableValueWatch(m_literals[litIndex].variable, m_literals[litIndex].values, this);
+		}
+	}
+
+	// !!FIXME!! We can't currently graph-promote constraints that have literals removed, because
+	// the conflict analyzer relies on the full constraint. In the future we could rebuild the
+	// removed literals from the relations to do this.
+	m_graphRelationInfo.reset();
 }
 
 void ClauseConstraint::getLiterals(vector<Literal>& outLiterals) const

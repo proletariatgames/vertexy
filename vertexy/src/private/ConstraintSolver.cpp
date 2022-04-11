@@ -29,6 +29,7 @@
 #include <EASTL/variant.h>
 #include <EASTL/stack.h>
 
+#include "ds/FastLookupSet.h"
 #include "util/TimeUtils.h"
 
 using namespace Vertexy;
@@ -42,6 +43,9 @@ static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Whether we should test that graph promotions are valid. Happens after solve is complete (SAT or UNSAT).
 // Can be used even if GRAPH_LEARNING_ENABLED = false, to verify that graph constraints *would've* been (in)correct
 static constexpr bool TEST_GRAPH_PROMOTIONS = true;
+
+// Whether we attempt to simplify clause constraints prior to solving.
+static constexpr bool SIMPLIFY_CONSTRAINTS = true;
 
 // How often we log solver steps, for progress reporting.
 static constexpr int DECISION_LOG_FREQUENCY = 50000;
@@ -375,10 +379,351 @@ VarID ConstraintSolver::getOrCreateOffsetVariable(VarID varID, int minDomain, in
 	return found->second;
 }
 
-void ConstraintSolver::removeTopLevelConstraint(ISolverConstraint* constraint)
+bool ConstraintSolver::simplify()
 {
-	vxy_fail(); // TODO
+	vector<vector<int>> occurList;
+	occurList.resize(m_variableDB.getNumVariables()+1, {});
+
+	vector<ClauseConstraint*> clauses;
+	clauses.reserve(m_constraints.size());
+
+	vector<uint64_t> clauseHashes;
+	clauseHashes.reserve(m_constraints.size());
+
+	using LookupSet = TFastLookupSet<int, true>;
+
+	LookupSet addedConstraints;
+	addedConstraints.setIndexSize(m_constraints.size());
+
+	LookupSet strengthenedConstraints;
+	strengthenedConstraints.setIndexSize(m_constraints.size());
+
+	int numConstraintsRemoved = 0;
+	int numLiteralsRemoved = 0;
+	int numTotalLiterals = 0;
+
+	// stuff the clause's variables into a 64-bit bitfield. Used to quickly/conservatively discard potential subsumptions.
+	auto hashClause = [](const ClauseConstraint* cons) -> uint64_t
+	{
+		uint64_t hash = 0;
+		for (int i = 0; i < cons->getNumLiterals(); ++i)
+		{
+			hash |= 1<<(size_t(cons->getLiteral(i).variable.raw()) % 64ULL);
+		}
+		return hash;
+	};
+
+	// Propagates all clause constraints, potentially removing literals or making clauses unit.
+	// Note that we may discover the problem is UNSAT here.
+	auto propagateTopLevel = [&]()
+	{
+		vector<VarID> varsRemoved;
+		bool fixPoint = false;
+		while (!fixPoint)
+		{
+			fixPoint = true;
+			for (int i = 0; i < clauses.size(); ++i)
+			{
+				if (!clauses[i])
+				{
+					continue;
+				}
+
+				varsRemoved.clear();
+				if (!clauses[i]->propagateAndStrengthen(&m_variableDB, varsRemoved))
+				{
+					return false;
+				}
+
+				if (!varsRemoved.empty())
+				{
+					fixPoint = false;
+
+					strengthenedConstraints.add(i);
+					for (auto it = varsRemoved.begin(), itEnd = varsRemoved.end(); it != itEnd; ++it)
+					{
+						occurList[it->raw()].erase_first_unsorted(i);
+						++numLiteralsRemoved;
+					}
+				}
+
+				if (clauses[i]->getNumLiterals() < 2)
+				{
+					// VERTEXY_LOG("Remove constraint %d", i);
+					numConstraintsRemoved++;
+
+					clauses[i]->reset(&m_variableDB);
+					strengthenedConstraints.remove(i);
+					addedConstraints.remove(i);
+
+					for (auto itLit = clauses[i]->beginLiterals(), itLitEnd = clauses[i]->endLiterals(); itLit != itLitEnd; ++itLit)
+					{
+						occurList[itLit->variable.raw()].erase_first_unsorted(i);
+						++numLiteralsRemoved;
+					}
+
+					m_constraints[clauses[i]->getID()].reset();
+					clauses[i] = nullptr;
+				}
+				else if (!varsRemoved.empty())
+				{
+					clauseHashes[i] = hashClause(clauses[i]);
+				}
+			}
+
+			if (!propagate())
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	if (!propagateTopLevel())
+	{
+		return false;
+	}
+
+	for (auto& consPtr : m_constraints)
+	{
+		if (consPtr.get() && !m_constraintIsChild[consPtr->getID()])
+		{
+			if (auto clauseCon = consPtr->asClauseConstraint())
+			{
+				for (int i = 0; i < clauseCon->getNumLiterals(); ++i)
+				{
+					auto& lit = clauseCon->getLiteral(i);
+					occurList[lit.variable.raw()].push_back(clauses.size());
+				}
+				numTotalLiterals += clauseCon->getNumLiterals();
+
+				addedConstraints.add(clauses.size());
+				clauses.push_back(clauseCon);
+				clauseHashes.push_back(hashClause(clauseCon));
+			}
+		}
+	}
+
+	// Check if the literals in clauseA are a subset of the literals in clauseB
+	auto isSubsetOf = [&](int clauseAIdx, int clauseBIdx, VarID negateVar=VarID::INVALID)
+	{
+		if (clauseAIdx == clauseBIdx)
+		{
+			return false;
+		}
+
+		auto clauseA = clauses[clauseAIdx];
+		auto clauseB = clauses[clauseBIdx];
+		if (clauseA->getNumLiterals() > clauseB->getNumLiterals())
+		{
+			return false;
+		}
+
+		if ((clauseHashes[clauseAIdx] & ~clauseHashes[clauseBIdx]) != 0)
+		{
+			return false;
+		}
+
+		for (auto it = clauseA->beginLiterals(), itEnd = clauseA->endLiterals(); it != itEnd; ++it)
+		{
+			auto found = find_if(clauseB->beginLiterals(), clauseB->endLiterals(), [&](auto& lit) { return lit.variable == it->variable; });
+			if (found == clauseB->endLiterals())
+			{
+				return false;
+			}
+
+			if (negateVar == it->variable)
+			{
+				if (found->values != it->values.inverted())
+				{
+					return false;
+				}
+			}
+			else
+			{
+				if (!it->values.isSubsetOf(found->values))
+				{
+					return false;
+				}
+			}
+		}
+
+		return true;
+	};
+
+	// Find all clauses that this clause should subsume (i.e. clauses where this clause is a subset)
+	auto findSubsumed = [&](int clauseIdx, vector<int>& outConsumed, int negateLitIdx=-1)
+	{
+		auto cons = clauses[clauseIdx];
+		vxy_sanity(cons->getNumLiterals() > 0);
+
+		outConsumed.clear();
+
+		VarID bestVar = cons->getLiteral(0).variable;
+		for (int i = 1; i < cons->getNumLiterals(); ++i)
+		{
+			auto& lit = cons->getLiteral(i);
+			if (occurList[lit.variable.raw()].size() < occurList[bestVar.raw()].size())
+			{
+				bestVar = lit.variable;
+			}
+		}
+
+		VarID negateVar = VarID::INVALID;
+		if (negateLitIdx >= 0)
+		{
+			vxy_sanity(negateLitIdx < cons->getNumLiterals());
+			negateVar = cons->getLiteral(negateLitIdx).variable;
+		}
+
+		for (auto it = occurList[bestVar.raw()].begin(), itEnd = occurList[bestVar.raw()].end(); it != itEnd; ++it)
+		{
+			if (isSubsetOf(clauseIdx, *it, negateVar))
+			{
+				outConsumed.push_back(*it);
+			}
+		}
+	};
+
+	// Find all literals we can remove other clauses based on the logic of this clause.
+	// e.g. for a clause (a, b, c), it will find all clauses subsumed by (-a, b, c), (a, -b, c), and (a, b, -c).
+	// For a clause subsumed by (-a, b, c), it can remove -a from that clause.
+	auto selfSubsume = [&](int clauseIdx)
+	{
+		vector<int> consumed;
+
+		auto cons = clauses[clauseIdx];
+		for (int i = 0; i < cons->getNumLiterals(); ++i)
+		{
+			auto& lit = cons->getLiteral(i);
+			findSubsumed(clauseIdx, consumed, i);
+			for (auto it = consumed.begin(), itEnd = consumed.end(); it != itEnd; ++it)
+			{
+				auto strCons = clauses[*it];
+				bool found = false;
+				for (int j = 0; j < strCons->getNumLiterals(); ++j)
+				{
+					if (strCons->getLiteral(j).variable == lit.variable)
+					{
+						vxy_sanity(strCons->getLiteral(j).values == lit.values.inverted());
+						strCons->removeLiteralAt(&m_variableDB, j);
+						clauseHashes[*it] = hashClause(strCons);
+						occurList[lit.variable.raw()].erase_first_unsorted(*it);
+						strengthenedConstraints.add(*it);
+
+						++numLiteralsRemoved;
+
+						found = true;
+						break;
+					}
+				}
+				vxy_sanity(found);
+			}
+		}
+	};
+
+	// Return all clauses that contain the specified literal (exact match)
+	auto getClausesWithLiteral = [&](const Literal& lit, LookupSet& outClauses)
+	{
+		const auto& list = occurList[lit.variable.raw()];
+		for (auto it = list.begin(), itEnd = list.end(); it != itEnd; ++it)
+		{
+			auto cons = clauses[*it];
+			auto found = find_if(cons->beginLiterals(), cons->endLiterals(), [&](auto& l) { return l.variable == lit.variable; });
+			if (found != cons->endLiterals() && found->values == lit.values)
+			{
+				outClauses.add(*it);
+			}
+		}
+	};
+
+	LookupSet potentialSet;
+	potentialSet.setIndexSize(clauses.size());
+
+	LookupSet subsumeSet;
+	subsumeSet.setIndexSize(clauses.size());
+
+	vector<int> foundSubsumed;
+
+	while (!addedConstraints.empty())
+	{
+		potentialSet.clear();
+		for (auto it = addedConstraints.begin(), itEnd = addedConstraints.end(); it != itEnd; ++it)
+		{
+			auto clause = clauses[*it];
+			for (auto itLit = clause->beginLiterals(), itLitEnd = clause->endLiterals(); itLit != itLitEnd; ++itLit)
+			{
+				getClausesWithLiteral(*itLit, potentialSet);
+			}
+		}
+
+		do
+		{
+			subsumeSet.clear();
+			for (auto it = addedConstraints.begin(), itEnd = addedConstraints.end(); it != itEnd; ++it)
+			{
+				subsumeSet.add(*it);
+
+				auto clause = clauses[*it];
+				for (auto itLit = clause->beginLiterals(), itLitEnd = clause->endLiterals(); itLit != itLitEnd; ++itLit)
+				{
+					getClausesWithLiteral(Literal(itLit->variable, itLit->values.inverted()), subsumeSet);
+				}
+			}
+			for (auto it = strengthenedConstraints.begin(), itEnd = strengthenedConstraints.end(); it != itEnd; ++it)
+			{
+				subsumeSet.add(*it);
+			}
+
+			addedConstraints.clear();
+			strengthenedConstraints.clear();
+
+			for (auto it = subsumeSet.begin(), itEnd = subsumeSet.end(); it != itEnd; ++it)
+			{
+				selfSubsume(*it);
+			}
+
+			if (!propagateTopLevel())
+			{
+				return false;
+			}
+		}
+		while (!strengthenedConstraints.empty());
+
+		for (auto it = potentialSet.begin(), itEnd = potentialSet.end(); it != itEnd; ++it)
+		{
+			if (clauses[*it] == nullptr)
+			{
+				continue;
+			}
+
+			foundSubsumed.clear();
+			findSubsumed(*it, foundSubsumed);
+
+			for (int subsumedIdx : foundSubsumed)
+			{
+				// VERTEXY_LOG("Remove constraint %d", subsumedIdx);
+				++numConstraintsRemoved;
+
+				auto subsumed = clauses[subsumedIdx];
+				for (auto itLit = subsumed->beginLiterals(), itLitEnd = subsumed->endLiterals(); itLit != itLitEnd; ++itLit)
+				{
+					occurList[itLit->variable.raw()].erase_first_unsorted(subsumedIdx);
+					++numLiteralsRemoved;
+				}
+
+				subsumed->reset(&m_variableDB);
+
+				m_constraints[subsumed->getID()].reset();
+				clauses[subsumedIdx] = nullptr;
+			}
+		}
+	}
+
+	VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+	return true;
 }
+
 
 hash_map<VarID, SolvedVariableRecord> ConstraintSolver::getSolution() const
 {
@@ -460,12 +805,19 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 			}
 
 			auto& constraint = m_constraints[i];
-			if (!constraint->initialize(&m_variableDB, nullptr))
+			if (constraint.get() != nullptr && !constraint->initialize(&m_variableDB, nullptr))
 			{
 				m_stats.endTime = TimeUtils::getSeconds();
 				m_currentStatus = EConstraintSolverResult::Unsatisfiable;
 				return m_currentStatus;
 			}
+		}
+
+		if (SIMPLIFY_CONSTRAINTS && !simplify())
+		{
+			m_stats.endTime = TimeUtils::getSeconds();
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return m_currentStatus;
 		}
 
 		if (!propagate())
@@ -477,7 +829,10 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 
 		for (auto& constraint : m_constraints)
 		{
-			constraint->onInitialArcConsistency(&m_variableDB);
+			if (constraint.get() != nullptr)
+			{
+				constraint->onInitialArcConsistency(&m_variableDB);
+			}
 		}
 
 		m_variableDB.onInitialArcConsistency();
@@ -722,7 +1077,6 @@ bool ConstraintSolver::emptyVariableQueue()
 		prevValue = stack[item.timestamp].previousValue;
 
 		const ValueSet& currentValue = m_variableDB.getPotentialValues(item.variable);
-
 		if (!m_variablePropagators[item.variable.raw()]->trigger(item.variable, prevValue, currentValue, &m_variableDB, &m_lastTriggeredSink, m_lastTriggeredTs)) //, Item.Constraint))
 		{
 			return false;

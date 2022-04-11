@@ -388,15 +388,6 @@ public:
 	// which can be more efficient if the constraint involves a large number of variables.
 	void queueConstraintPropagation(ISolverConstraint* constraint);
 
-	// Removes the constraint from the set of top-level constraints. This will prevent the constraint from
-	// being initialized.
-	//
-	// NOTE does NOT free the constraint. This is intended for constraint disjunctions (e.g. C1 || C2) where
-	// the internal constraints should not be propagated until the outer constraint is unit.
-	//
-	// Also NOTE that any watchers the constraint has registered will still be triggered.
-	void removeTopLevelConstraint(ISolverConstraint* constraint);
-
 	// Used by constraint factories
 	inline int getNextConstraintID() const { return m_constraints.size(); }
 
@@ -414,6 +405,8 @@ protected:
 		VarID variable;
 		SolverTimestamp timestamp;
 	};
+
+	bool simplify();
 
 	// Unify all variable domains so that they start at the same base value
 	vector<VarID> unifyVariableDomains(const vector<VarID>& vars, int* outNewMinDomain = nullptr);
