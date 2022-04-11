@@ -36,6 +36,9 @@ int SegmentedVariablePropagator::insertSink(int segment, WatcherHandle handle, I
 		m_markedForRemoval[seg.end] = false;
 	}
 
+	vxy_sanity(m_entries[seg.end] == sink);
+	vxy_sanity(m_handles[seg.end] == handle);
+
 	++seg.end;
 	return seg.end;
 }
@@ -45,12 +48,19 @@ void SegmentedVariablePropagator::removeSinkAt(int segment, int i)
 	vxy_assert(withinSegment(segment, i));
 	vxy_assert(m_segments[segment].end > m_segments[segment].start);
 
-	// Move this entry to the end of the list, and reduce our end offset
+	// Move the entry at the back of the list to this position, then back up our end marker
 	const int last = m_segments[segment].end - 1;
+	if (i != last)
+	{
+		vxy_sanity(m_handles[last] != INVALID_WATCHER_HANDLE);
+		m_entries[i] = m_entries[last];
+		m_handles[i] = m_handles[last];
+		m_markedForRemoval[i] = m_markedForRemoval[last];
 
-	swap(m_entries[i], m_entries[last]);
-	swap(m_handles[i], m_handles[last]);
-	swap(m_markedForRemoval[i], m_markedForRemoval[last]);
+		m_entries[last] = nullptr;
+		m_handles[last] = INVALID_WATCHER_HANDLE;
+		m_markedForRemoval[last] = false;
+	}
 
 	--m_segments[segment].end;
 	vxy_assert(m_segments[segment].end >= m_segments[segment].start);
