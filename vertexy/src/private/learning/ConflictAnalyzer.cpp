@@ -14,7 +14,7 @@ ConflictAnalyzer::ConflictAnalyzer(ConstraintSolver& inSolver)
 {
 }
 
-SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs, ISolverConstraint* conflictingConstraint, VarID contradictingVariable, ClauseConstraint*& outLearned)
+SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs, IConstraint* conflictingConstraint, VarID contradictingVariable, ClauseConstraint*& outLearned)
 {
 	if (m_variableClauseIndices.empty())
 	{
@@ -37,20 +37,9 @@ SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs
 	vector<Literal> explanation;
 	if (!contradictingVariable.isValid())
 	{
-		//VERTEXY_LOG("** Contradiction detected (no variable specified)");
-		if (auto clauseCons = conflictingConstraint->asClauseConstraint())
-		{
-			clauseCons->getLiterals(explanation);
-		}
-		else
-		{
-			HistoricalVariableDatabase hdb(&m_solver.m_variableDB, conflictTs);
-			if (!conflictingConstraint->explainConflict(&hdb, explanation))
-			{
-				VERTEXY_WARN("Constraint could not explain failure!");
-				return m_solver.getCurrentDecisionLevel();
-			}
-		}
+		HistoricalVariableDatabase hdb(&m_solver.m_variableDB, conflictTs);
+		NarrowingExplanationParams params(&m_solver, &hdb, conflictingConstraint, VarID::INVALID, {}, conflictTs);
+		explanation = conflictingConstraint->explain(params);
 	}
 	else
 	{
@@ -100,7 +89,7 @@ SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs
 	return backtrackLevel;
 }
 
-SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& inOutExplanation, const ISolverConstraint* initialConflict, SolverTimestamp conflictTime)
+SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& inOutExplanation, const IConstraint* initialConflict, SolverTimestamp conflictTime)
 {
 	const SolverDecisionLevel decisionLevelAtConflict = m_solver.getDecisionLevelForTimestamp(conflictTime);
 	vxy_assert(m_solver.getCurrentDecisionLevel() == decisionLevelAtConflict);
@@ -182,7 +171,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 		const AssignmentStack::Modification& mod = assignmentStack[lastModificationTime];
 		vxy_assert(mod.variable == pivotVar);
 
-		ISolverConstraint* antecedent = mod.constraint;
+		IConstraint* antecedent = mod.constraint;
 		if (antecedent == nullptr)
 		{
 			// hit a decision, just back up to that.

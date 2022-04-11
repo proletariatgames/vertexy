@@ -1,6 +1,6 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "BooleanVariablePropagator.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "variable/IVariableDatabase.h"
 
 //#define sanityCheck(s)

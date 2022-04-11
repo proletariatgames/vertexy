@@ -4,14 +4,14 @@
 #include "ConstraintTypes.h"
 #include "topology/BipartiteGraph.h"
 #include "ds/HallIntervalPropagation.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "MaxOccurrenceExplainer.h"
 #include "topology/algo/tarjan.h"
 
 namespace Vertexy
 {
 
-class AllDifferentConstraint : public ISolverConstraint
+class AllDifferentConstraint : public IConstraint
 {
 public:
 	AllDifferentConstraint(const ConstraintFactoryParams& params, const vector<VarID>& variables, bool bWeakPropagation = false);
@@ -30,7 +30,7 @@ public:
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
 	virtual bool propagate(IVariableDatabase* db) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual bool explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
 
 protected:
 	using Interval = HallIntervalPropagation::Interval;
@@ -40,8 +40,6 @@ protected:
 
 	void calculateBounds(const IVariableDatabase* db, const vector<VarID>& unsolvedVariables, vector<Interval>& outBounds, vector<Interval>& outInvBounds) const;
 	bool checkBoundsConsistency(IVariableDatabase* db, const vector<VarID>& unsolvedVariables);
-
-	vector<Literal> explainVariable(const NarrowingExplanationParams& params) const;
 
 	vector<VarID> m_variables;
 	vector<WatcherHandle> m_watcherHandles;

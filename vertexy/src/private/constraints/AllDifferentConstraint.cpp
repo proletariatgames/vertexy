@@ -13,7 +13,7 @@ AllDifferentConstraint* AllDifferentConstraint::AllDifferentFactory::construct(c
 }
 
 AllDifferentConstraint::AllDifferentConstraint(const ConstraintFactoryParams& params, const vector<VarID>& inVariables, bool useWeakPropagation)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_variables(inVariables)
 	, m_maxDomainSize(0)
 	, m_useWeakPropagation(useWeakPropagation)
@@ -166,17 +166,12 @@ bool AllDifferentConstraint::excludeSolvedValue(IVariableDatabase* db, VarID sol
 	// Ensure we maintain arc consistency by excluding the var's value, and if that causes
 	// another variable to be solved, exclude that value from other vars, etc.
 
-	auto explainerFn = [&](const NarrowingExplanationParams& params)
-	{
-		return explainVariable(params);
-	};
-
 	int solvedValue = db->getSolvedValue(solvedVar);
 	for (VarID var : m_variables)
 	{
 		if (var != solvedVar && db->isPossible(var, solvedValue))
 		{
-			if (!db->excludeValue(var, solvedValue, this, explainerFn))
+			if (!db->excludeValue(var, solvedValue, this))
 			{
 				return false;
 			}
@@ -212,16 +207,11 @@ bool AllDifferentConstraint::checkBoundsConsistency(IVariableDatabase* db, const
 	vxy_assert(m_hallIntervalPropagator.get());
 	calculateBounds(db, unsolvedVariables, m_bounds, m_invBounds);
 
-	auto explainerFn = [&](const NarrowingExplanationParams& params)
-	{
-		return explainVariable(params);
-	};
-
 	fixed_vector<VarID, 8> solvedVars;
 
 	auto excludeLessThan = [&](int varIndex, int boundary)
 	{
-		if (!db->excludeValuesLessThan(unsolvedVariables[varIndex], boundary, this, explainerFn))
+		if (!db->excludeValuesLessThan(unsolvedVariables[varIndex], boundary, this))
 		{
 			return false;
 		}
@@ -234,7 +224,7 @@ bool AllDifferentConstraint::checkBoundsConsistency(IVariableDatabase* db, const
 
 	auto excludeGreaterThan = [&](int varIndex, int boundary)
 	{
-		if (!db->excludeValuesGreaterThan(unsolvedVariables[varIndex], -boundary, this, explainerFn))
+		if (!db->excludeValuesGreaterThan(unsolvedVariables[varIndex], -boundary, this))
 		{
 			return false;
 		}
@@ -283,14 +273,12 @@ void AllDifferentConstraint::calculateBounds(const IVariableDatabase* db, const 
 	}
 }
 
-vector<Literal> AllDifferentConstraint::explainVariable(const NarrowingExplanationParams& params) const
+vector<Literal> AllDifferentConstraint::explain(const NarrowingExplanationParams& params) const
 {
-	ValueSet removedValues = params.database->getPotentialValues(params.propagatedVariable).excluding(params.propagatedValues);
+	ValueSet removedValues;
+	if (params.propagatedVariable.isValid())
+	{
+		removedValues = params.database->getPotentialValues(params.propagatedVariable).excluding(params.propagatedValues);
+	}
 	return m_explainer.getExplanation(*params.database, params.propagatedVariable, removedValues);
-}
-
-bool AllDifferentConstraint::explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const
-{
-	outClauses = m_explainer.getExplanation(*db, VarID::INVALID, {});
-	return true;
 }

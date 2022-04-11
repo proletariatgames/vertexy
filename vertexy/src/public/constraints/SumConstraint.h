@@ -4,7 +4,7 @@
 
 #include "ConstraintTypes.h"
 #include "ConstraintOperator.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 
 namespace Vertexy
 {
@@ -12,7 +12,7 @@ namespace Vertexy
 	/**
 	 * Given three variables, constrains their values such that Sum = Term1 + Term2
 	 */
-	class SumConstraint : public ISolverConstraint
+	class SumConstraint : public IConstraint
 	{
 	public:
 		SumConstraint(const ConstraintFactoryParams& params, VarID inSum, VarID inTerm1, VarID inTerm2);

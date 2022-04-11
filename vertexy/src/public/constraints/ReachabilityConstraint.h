@@ -2,7 +2,7 @@
 #pragma once
 #include "ConstraintTypes.h"
 #include "IBacktrackingSolverConstraint.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "SignedClause.h"
 #include "ds/ESTree.h"
 #include "ds/RamalReps.h"
@@ -129,7 +129,7 @@ protected:
 		{
 		}
 
-		virtual ISolverConstraint* asConstraint() override { return &m_parent; }
+		virtual IConstraint* asConstraint() override { return &m_parent; }
 		virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
 
 	protected:

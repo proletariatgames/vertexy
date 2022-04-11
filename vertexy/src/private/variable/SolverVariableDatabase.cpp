@@ -4,42 +4,10 @@
 #include "ConstraintSolver.h"
 #include "SignedClause.h"
 #include "constraints/ClauseConstraint.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "util/SolverDecisionLog.h"
 
 using namespace Vertexy;
-
-//
-// Default explanation function for a violated constraint. This will return a true explanation, but is not necessarily
-// the smallest explanation possible, especially for constraints involving more than 2 variables.
-//
-vector<Literal> IVariableDatabase::defaultExplainer(const NarrowingExplanationParams& params)
-{
-	// Find all dependent variables for this constraint that were previously narrowed, and add their (inverted) value to the list.
-	// The clause will look like:
-	// (Arg1 != Arg1Values OR Arg2 != Arg2Values OR [...] OR PropagatedVariable == PropagatedValues)
-	const vector<VarID>& constraintVars = params.solver->getVariablesForConstraint(params.constraint);
-	vector<Literal> clauses;
-	clauses.reserve(constraintVars.size());
-
-	bool foundPropagated = false;
-	for (int i = 0; i < constraintVars.size(); ++i)
-	{
-		VarID arg = constraintVars[i];
-		clauses.push_back(Literal(arg, params.database->getPotentialValues(arg)));
-		clauses.back().values.invert();
-
-		if (arg == params.propagatedVariable)
-		{
-			foundPropagated = true;
-			clauses.back().values.pad(params.propagatedValues.size(), false);
-			clauses.back().values.include(params.propagatedValues);
-		}
-	}
-
-	vxy_assert(foundPropagated);
-	return clauses;
-}
 
 SolverVariableDatabase::SolverVariableDatabase(ConstraintSolver* inSolver)
 	: IVariableDatabase()
@@ -66,7 +34,7 @@ void SolverVariableDatabase::onInitialArcConsistency()
 	m_isSolving = true;
 }
 
-void SolverVariableDatabase::onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer)
+void SolverVariableDatabase::onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer)
 {
 	// This is a good spot to set a breakpoint if trying to determine why a variable was narrowed.
 	vxy_assert(!m_lastContradictingVar.isValid());
@@ -140,7 +108,7 @@ SolverTimestamp SolverVariableDatabase::makeDecision(VarID variable, int value)
 	return m_assignmentStack.getMostRecentTimestamp();
 }
 
-void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainer)
+void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainer)
 {
 	vxy_assert(varID.isValid());
 	vxy_assert(m_lockedVar == varID);
@@ -179,7 +147,7 @@ void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IS
 	}
 }
 
-void SolverVariableDatabase::queueConstraintPropagation(ISolverConstraint* constraint)
+void SolverVariableDatabase::queueConstraintPropagation(IConstraint* constraint)
 {
 	m_solver->queueConstraintPropagation(constraint);
 }

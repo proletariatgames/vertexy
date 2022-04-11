@@ -3,7 +3,7 @@
 
 #include "ConstraintTypes.h"
 #include "SignedClause.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 
 namespace Vertexy
 {
@@ -12,7 +12,7 @@ namespace Vertexy
  * Given a variable h and a valueset H, and a set of body literals (variable+value tuples) L1...LN:
  *		V == H iff L1 or L2 or ...
  */
-class IffConstraint : public ISolverConstraint
+class IffConstraint : public IConstraint
 {
 public:
 	IffConstraint(const ConstraintFactoryParams& params, VarID head, const ValueSet& headValue, vector<Literal>& body);
@@ -31,10 +31,9 @@ public:
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
 	virtual bool propagate(IVariableDatabase* db) override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
 
 protected:
-	vector<Literal> explainVariable(const NarrowingExplanationParams& params) const;
-
 	enum class EBodySatisfaction : uint8_t
 	{
 		Unknown,

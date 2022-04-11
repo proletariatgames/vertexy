@@ -46,7 +46,7 @@ ClauseConstraint* ClauseConstraint::ClauseConstraintFactory::construct(const Con
 }
 
 ClauseConstraint::ClauseConstraint(const ConstraintFactoryParams& params, const vector<Literal>& literals, bool isLearned)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_watches{INVALID_WATCHER_HANDLE, INVALID_WATCHER_HANDLE}
 	, m_numLiterals(literals.size())
 {
@@ -91,7 +91,7 @@ vector<VarID> ClauseConstraint::getConstrainingVariables() const
 	return variables;
 }
 
-bool ClauseConstraint::initialize(IVariableDatabase* db, ISolverConstraint* outerConstraint)
+bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConstraint)
 {
 	int numSupports = m_numLiterals;
 	if (!isLearned() || isPromotedFromGraph())
@@ -151,7 +151,7 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, ISolverConstraint* oute
 	else if (numSupports == 1)
 	{
 		// Propagate unit clause
-		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this, nullptr))
+		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this))
 		{
 			return false;
 		}
@@ -184,7 +184,7 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 	}
 	else if (m_numLiterals == 1)
 	{
-		return db->constrainToValues(m_literals[0].variable, m_literals[0].values, this, nullptr);
+		return db->constrainToValues(m_literals[0].variable, m_literals[0].values, this);
 	}
 
 	return true;
@@ -204,7 +204,7 @@ void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 		vxy_assert(!db->anyPossible(m_literals[i].variable, m_literals[i].values));
 	}
 	#endif
-	bool success = db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this, nullptr);
+	bool success = db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this);
 	vxy_assert(success);
 }
 
@@ -288,7 +288,7 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 		// should only be possible when we are a child constraint
 		return false;
 	}
-	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this, nullptr);
+	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this);
 }
 
 void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)

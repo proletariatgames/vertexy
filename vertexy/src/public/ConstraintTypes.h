@@ -25,7 +25,7 @@ namespace Vertexy
 using namespace eastl;
 
 class ConstraintSolver;
-class ISolverConstraint;
+class IConstraint;
 class IVariableDatabase;
 
 enum class EConstraintType : uint8_t
@@ -210,7 +210,7 @@ struct NarrowingExplanationParams
 {
 	NarrowingExplanationParams() = delete;
 
-	NarrowingExplanationParams(const ConstraintSolver* inSolver, const IVariableDatabase* inDB, const ISolverConstraint* inConstraint, VarID inVar, const ValueSet& inValues, SolverTimestamp inTimestamp)
+	NarrowingExplanationParams(const ConstraintSolver* inSolver, const IVariableDatabase* inDB, const IConstraint* inConstraint, VarID inVar, const ValueSet& inValues, SolverTimestamp inTimestamp)
 		: solver(inSolver)
 		, database(inDB)
 		, constraint(inConstraint)
@@ -222,7 +222,7 @@ struct NarrowingExplanationParams
 
 	const ConstraintSolver* solver;
 	const IVariableDatabase* database;
-	const ISolverConstraint* constraint;
+	const IConstraint* constraint;
 	VarID propagatedVariable;
 	const ValueSet& propagatedValues;
 	SolverTimestamp timestamp;

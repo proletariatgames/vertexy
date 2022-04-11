@@ -70,7 +70,7 @@ int ConstraintFactoryParams::registerGraph(const shared_ptr<ITopology>& graph) c
 	return id;
 }
 
-void ConstraintFactoryParams::markChildConstraint(ISolverConstraint* cons) const
+void ConstraintFactoryParams::markChildConstraint(IConstraint* cons) const
 {
 	vxy_sanity(m_solver.m_constraints[cons->getID()].get() == cons);
 	m_solver.m_constraintIsChild[cons->getID()] = true;

@@ -3,13 +3,13 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 
 namespace Vertexy
 {
 
 /** Constraint X = Y + Delta */
-class OffsetConstraint : public ISolverConstraint
+class OffsetConstraint : public IConstraint
 {
 public:
 	OffsetConstraint(const ConstraintFactoryParams& params, VarID sum, VarID term, int delta);

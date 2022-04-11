@@ -6,7 +6,7 @@
 #include <string>
 
 #include "variable/HistoricalVariableDatabase.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "constraints/AllDifferentConstraint.h"
 #include "constraints/InequalityConstraint.h"
 #include "constraints/OffsetConstraint.h"
@@ -187,9 +187,9 @@ void ConstraintSolver::setInitialValues(VarID varID, const vector<int>& potentia
 	m_variableDB.setInitialValue(varID, values);
 }
 
-ISolverConstraint* ConstraintSolver::registerConstraint(ISolverConstraint* constraint)
+IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 {
-	m_constraints.push_back(unique_ptr<ISolverConstraint>(move(constraint)));
+	m_constraints.push_back(unique_ptr<IConstraint>(move(constraint)));
 	m_constraintIsChild.push_back(false);
 
 	if (constraint->needsBacktracking())
@@ -301,7 +301,7 @@ InequalityConstraint& ConstraintSolver::inequality(VarID leftHandSide, EConstrai
 	return makeConstraint<InequalityConstraint>(leftHandSide, op, rightHandSide);
 }
 
-DisjunctionConstraint& ConstraintSolver::disjunction(ISolverConstraint* consA, ISolverConstraint* consB)
+DisjunctionConstraint& ConstraintSolver::disjunction(IConstraint* consA, IConstraint* consB)
 {
 	return makeConstraint<DisjunctionConstraint>(consA, consB);
 }
@@ -1096,7 +1096,7 @@ bool ConstraintSolver::emptyConstraintQueue()
 		vxy_assert(m_constraintQueuedSet[constraintID]);
 		m_constraintQueuedSet[constraintID] = false;
 
-		ISolverConstraint* constraint = m_constraints[constraintID].get();
+		IConstraint* constraint = m_constraints[constraintID].get();
 
 		m_lastTriggeredSink = constraint;
 		m_lastTriggeredTs = m_variableDB.getTimestamp();
@@ -1178,7 +1178,7 @@ void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel,
 	m_lastTriggeredTs = -1;
 }
 
-void ConstraintSolver::notifyVariableModification(VarID variable, ISolverConstraint* constraint)
+void ConstraintSolver::notifyVariableModification(VarID variable, IConstraint* constraint)
 {
 	if (variable.raw() >= m_variableQueuedSet.size() || !m_variableQueuedSet[variable.raw()])
 	{
@@ -1188,7 +1188,7 @@ void ConstraintSolver::notifyVariableModification(VarID variable, ISolverConstra
 	}
 }
 
-void ConstraintSolver::queueConstraintPropagation(ISolverConstraint* constraint)
+void ConstraintSolver::queueConstraintPropagation(IConstraint* constraint)
 {
 	const int constraintID = constraint->getID();
 	if (constraintID >= m_constraintQueuedSet.size() || !m_constraintQueuedSet[constraintID])
@@ -1238,18 +1238,19 @@ vector<Literal> ConstraintSolver::getExplanationForModification(SolverTimestamp 
 	auto& mod = m_variableDB.getAssignmentStack().getStack()[modificationTime];
 	vxy_assert(mod.constraint != nullptr);
 
-	if (mod.constraint->getConstraintType() == EConstraintType::Clause)
+	HistoricalVariableDatabase priorDB(&m_variableDB, modificationTime);
+	const ValueSet& valueAfterPropagation = m_variableDB.getValueAfter(mod.variable, modificationTime);
+	NarrowingExplanationParams params(this, &priorDB, mod.constraint, mod.variable, valueAfterPropagation, modificationTime);
+	if (mod.explanation != nullptr)
 	{
-		static_cast<ClauseConstraint*>(mod.constraint)->getLiterals(explanation);
+		explanation = mod.explanation(params);
 	}
 	else
 	{
-		HistoricalVariableDatabase priorDB(&m_variableDB, modificationTime);
-		const ValueSet& valueAfterPropagation = m_variableDB.getValueAfter(mod.variable, modificationTime);
-		explanation = mod.explanation(NarrowingExplanationParams(this, &priorDB, mod.constraint, mod.variable, valueAfterPropagation, modificationTime));
-
-		sanityCheckExplanation(modificationTime, explanation);
+		explanation = mod.constraint->explain(params);
 	}
+
+	sanityCheckExplanation(modificationTime, explanation);
 
 	return explanation;
 }

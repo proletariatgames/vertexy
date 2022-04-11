@@ -2,7 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "constraints/ClauseConstraint.h"
 #include <EASTL/variant.h>
 
@@ -22,7 +22,7 @@ public:
 	explicit ConflictAnalyzer(ConstraintSolver& inSolver);
 
 	// Analyze the conflict and return the learned constraint and backtrack level
-	SolverDecisionLevel analyzeConflict(SolverTimestamp conflictTs, ISolverConstraint* conflictingConstraint, VarID contradictingVariable, ClauseConstraint*& outLearned);
+	SolverDecisionLevel analyzeConflict(SolverTimestamp conflictTs, IConstraint* conflictingConstraint, VarID contradictingVariable, ClauseConstraint*& outLearned);
 
 protected:
 	// Used during conflict analysis to analyze the implication graph in order to find an explanation for conflict.
@@ -59,7 +59,7 @@ protected:
 		ConstraintGraphRelation relation;
 	};
 
-	SolverDecisionLevel searchImplicationGraph(vector<Literal>& explanation, const ISolverConstraint* initialConflict, int conflictTime);
+	SolverDecisionLevel searchImplicationGraph(vector<Literal>& explanation, const IConstraint* initialConflict, int conflictTime);
 
 	void markActivity(const vector<Literal>& resolvedExplanation, SolverTimestamp uipTime);
 

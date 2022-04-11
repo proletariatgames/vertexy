@@ -2,7 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "SignedClause.h"
 #include "variable/IVariableDatabase.h"
 
@@ -21,7 +21,7 @@ enum class ENoGood : uint8_t
 /** Constraint of clauses, where at least one clause needs to hold true.
  *  Each clause is a statement "variable X is (not) in D" where D is some set of values.
  */
-class ClauseConstraint : public ISolverConstraint
+class ClauseConstraint : public IConstraint
 {
 public:
 	// NOTE: Do not call directly. Not enough memory will be allocated.
@@ -71,9 +71,10 @@ public:
 	virtual EConstraintType getConstraintType() const override { return EConstraintType::Clause; }
 	virtual vector<VarID> getConstrainingVariables() const override;
 	virtual bool initialize(IVariableDatabase* db) override { return initialize(db, nullptr); }
-	virtual bool initialize(IVariableDatabase* db, ISolverConstraint* outerConstraint) override;
+	virtual bool initialize(IVariableDatabase* db, IConstraint* outerConstraint) override;
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override { return getLiteralsCopy(); }
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
 
 	virtual ClauseConstraint* asClauseConstraint() override

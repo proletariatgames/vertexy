@@ -2,12 +2,12 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 
 namespace Vertexy
 {
 class ConstraintSolver;
-class ISolverConstraint;
+class IConstraint;
 class IVariableWatchSink;
 
 /** Abstract class for access/modification of variables. */
@@ -32,10 +32,10 @@ class IVariableDatabase
 	 *  bChanged will be set to true and ChangeExplainer will be a functor that can explain why
 	 *  values were removed.
 	 */
-	virtual void unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainerFn) = 0;
+	virtual void unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainerFn) = 0;
 
 	/** Optional override to receive notification when a variable contradiction occurred (i.e potential values reduced to empty set) */
-	virtual void onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer)
+	virtual void onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer)
 	{
 	}
 
@@ -64,13 +64,13 @@ public:
 	virtual const ValueSet& getInitialValues(VarID varID) const = 0;
 
 	/** Add a constraint to the constraint propagation queue */
-	virtual void queueConstraintPropagation(ISolverConstraint* constraint) = 0;
+	virtual void queueConstraintPropagation(IConstraint* constraint) = 0;
 
 	/** Called when a constraint has indicated it is fully satisfied. This should only be called
 	 *  when no further narrowing of variables would cause the constraint to become unsatisfied.
 	 *  However, a fully satisfied constraint can become unsatisfied upon backtracking.
 	 */
-	virtual void markConstraintFullySatisfied(ISolverConstraint* constraint)
+	virtual void markConstraintFullySatisfied(IConstraint* constraint)
 	{
 	}
 
@@ -189,12 +189,8 @@ public:
 		return getPotentialValues(varID).lastIndexOf(true);
 	}
 
-	// Default explanation for propagation. The explanation is guaranteed to be assertive (i.e. will cause backtracking) but
-	// is not necessarily the tightest explanation possible. (It is generally rather poor.)
-	static vector<Literal> defaultExplainer(const NarrowingExplanationParams& params);
-
 	template <typename T, int N>
-	bool excludeValues(VarID varID, const TValueBitset<T, N>& valuesToExclude, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool excludeValues(VarID varID, const TValueBitset<T, N>& valuesToExclude, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		bool removed = lockVariable(varID).excludeCheck(valuesToExclude);
@@ -202,7 +198,7 @@ public:
 		return checkContradiction(varID, origin, explainer);
 	}
 
-	bool excludeValue(VarID varID, int value, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool excludeValue(VarID varID, int value, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		ValueSet& values = lockVariable(varID);
@@ -218,7 +214,7 @@ public:
 	}
 
 	template <typename T, int N>
-	bool constrainToValues(VarID varID, const TValueBitset<T, N>& constrainedValues, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool constrainToValues(VarID varID, const TValueBitset<T, N>& constrainedValues, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		bool removed = lockVariable(varID).intersectCheck(constrainedValues);
@@ -226,7 +222,7 @@ public:
 		return checkContradiction(varID, origin, explainer);
 	}
 
-	bool constrainToValue(VarID varID, int value, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool constrainToValue(VarID varID, int value, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		bool removed = false;
@@ -250,7 +246,7 @@ public:
 		return checkContradiction(varID, origin, explainer);
 	}
 
-	bool excludeValuesLessThan(VarID varID, int value, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool excludeValuesLessThan(VarID varID, int value, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		ValueSet& values = lockVariable(varID);
@@ -269,7 +265,7 @@ public:
 		return checkContradiction(varID, origin, explainer);
 	}
 
-	bool excludeValuesGreaterThan(VarID varID, int value, ISolverConstraint* origin, ExplainerFunction explainer = defaultExplainer)
+	bool excludeValuesGreaterThan(VarID varID, int value, IConstraint* origin, ExplainerFunction explainer=nullptr)
 	{
 		vxy_assert(varID.isValid());
 		ValueSet& values = lockVariable(varID);
@@ -302,7 +298,7 @@ protected:
 		return lockVariableImpl(varID);
 	}
 
-	inline void unlockVariable(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction changeExplainer)
+	inline void unlockVariable(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction changeExplainer)
 	{
 		vxy_assert(varID.isValid());
 		#if CONSTRAINT_USE_CACHED_STATES
@@ -322,7 +318,7 @@ protected:
 		#endif
 	}
 
-	inline bool checkContradiction(VarID varID, ISolverConstraint* origin, const ExplainerFunction& explainer)
+	inline bool checkContradiction(VarID varID, IConstraint* origin, const ExplainerFunction& explainer)
 	{
 		vxy_assert(varID.isValid());
 		if (isInContradiction(varID))

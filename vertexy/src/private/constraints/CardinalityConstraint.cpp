@@ -1153,11 +1153,12 @@ bool CardinalityConstraint::checkConflicting(IVariableDatabase* db) const
 	return false;
 }
 
-bool CardinalityConstraint::explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const
+vector<Literal> CardinalityConstraint::explain(const NarrowingExplanationParams& params) const
 {
+	vector<Literal> outClauses;
 	if (m_failedUpperBoundMatching)
 	{
-		outClauses = m_upperBoundExplainer.getExplanation(*db, VarID::INVALID, {});
+		outClauses = m_upperBoundExplainer.getExplanation(*params.database, VarID::INVALID, {});
 	}
 	else
 	{
@@ -1179,7 +1180,7 @@ bool CardinalityConstraint::explainConflict(const IVariableDatabase* db, vector<
 			VarID var = m_lowerBoundVariables[i];
 			for (int val = m_minDomainValue; val <= m_maxDomainValue; ++val)
 			{
-				if (m_trimmedMins[val - m_minDomainValue] > 0 && db->isPossible(var, val))
+				if (m_trimmedMins[val - m_minDomainValue] > 0 && params.database->isPossible(var, val))
 				{
 					graph.addEdge(i, val - m_minDomainValue);
 				}
@@ -1200,13 +1201,13 @@ bool CardinalityConstraint::explainConflict(const IVariableDatabase* db, vector<
 
 		for (VarID var : m_lowerBoundVariables)
 		{
-			auto& initialVals = db->getInitialValues(var);
-			if (initialVals.anyPossible(violatedVals) && !db->anyPossible(var, violatedVals))
+			auto& initialVals = params.database->getInitialValues(var);
+			if (initialVals.anyPossible(violatedVals) && !params.database->anyPossible(var, violatedVals))
 			{
 				outClauses.push_back(Literal(var, initialVals.intersecting(violatedVals)));
 			}
 		}
 		vxy_assert(!outClauses.empty());
 	}
-	return true;
+	return outClauses;
 }

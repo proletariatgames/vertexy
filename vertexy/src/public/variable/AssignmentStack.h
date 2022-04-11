@@ -7,7 +7,7 @@ namespace Vertexy
 {
 
 class IVariableDatabase;
-class ISolverConstraint;
+class IConstraint;
 
 // Represents current running state of the solver: what decisions have been made, and what changes have been
 // propagated. Allows for backtracking.
@@ -23,7 +23,7 @@ public:
 		VarID variable;
 		ValueSet previousValue;
 		Timestamp previousVariableAssignment;
-		ISolverConstraint* constraint;
+		IConstraint* constraint;
 		ExplainerFunction explanation;
 	};
 
@@ -35,7 +35,7 @@ public:
 	void reset();
 
 	/*** Record a change (narrowing of scope) to a variable. */
-	SolverTimestamp recordChange(VarID variable, const ValueSet& prevValues, SolverTimestamp previousModificationTS, ISolverConstraint* constraint, ExplainerFunction explanation);
+	SolverTimestamp recordChange(VarID variable, const ValueSet& prevValues, SolverTimestamp previousModificationTS, IConstraint* constraint, ExplainerFunction explanation);
 
 	inline const vector<Modification>& getStack() const { return m_stack; }
 

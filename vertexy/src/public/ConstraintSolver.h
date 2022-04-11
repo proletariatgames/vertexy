@@ -19,7 +19,7 @@
 #include "restart/LBDRestartPolicy.h"
 #include "constraints/ConstraintOperator.h"
 #include "constraints/IBacktrackingSolverConstraint.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "learning/ConflictAnalyzer.h"
 #include "topology/GraphArgumentTransformer.h"
 #include "topology/TopologyVertexData.h"
@@ -319,7 +319,7 @@ public:
 	class InequalityConstraint& inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide);
 	class CardinalityConstraint& cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues);
 	class SumConstraint& sum(const VarID sum, const vector<VarID>& vars);
-	class DisjunctionConstraint& disjunction(ISolverConstraint* consA, ISolverConstraint* consB);
+	class DisjunctionConstraint& disjunction(IConstraint* consA, IConstraint* consB);
 
 	//
 	// Create a constraint across an entire graph. All vertices in the graph will share the same constraints.
@@ -347,11 +347,11 @@ public:
 	{
 		bool anyMade = false;
 
-		auto graphConstraintData = make_shared<TTopologyVertexData<ISolverConstraint*>>(graph, nullptr);
+		auto graphConstraintData = make_shared<TTopologyVertexData<IConstraint*>>(graph, nullptr);
 
 		for (int i = 0; i < graph->getNumVertices(); ++i)
 		{
-			ISolverConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, i, forward<ArgsType>(args)...);
+			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, i, forward<ArgsType>(args)...);
 			if (cons != nullptr)
 			{
 				anyMade = true;
@@ -383,7 +383,7 @@ public:
 	}
 
 	// Return all the variables that a given constraint refers to
-	const vector<VarID>& getVariablesForConstraint(const ISolverConstraint* constraint) const
+	const vector<VarID>& getVariablesForConstraint(const IConstraint* constraint) const
 	{
 		return m_constraintArcs[constraint->getID()];
 	}
@@ -391,7 +391,7 @@ public:
 	// Called by constraints to mark themselves for propagation in the constraint propagation queue.
 	// This allows constraints to defer their propagation until after all variable propagation has finished,
 	// which can be more efficient if the constraint involves a large number of variables.
-	void queueConstraintPropagation(ISolverConstraint* constraint);
+	void queueConstraintPropagation(IConstraint* constraint);
 
 	// Used by constraint factories
 	inline int getNextConstraintID() const { return m_constraints.size(); }
@@ -399,14 +399,14 @@ public:
 protected:
 	struct QueuedVariablePropagation
 	{
-		QueuedVariablePropagation(ISolverConstraint* inConstraint, VarID inVariable, SolverTimestamp inTimestamp)
+		QueuedVariablePropagation(IConstraint* inConstraint, VarID inVariable, SolverTimestamp inTimestamp)
 			: constraint(inConstraint)
 			, variable(inVariable)
 			, timestamp(inTimestamp)
 		{
 		}
 
-		ISolverConstraint* constraint;
+		IConstraint* constraint;
 		VarID variable;
 		SolverTimestamp timestamp;
 	};
@@ -421,9 +421,9 @@ protected:
 
 	// Called whenever a potential value is removed from a variable. Triggers propagation of this to any
 	// constraints that involve this variable.
-	void notifyVariableModification(VarID variable, ISolverConstraint* constraint);
+	void notifyVariableModification(VarID variable, IConstraint* constraint);
 
-	ISolverConstraint* registerConstraint(ISolverConstraint* constraint);
+	IConstraint* registerConstraint(IConstraint* constraint);
 
 	bool propagate();
 	bool emptyVariableQueue();
@@ -521,7 +521,7 @@ protected:
 	hash_map<VarID, VarID> m_offsetVariableToSource;
 
 	// All constraints in the system
-	vector<unique_ptr<ISolverConstraint>> m_constraints;
+	vector<unique_ptr<IConstraint>> m_constraints;
 	// Whether the constraint at given index is a child constraint (i.e. wrapped by an outer constraint)
 	// Child constraints rely on their parents to initialize.
 	vector<bool> m_constraintIsChild;
@@ -537,7 +537,7 @@ protected:
 	// Graphs that have been registered with the solver
 	vector<shared_ptr<ITopology>> m_graphs;
 	// Constraints created by graphs
-	vector<shared_ptr<TTopologyVertexData<ISolverConstraint*>>> m_graphConstraints;
+	vector<shared_ptr<TTopologyVertexData<IConstraint*>>> m_graphConstraints;
 	// For each variable, indices of graphs that the variable is associated with
 	vector<vector<uint32_t>> m_variableToGraphs;
 
@@ -643,7 +643,7 @@ protected:
 	template<>
 	auto translateGraphConsArgument(const GraphConstraintID& id, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
-		ISolverConstraint* cons = nullptr;
+		IConstraint* cons = nullptr;
 		if (id == GraphConstraintID::INVALID)
 		{
 			success = false;
@@ -689,11 +689,11 @@ protected:
 	}
 
 	template <typename T, typename... ArgsType>
-	ISolverConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
+	IConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
 	{
 		ConstraintGraphRelationInfo graphRelationInfo(graph, vertexIndex);
 
-		ISolverConstraint* out = nullptr;
+		IConstraint* out = nullptr;
 
 		bool success = true;
 		auto translatedArgsTuple = concatGraphConsArgs(std::tuple<>{}, graphRelationInfo, success, forward<ArgsType>(args)...);
