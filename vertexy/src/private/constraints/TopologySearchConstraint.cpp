@@ -678,12 +678,6 @@ void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db,
 	}
 }
 
-//are these really the same function?
-void ITopologySearchConstraint::onDistanceChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)
-{
-	onReachabilityChanged(vertexIndex, sourceVar, inMinGraph);
-}
-
 //determine if it's still within the required range
 void ITopologySearchConstraint::onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)
 {

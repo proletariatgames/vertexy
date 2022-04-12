@@ -59,7 +59,6 @@ protected:
 	bool processVertexVariableChange(IVariableDatabase* db, VarID variable);
 	//used by propagate
 	void updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable);
-	void onDistanceChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 	void onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 	void sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex);
 

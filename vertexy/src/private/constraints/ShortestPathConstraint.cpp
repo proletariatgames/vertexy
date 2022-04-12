@@ -79,7 +79,7 @@ EventListenerHandle Vertexy::ShortestPathConstraint::addMinCallback(RamalRepsTyp
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(distance))
 		{
-			onDistanceChanged(changedVertex, source, true);
+			onReachabilityChanged(changedVertex, source, true);
 		}
 	});
 }
@@ -90,7 +90,7 @@ EventListenerHandle Vertexy::ShortestPathConstraint::addMaxCallback(RamalRepsTyp
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(distance))
 		{
-			onDistanceChanged(changedVertex, source, false);
+			onReachabilityChanged(changedVertex, source, false);
 		}
 	});
 }
