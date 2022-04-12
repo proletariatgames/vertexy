@@ -68,4 +68,34 @@ bool ReachabilityConstraint::isValidDistance(int dist) const
 	return dist < INT_MAX;
 }
 
+shared_ptr<RamalReps<BacktrackingDigraphTopology>> ReachabilityConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const
+{
+	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, true, false);
+}
+
+
+EventListenerHandle ReachabilityConstraint::addMinCallback(RamalRepsType& minReachable, VarID source)
+{
+	return minReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
+	{
+		if (!m_backtracking && !m_explainingSourceRequirement)
+		{
+			vxy_assert(isReachable);
+			onReachabilityChanged(changedVertex, source, true);
+		}
+	});
+}
+
+EventListenerHandle ReachabilityConstraint::addMaxCallback(RamalRepsType& maxReachable, VarID source)
+{
+	return maxReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
+	{
+		if (!m_backtracking && !m_explainingSourceRequirement)
+		{
+			vxy_assert(!isReachable);
+			onReachabilityChanged(changedVertex, source, false);
+		}
+	});
+}
+
 #undef SANITY_CHECKS

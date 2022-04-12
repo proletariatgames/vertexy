@@ -18,8 +18,7 @@ ITopologySearchConstraint::ITopologySearchConstraint(
 	const ValueSet& sourceMask,
 	const ValueSet& requireReachableMask,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
-	const ValueSet& edgeBlockedMask,
-	bool ramalRepsReportDistance)
+	const ValueSet& edgeBlockedMask)
 	: IBacktrackingSolverConstraint(params) //ApplyGraphRelation(Params, SourceGraphData, EdgeGraphData))
 	, m_edgeWatcher(*this)
 	, m_sourceGraphData(sourceGraphData)
@@ -32,7 +31,6 @@ ITopologySearchConstraint::ITopologySearchConstraint(
 	, m_sourceMask(sourceMask)
 	, m_requireReachableMask(requireReachableMask)
 	, m_edgeBlockedMask(edgeBlockedMask)
-	, m_RamalRepsReportDistance(ramalRepsReportDistance)
 {
 	m_notSourceMask = sourceMask.inverted();
 	m_notReachableMask = requireReachableMask.inverted();
@@ -515,8 +513,8 @@ void ITopologySearchConstraint::addSource(VarID source)
 	int vertex = m_variableToSourceVertexIndex[source];
 
 	#if REACHABILITY_USE_RAMAL_REPS
-	auto minReachable = make_shared<RamalRepsType>(m_minGraph, USE_RAMAL_REPS_BATCHING, !m_RamalRepsReportDistance, m_RamalRepsReportDistance);
-	auto maxReachable = make_shared<RamalRepsType>(m_maxGraph, USE_RAMAL_REPS_BATCHING, !m_RamalRepsReportDistance, m_RamalRepsReportDistance);
+	auto minReachable = makeTopology(m_minGraph);
+	auto maxReachable = makeTopology(m_maxGraph);
 	#else
 	auto minReachable = make_shared<ESTreeType>(m_minGraph);
 	auto maxReachable = make_shared<ESTreeType>(m_maxGraph);
@@ -525,54 +523,10 @@ void ITopologySearchConstraint::addSource(VarID source)
 	minReachable->initialize(vertex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 	maxReachable->initialize(vertex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 
-	if (!m_RamalRepsReportDistance)
-	{
-		// Listen for when reachability changes on the conservative/optimistic graphs
-		EventListenerHandle minDelHandle = minReachable->onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
-		{
-			if (!m_backtracking && !m_explainingSourceRequirement)
-			{
-				vxy_assert(isReachable);
-				onReachabilityChanged(changedVertex, source, true);
-			}
-		});
+	EventListenerHandle minHandle = addMinCallback(*minReachable, source);
+	EventListenerHandle maxHandle = addMaxCallback(*maxReachable, source);
 
-		EventListenerHandle maxDelHandle = maxReachable->onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
-		{
-			if (!m_backtracking && !m_explainingSourceRequirement)
-			{
-				vxy_assert(!isReachable);
-				onReachabilityChanged(changedVertex, source, false);
-			}
-		});
-
-		m_reachabilitySources[source] = { minReachable, maxReachable, minDelHandle, maxDelHandle };
-	}
-	else
-	{
-		EventListenerHandle minDistHandle = minReachable->onDistanceChanged.add([this, source](int changedVertex, int distance)
-		{
-			if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(distance))
-			{
-				onDistanceChanged(changedVertex, source, true);
-			}
-		});
-
-		EventListenerHandle maxDistHandle = maxReachable->onDistanceChanged.add([this, source](int changedVertex, int distance)
-		{
-			if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(distance))
-			{
-				onDistanceChanged(changedVertex, source, false);
-			}
-		});
-
-		m_reachabilitySources[source] = 
-		{ 
-			minReachable, maxReachable, 
-			INVALID_EVENT_LISTENER_HANDLE, INVALID_EVENT_LISTENER_HANDLE, 
-			minDistHandle, maxDistHandle 
-		};
-	}
+	m_reachabilitySources[source] = { minReachable, maxReachable, minHandle, maxHandle };
 	
 }
 
@@ -596,16 +550,8 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	ReachabilitySourceData sourceData = m_reachabilitySources[source];
 	m_reachabilitySources.erase(source);
 
-	if (!m_RamalRepsReportDistance)
-	{
-		sourceData.minReachability->onReachabilityChanged.remove(sourceData.minReachabilityChangedHandle);
-		sourceData.maxReachability->onReachabilityChanged.remove(sourceData.maxReachabilityChangedHandle);
-	}
-	else
-	{
-		sourceData.minReachability->onDistanceChanged.remove(sourceData.minDistanceChangedHandle);
-		sourceData.maxReachability->onDistanceChanged.remove(sourceData.maxDistanceChangedHandle);
-	}
+	sourceData.minReachability->onReachabilityChanged.remove(sourceData.minRamalHandle);
+	sourceData.maxReachability->onReachabilityChanged.remove(sourceData.maxRamalHandle);
 
 	int sourceVertex = m_variableToSourceVertexIndex[source];
 

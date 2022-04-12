@@ -55,6 +55,9 @@ public:
 protected:
 
 	virtual bool isValidDistance(int dist) const override;
+	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const override;
+	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, VarID source) override;
+	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, VarID source) override;
 };
 
 } // namespace Vertexy

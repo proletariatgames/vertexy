@@ -1,5 +1,5 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
-#include "constraints/ReachabilityConstraint.h"
+#include "constraints/ShortestPathConstraint.h"
 
 #include "variable/IVariableDatabase.h"
 #include "topology/GraphRelations.h"
@@ -12,7 +12,7 @@ static constexpr int OPEN_EDGE_FLOW = INT_MAX >> 1;
 static constexpr int CLOSED_EDGE_FLOW = 1;
 static constexpr bool USE_RAMAL_REPS_BATCHING = true;
 
-ReachabilityConstraint* ReachabilityConstraint::ReachabilityFactory::construct(
+ShortestPathConstraint* ShortestPathConstraint::ShortestPathFactory::construct(
 	const ConstraintFactoryParams& params,
 	const shared_ptr<TTopologyVertexData<VarID>>& vertexData,
 	const vector<int>& sourceValues,
@@ -48,10 +48,10 @@ ReachabilityConstraint* ReachabilityConstraint::ReachabilityFactory::construct(
 	ValueSet needReachableMask = params.valuesToInternal(graphVar, needReachableValues);
 	ValueSet edgeBlockedMask = params.valuesToInternal(edgeVar, edgeBlockedValues);
 
-	return new ReachabilityConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask);
+	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask);
 }
 
-ReachabilityConstraint::ReachabilityConstraint(
+ShortestPathConstraint::ShortestPathConstraint(
 	const ConstraintFactoryParams& params,
 	const shared_ptr<TTopologyVertexData<VarID>>& sourceGraphData,
 	const ValueSet& sourceMask,
@@ -62,11 +62,39 @@ ReachabilityConstraint::ReachabilityConstraint(
 {
 }
 
-bool ReachabilityConstraint::isValidDistance(int dist) const
+bool ShortestPathConstraint::isValidDistance(int dist) const
 {
 	//TODO
 	return true;
 }
+
+shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const
+{
+	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, false, true);
+}
+
+EventListenerHandle Vertexy::ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, VarID source)
+{
+	return minReachable.onDistanceChanged.add([this, source](int changedVertex, int distance)
+	{
+		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(distance))
+		{
+			onDistanceChanged(changedVertex, source, true);
+		}
+	});
+}
+
+EventListenerHandle Vertexy::ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, VarID source)
+{
+	return maxReachable.onDistanceChanged.add([this, source](int changedVertex, int distance)
+	{
+		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(distance))
+		{
+			onDistanceChanged(changedVertex, source, false);
+		}
+	});
+}
+
 
 
 #undef SANITY_CHECKS

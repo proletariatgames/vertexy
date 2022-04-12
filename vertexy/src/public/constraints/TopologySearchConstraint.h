@@ -27,8 +27,7 @@ public:
 		const ValueSet& sourceMask,
 		const ValueSet& requireReachableMask,
 		const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
-		const ValueSet& edgeBlockedMask,
-		bool RamalRepsReportDistance
+		const ValueSet& edgeBlockedMask
 	);
 
 	virtual vector<VarID> getConstrainingVariables() const override;
@@ -70,8 +69,14 @@ protected:
 	//used by processVertexVariableChange
 	bool removeSource(IVariableDatabase* db, VarID source);
 
+	using ESTreeType = ESTree<BacktrackingDigraphTopology>;
+	using RamalRepsType = RamalReps<BacktrackingDigraphTopology>;
+
 	//virtual
 	virtual bool isValidDistance(int dist) const = 0;
+	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
+	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, VarID source) = 0;
+	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, VarID source) = 0;
 
 	inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 	{
@@ -158,9 +163,6 @@ protected:
 
 	vector<BacktrackData> m_backtrackData;
 
-	using ESTreeType = ESTree<BacktrackingDigraphTopology>;
-	using RamalRepsType = RamalReps<BacktrackingDigraphTopology>;
-
 	struct ReachabilitySourceData
 	{
 		#if REACHABILITY_USE_RAMAL_REPS
@@ -170,10 +172,8 @@ protected:
 		shared_ptr<ESTreeType> minReachability;
 		shared_ptr<ESTreeType> maxReachability;
 		#endif
-		EventListenerHandle minReachabilityChangedHandle = INVALID_EVENT_LISTENER_HANDLE;
-		EventListenerHandle maxReachabilityChangedHandle = INVALID_EVENT_LISTENER_HANDLE;
-		EventListenerHandle minDistanceChangedHandle = INVALID_EVENT_LISTENER_HANDLE;
-		EventListenerHandle maxDistanceChangedHandle = INVALID_EVENT_LISTENER_HANDLE;
+		EventListenerHandle minRamalHandle = INVALID_EVENT_LISTENER_HANDLE;
+		EventListenerHandle maxRamalHandle = INVALID_EVENT_LISTENER_HANDLE;
 	};
 
 	vector<VarID> m_vertexProcessList;
@@ -191,7 +191,6 @@ protected:
 	bool m_backtracking = false;
 	bool m_explainingSourceRequirement = false;
 	int m_totalNumEdges = 0;
-	bool m_RamalRepsReportDistance = false;
 
 	DepthFirstSearchAlgorithm m_dfs;
 	mutable TMaxFlowMinCutAlgorithm<int> m_maxFlowAlgo;
