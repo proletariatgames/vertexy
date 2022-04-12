@@ -39,7 +39,8 @@ enum class EConstraintType : uint8_t
 	Offset,
 	Table,
 	Reachability,
-	Sum
+	Sum,
+	ShortestPath
 };
 
 // If set, VariableDBs will cache the state of each variable (solved/unsolved/contradiction), only updating when

@@ -234,6 +234,7 @@ public:
 	}
 
 	inline bool isReachable(int vertex) const { return m_vertexDists[vertex] != INT_MAX; }
+	inline int getDistance(int vertex) const { return m_vertexDists[vertex]; }
 
 protected:
 	void addEdge(int from, int to)
