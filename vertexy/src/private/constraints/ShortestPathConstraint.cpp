@@ -18,7 +18,9 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathFactory::construct(
 	const vector<int>& sourceValues,
 	const vector<int>& needReachableValues,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeData,
-	const vector<int>& edgeBlockedValues)
+	const vector<int>& edgeBlockedValues,
+	EConstraintOperator op,
+	VarID distance)
 {
 	// Get an example graph variable
 	VarID graphVar;
@@ -48,7 +50,7 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathFactory::construct(
 	ValueSet needReachableMask = params.valuesToInternal(graphVar, needReachableValues);
 	ValueSet edgeBlockedMask = params.valuesToInternal(edgeVar, edgeBlockedValues);
 
-	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask);
+	return new ShortestPathConstraint(params, vertexData, sourceMask, needReachableMask, edgeData, edgeBlockedMask, op, distance);
 }
 
 ShortestPathConstraint::ShortestPathConstraint(
@@ -57,15 +59,32 @@ ShortestPathConstraint::ShortestPathConstraint(
 	const ValueSet& sourceMask,
 	const ValueSet& requireReachableMask,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
-	const ValueSet& edgeBlockedMask)
-	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask, false)
+	const ValueSet& edgeBlockedMask,
+	EConstraintOperator op,
+	VarID distance)
+	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
+	, m_op(op)
+	, m_distance(distance)
 {
+	vxy_assert(m_op != EConstraintOperator::NotEqual);
 }
 
-bool ShortestPathConstraint::isValidDistance(int dist) const
+bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
 {
-	//TODO
-	return true;
+	switch (m_op)
+	{
+	case EConstraintOperator::GreaterThan:
+		return dist > db->getMinimumPossibleValue(m_distance);
+	case EConstraintOperator::GreaterThanEq:
+		return dist >= db->getMinimumPossibleValue(m_distance);
+	case EConstraintOperator::LessThan:
+		return dist < db->getMaximumPossibleValue(m_distance);
+	case EConstraintOperator::LessThanEq:
+		return dist <= db->getMaximumPossibleValue(m_distance);
+	}
+
+	vxy_assert(false);
+	return false;
 }
 
 shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const

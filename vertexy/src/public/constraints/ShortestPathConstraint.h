@@ -11,6 +11,7 @@
 #include "topology/TopologyVertexData.h"
 #include "topology/algo/MaxFlowMinCut.h"
 #include "variable/IVariableDatabase.h"
+#include "constraints\ConstraintOperator.h"
 
 #define REACHABILITY_USE_RAMAL_REPS 1
 
@@ -29,7 +30,9 @@ public:
 		const ValueSet& sourceMask,
 		const ValueSet& requireReachableMask,
 		const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
-		const ValueSet& edgeBlockedMask
+		const ValueSet& edgeBlockedMask,
+		EConstraintOperator op,
+		VarID distance
 	);
 
 	struct ShortestPathFactory
@@ -45,7 +48,11 @@ public:
 			// The variables for each edge of source graph
 			const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 			// Values of vertices in the edge graph establishing that edge as "off"
-			const vector<int>& edgeBlockedValues);
+			const vector<int>& edgeBlockedValues,
+			// How to compare distance
+			EConstraintOperator op,
+			// The variable that stores the distance
+			VarID distance);
 	};
 
 	using Factory = ShortestPathFactory;
@@ -54,10 +61,13 @@ public:
 
 protected:
 
-	virtual bool isValidDistance(int dist) const override;
+	virtual bool isValidDistance(const IVariableDatabase* db, int dist) const override;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const override;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, VarID source) override;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, VarID source) override;
+
+	EConstraintOperator m_op;
+	VarID m_distance;
 };
 
 } // namespace Vertexy

@@ -477,7 +477,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		VarID lastReachableSource = VarID::INVALID;
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
-			if (it->second.maxReachability->isReachable(vertex) && isValidDistance(it->second.maxReachability->getDistance(vertex)))
+			if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 			{
 				++numReachableSources; //should only be incremented if within given range
 				lastReachableSource = it->first;
@@ -560,7 +560,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	bool failure = false;
 	auto checkReachability = [&](int vertex, int parent)
 	{
-		if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(sourceData.maxReachability->getDistance(vertex)))
+		if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
 		{
 			// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
 			VarID vertexVar = m_sourceGraphData->get(vertex);
@@ -585,7 +585,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 					int numReachableSources = 0;
 					for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 					{
-						if (it->second.maxReachability->isReachable(vertex) && isValidDistance(it->second.maxReachability->getDistance(vertex)))
+						if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 						{
 							++numReachableSources;
 							lastReachableSource = it->first;
@@ -768,7 +768,7 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 			continue;
 		}
 
-		if (it->second.minReachability->isReachable(vertexIndex) && isValidDistance(it->second.minReachability->getDistance(vertexIndex)))
+		if (it->second.minReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.minReachability->getDistance(vertexIndex)))
 		{
 			if (definitelyIsSource(db, it->first))
 			{
@@ -779,7 +779,7 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 				return EReachabilityDetermination::PossiblyReachable;
 			}
 		}
-		else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(it->second.maxReachability->getDistance(vertexIndex)))
+		else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex)))
 		{
 			return EReachabilityDetermination::PossiblyReachable;
 		}

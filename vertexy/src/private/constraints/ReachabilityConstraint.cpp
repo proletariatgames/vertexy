@@ -58,12 +58,12 @@ ReachabilityConstraint::ReachabilityConstraint(
 	const ValueSet& requireReachableMask,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 	const ValueSet& edgeBlockedMask)
-	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask, false)
+	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
 {
 
 }
 
-bool ReachabilityConstraint::isValidDistance(int dist) const
+bool ReachabilityConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
 {
 	return dist < INT_MAX;
 }
