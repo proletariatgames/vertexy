@@ -64,7 +64,7 @@ protected:
 
 	void onExplanationGraphEdgeChange(bool edgeWasAdded, int from, int to);
 
-	void addSource(VarID source);
+	void addSource(const IVariableDatabase* db, VarID source);
 	//used by processVertexVariableChange
 	bool removeSource(IVariableDatabase* db, VarID source);
 

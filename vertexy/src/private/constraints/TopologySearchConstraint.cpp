@@ -326,7 +326,7 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 		VarID vertexVar = m_sourceGraphData->get(vertex);
 		if (vertexVar.isValid() && possiblyIsSource(db, vertexVar))
 		{
-			addSource(vertexVar);
+			addSource(db, vertexVar);
 			m_initialPotentialSources.push_back(vertexVar);
 		}
 	}
@@ -508,7 +508,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 	return true;
 }
 
-void ITopologySearchConstraint::addSource(VarID source)
+void ITopologySearchConstraint::addSource(const IVariableDatabase* db, VarID source)
 {
 	int vertex = m_variableToSourceVertexIndex[source];
 
@@ -523,8 +523,8 @@ void ITopologySearchConstraint::addSource(VarID source)
 	minReachable->initialize(vertex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 	maxReachable->initialize(vertex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 
-	EventListenerHandle minHandle = addMinCallback(*minReachable, source);
-	EventListenerHandle maxHandle = addMaxCallback(*maxReachable, source);
+	EventListenerHandle minHandle = addMinCallback(*minReachable, db, source);
+	EventListenerHandle maxHandle = addMaxCallback(*maxReachable, db, source);
 
 	m_reachabilitySources[source] = { minReachable, maxReachable, minHandle, maxHandle };
 	
@@ -733,7 +733,7 @@ void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDec
 	{
 		for (VarID sourceVar : m_backtrackData.back().reachabilitySourcesRemoved)
 		{
-			addSource(sourceVar);
+			addSource(db, sourceVar);
 		}
 		m_backtrackData.pop_back();
 	}
