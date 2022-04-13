@@ -74,8 +74,8 @@ protected:
 	//virtual
 	virtual bool isValidDistance(const IVariableDatabase* db, int dist) const = 0;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
-	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, VarID source) = 0;
-	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, VarID source) = 0;
+	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
+	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) = 0;
 
 	inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 	{

@@ -66,7 +66,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 	, m_op(op)
 	, m_distance(distance)
 {
-	vxy_assert(m_op != EConstraintOperator::NotEqual);
+	vxy_assert(m_op != EConstraintOperator::NotEqual); //NotEqual not supported
 }
 
 bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
@@ -83,7 +83,7 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 		return dist <= db->getMaximumPossibleValue(m_distance);
 	}
 
-	vxy_assert(false);
+	vxy_assert(false); //NotEqual not supported
 	return false;
 }
 
@@ -92,22 +92,22 @@ shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeT
 	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, false, true);
 }
 
-EventListenerHandle Vertexy::ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, VarID source)
+EventListenerHandle Vertexy::ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
 {
-	return minReachable.onDistanceChanged.add([this, source](int changedVertex, int distance)
+	return minReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(distance))
+		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(db, distance))
 		{
 			onReachabilityChanged(changedVertex, source, true);
 		}
 	});
 }
 
-EventListenerHandle Vertexy::ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, VarID source)
+EventListenerHandle Vertexy::ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
 {
-	return maxReachable.onDistanceChanged.add([this, source](int changedVertex, int distance)
+	return maxReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(distance))
+		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(db, distance))
 		{
 			onReachabilityChanged(changedVertex, source, false);
 		}

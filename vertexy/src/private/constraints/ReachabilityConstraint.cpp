@@ -74,7 +74,7 @@ shared_ptr<RamalReps<BacktrackingDigraphTopology>> ReachabilityConstraint::makeT
 }
 
 
-EventListenerHandle ReachabilityConstraint::addMinCallback(RamalRepsType& minReachable, VarID source)
+EventListenerHandle ReachabilityConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
 {
 	return minReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
 	{
@@ -86,7 +86,7 @@ EventListenerHandle ReachabilityConstraint::addMinCallback(RamalRepsType& minRea
 	});
 }
 
-EventListenerHandle ReachabilityConstraint::addMaxCallback(RamalRepsType& maxReachable, VarID source)
+EventListenerHandle ReachabilityConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
 {
 	return maxReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
 	{
