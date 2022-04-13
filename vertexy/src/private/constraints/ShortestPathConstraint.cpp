@@ -71,6 +71,8 @@ ShortestPathConstraint::ShortestPathConstraint(
 
 bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
 {
+	int maximum = db->getMaximumPossibleValue(m_distance);
+
 	switch (m_op)
 	{
 	case EConstraintOperator::GreaterThan:

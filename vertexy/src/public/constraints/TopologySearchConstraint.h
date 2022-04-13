@@ -41,8 +41,8 @@ public:
 
 protected:
 	//for now don't worry about explainers
-	vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
-	vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
+	virtual vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
+	virtual vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
 
 	enum class EReachabilityDetermination : uint8_t
 	{
