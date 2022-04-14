@@ -129,6 +129,11 @@ public:
 		m_outputLog = log;
 	}
 
+	const shared_ptr<SolverDecisionLog>& getOutputLog()
+	{
+		return m_outputLog;
+	}
+
 	const ConstraintSolverStats& getStats() const { return m_stats; }
 	void dumpStats(bool verbose = false);
 

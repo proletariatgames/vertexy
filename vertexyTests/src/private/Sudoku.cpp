@@ -6,9 +6,13 @@
 #include "constraints/TableConstraint.h"
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"
+#include "util/SolverDecisionLog.h"
 #include "variable/SolverVariableDomain.h"
 
 using namespace VertexyTests;
+
+// Whether to write a decision log as DecisionLog.txt
+static constexpr bool WRITE_BREADCRUMB_LOG = false;
 
 int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 {
@@ -38,7 +42,7 @@ int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 			int row = i / 9;
 			int col = i % 9;
 
-			VarID var = solver.makeVariable({wstring::CtorSprintf(), TEXT("SudokuVar[%d-%d]"), row, col}, domain);
+			VarID var = solver.makeVariable({wstring::CtorSprintf(), TEXT("X[%d-%d]"), row, col}, domain);
 			variables.push_back(var);
 
 			rows[row].push_back(var);
@@ -58,6 +62,17 @@ int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 		// Initialize the puzzle
 		initializePuzzle(&solver, variables, printVerbose);
 
+		shared_ptr<SolverDecisionLog> outputLog;
+		if constexpr (WRITE_BREADCRUMB_LOG)
+		{
+			outputLog = make_shared<SolverDecisionLog>();
+		}
+
+		if (outputLog != nullptr)
+		{
+			solver.setOutputLog(outputLog);
+		}
+
 		solver.solve();
 		solver.dumpStats(printVerbose);
 
@@ -71,6 +86,12 @@ int SudokuSolver::solve(int times, int n, int seed, bool printVerbose)
 			nErrorCount += check(&solver, rows[i]);
 			nErrorCount += check(&solver, columns[i]);
 			nErrorCount += check(&solver, squares[i]);
+		}
+
+		if (outputLog != nullptr)
+		{
+			outputLog->write(TEXT("SudokuOutput.txt"));
+			outputLog->writeBreadcrumbs(solver, TEXT("SudokuDecisionLog.txt"));
 		}
 	}
 

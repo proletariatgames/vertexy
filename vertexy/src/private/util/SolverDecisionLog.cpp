@@ -16,9 +16,9 @@ void SolverDecisionLog::write(const wchar_t* outputFile) const
 {
 	std::basic_ofstream<wchar_t> file(outputFile);
 	vxy_verify(file.is_open());
-	for (const DecisionRecord& decision : m_decisions)
+	for (const SolverRecord& record : m_solverRecords)
 	{
-		file << decision.toString().c_str() << TEXT("\n");
+		file << record.toString().c_str() << TEXT("\n");
 	}
 	file.close();
 }
@@ -113,4 +113,9 @@ bool SolverDecisionLog::read(const wchar_t* inFile)
 void SolverDecisionLog::addDecision(int level, VarID variable, int valueIndex)
 {
 	m_decisions.push_back({level, variable, valueIndex});
+}
+
+void SolverDecisionLog::addSolverRecord(int decisionLevel, wstring variableName, int constraintID, ValueSet newValues)
+{
+	m_solverRecords.push_back({ decisionLevel, variableName, constraintID, newValues });
 }

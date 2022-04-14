@@ -8,6 +8,10 @@
 #include <EASTL/unique_ptr.h>
 #include <EASTL/string.h>
 
+#ifndef TEXT
+#define TEXT(s) L ## s
+#endif
+
 namespace Vertexy
 {
 
@@ -828,7 +832,7 @@ public:
 			}
 			else
 			{
-				out += TEXT(", ");
+				out += TEXT("; ");
 			}
 			if (start + 1 == end)
 			{
