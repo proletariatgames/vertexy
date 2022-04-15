@@ -30,14 +30,12 @@ public:
 	struct ClauseConstraintFactory
 	{
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, const vector<SignedClause>& clauses);
-
 		static ClauseConstraint* construct_(const ConstraintFactoryParams& params, const vector<SignedClause>& clauses)
 		{
 			return construct(params, clauses);
 		}
 
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, ENoGood noGood, const vector<SignedClause>& clauses);
-
 		static ClauseConstraint* construct_(const ConstraintFactoryParams& params, ENoGood noGood, const vector<SignedClause>& clauses)
 		{
 			return construct(params, noGood, clauses);
@@ -59,7 +57,7 @@ public:
 			return construct_(params, argsArray);
 		}
 
-		// Needed to disambiguate between above function and parameter pack versions below
+		// Needed to disambiguate between above function and parameter pack versions above
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, vector<Literal>& lits, bool isLearned = false)
 		{
 			return construct(params, const_cast<const vector<Literal>&>(lits), isLearned);

@@ -28,6 +28,8 @@
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
 
+#include "rules/RuleDatabase.h"
+
 namespace Vertexy
 {
 class IRestartPolicy;
@@ -382,6 +384,10 @@ public:
 		return *static_cast<T*>(registerConstraint(T::Factory::construct(ConstraintFactoryParams(*this), forward<ArgsType>(args)...)));
 	}
 
+	// Access the database for creating ASP-style rules
+	RuleDatabase& getRuleDatabase() { return m_ruleDB; }
+	const RuleDatabase& getRuleDatabase() const { return m_ruleDB; }
+
 	// Return all the variables that a given constraint refers to
 	const vector<VarID>& getVariablesForConstraint(const IConstraint* constraint) const
 	{
@@ -582,6 +588,7 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
+	RuleDatabase m_ruleDB;
 	ConflictAnalyzer m_analyzer;
 
 	mutable ConstraintSolverStats m_stats;

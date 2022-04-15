@@ -4,7 +4,7 @@
 
 using namespace Vertexy;
 
-ClauseToLiteralGraphRelation::ClauseToLiteralGraphRelation(const ConstraintSolver& solver, shared_ptr<const IGraphRelation<SignedClause>>& clauseRel)
+ClauseToLiteralGraphRelation::ClauseToLiteralGraphRelation(const ConstraintSolver& solver, const shared_ptr<const IGraphRelation<SignedClause>>& clauseRel)
 	: m_solver(solver)
 	, m_clauseRel(clauseRel)
 {

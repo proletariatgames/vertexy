@@ -106,7 +106,7 @@ public:
 	EClauseSign sign;
 	vector<int> values;
 
-	TSignedClause<VariableType> invert() const
+	TSignedClause<VariableType> inverted() const
 	{
 		return TSignedClause(variable, sign == EClauseSign::Inside ? EClauseSign::Outside : EClauseSign::Inside, values);
 	}

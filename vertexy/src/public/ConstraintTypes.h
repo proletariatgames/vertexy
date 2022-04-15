@@ -39,7 +39,8 @@ enum class EConstraintType : uint8_t
 	Offset,
 	Table,
 	Reachability,
-	Sum
+	Sum,
+	NOT_A_CONSTRAINT_UnfoundedSetChecker
 };
 
 // If set, VariableDBs will cache the state of each variable (solved/unsolved/contradiction), only updating when
@@ -161,7 +162,7 @@ using ValueSet = TValueBitset<>;
 struct Literal
 {
 	Literal()
-		: variable(-1)
+		: variable(VarID::INVALID)
 	{
 	}
 
@@ -199,6 +200,11 @@ struct Literal
 	inline bool operator==(const Literal& rhs) const
 	{
 		return variable == rhs.variable && values == rhs.values;
+	}
+
+	Literal inverted() const
+	{
+		return Literal(variable, values.inverted());
 	}
 
 	VarID variable;
@@ -409,4 +415,16 @@ struct hash<Vertexy::VarID>
 	}
 };
 
-} // namespace eastl
+// Hashing for Literal
+template<>
+struct hash<Vertexy::Literal>
+{
+	inline size_t operator()(const Vertexy::Literal& lit) const
+	{
+		hash<Vertexy::VarID> varHash;
+		hash<Vertexy::ValueSet> valHash;
+		return varHash(lit.variable) | valHash(lit.values);
+	}
+};
+
+} // names

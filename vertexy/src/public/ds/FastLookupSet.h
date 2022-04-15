@@ -6,14 +6,18 @@
 namespace Vertexy
 {
 
+template<typename T, typename IndexType>
+struct DefaultLookupSetToIndex
+{
+	 IndexType operator()(const T& val) { return val; }
+};
+
 /** Set for integral elements that supports fast lookup via table */
-template <typename T, bool bExpectValidIndexSize = false>
+template <typename T, bool bExpectValidIndexSize = false, typename IndexType=uint32_t, typename ToIndexType=DefaultLookupSetToIndex<T, IndexType>>
 class TFastLookupSet
 {
 public:
-	static_assert(eastl::is_integral<T>::value, "TFastLookupSet only supports integral types");
-
-	TFastLookupSet(int indexReserve = 0)
+	TFastLookupSet(int indexReserve = 0, const ToIndexType& indexer = {}) : m_indexer(indexer)
 	{
 		m_inSet.resize(indexReserve, 0);
 	}
@@ -53,15 +57,17 @@ public:
 
 	inline bool empty() const { return m_elements.empty(); }
 
-	inline bool contains(T val) const
+	inline bool contains(const T& val) const
 	{
+		IndexType ival = m_indexer(val);
+		vxy_sanity(ival >= 0);
 		if constexpr (bExpectValidIndexSize)
 		{
-			return m_inSet[val] == m_curStamp;
+			return m_inSet[ival] == m_curStamp;
 		}
 		else
 		{
-			return val >= 0 && val < m_inSet.size() ? m_inSet[val] == m_curStamp : false;
+			return ival < m_inSet.size() ? m_inSet[ival] == m_curStamp : false;
 		}
 	}
 
@@ -84,7 +90,7 @@ public:
 	{
 		if (contains(val))
 		{
-			m_inSet[val] = 0;
+			m_inSet[m_indexer(val)] = 0;
 			m_elements.erase_first_unsorted(val);
 		}
 	}
@@ -102,20 +108,23 @@ public:
 protected:
 	inline void markContained(T val)
 	{
+		IndexType ival = m_indexer(val);
+		vxy_sanity(ival >= 0);
 		if constexpr (!bExpectValidIndexSize)
 		{
-			m_inSet.reserve(val + 1);
-			while (val >= m_inSet.size())
+			m_inSet.reserve(ival + 1);
+			while (ival >= m_inSet.size())
 			{
 				m_inSet.push_back(m_curStamp - 1);
 			}
 		}
-		m_inSet[val] = m_curStamp;
+		m_inSet[ival] = m_curStamp;
 	}
 
 	vector<uint32_t> m_inSet;
 	vector<int> m_elements;
 	uint32_t m_curStamp = 1;
+	mutable ToIndexType m_indexer;
 };
 
 } // namespace Vertexy

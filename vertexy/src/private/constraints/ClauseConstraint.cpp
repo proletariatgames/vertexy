@@ -30,7 +30,7 @@ ClauseConstraint* ClauseConstraint::ClauseConstraintFactory::construct(const Con
 	vector<Literal> transformedClauses;
 	for_each(clauses.begin(), clauses.end(), [&](auto& clause)
 	{
-		transformedClauses.push_back(clause.invert().translateToLiteral(params));
+		transformedClauses.push_back(clause.inverted().translateToLiteral(params));
 	});
 
 	return construct(params, transformedClauses);

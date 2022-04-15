@@ -86,6 +86,7 @@ ConstraintSolver::ConstraintSolver(const wstring& name, int seed, const shared_p
 	, m_decisionLogFrequency(DECISION_LOG_FREQUENCY)
 	, m_initialSeed(seed == 0 ? TimeUtils::getCycles() : seed)
 	, m_random(m_initialSeed)
+	, m_ruleDB(*this)
 	, m_analyzer(*this)
 	, m_stats(*this)
 	, m_name(name)
@@ -271,7 +272,7 @@ IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<Sign
 		posClauses.reserve(2);
 		negClauses.reserve(body.size() + 1);
 
-		posClauses.push_back(head.invert());
+		posClauses.push_back(head.inverted());
 		negClauses.push_back(head);
 
 		for (int i = 0; i < body.size(); ++i)
@@ -280,7 +281,7 @@ IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<Sign
 			nogood(posClauses);
 			posClauses.pop_back();
 
-			negClauses.push_back(body[i].invert());
+			negClauses.push_back(body[i].inverted());
 		}
 		nogood(negClauses);
 		return *((IffConstraint*)(nullptr));

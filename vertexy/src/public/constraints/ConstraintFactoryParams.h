@@ -37,6 +37,8 @@ public:
 
 	void markChildConstraint(IConstraint* cons) const;
 
+	inline ConstraintSolver& getSolver() { return m_solver; }
+
 private:
 	ConstraintSolver& m_solver;
 	ConstraintGraphRelationInfo m_graphRelationInfo;

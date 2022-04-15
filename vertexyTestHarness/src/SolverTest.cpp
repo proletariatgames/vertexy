@@ -10,6 +10,7 @@
 #include <Sudoku.h>
 #include <TowersOfHanoi.h>
 
+#include "ConstraintSolver.h"
 #include "util/Asserts.h"
 #include "ds/ValueBitset.h"
 #include "Maze.h"
@@ -218,6 +219,36 @@ int test_Digraph()
 	return nErrorCount;
 }
 
+int test_ruleSCCs()
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver;
+	auto& rdb = solver.getRuleDatabase();
+	auto a = rdb.createAtom(TEXT("a"));
+	auto b = rdb.createAtom(TEXT("b"));
+	auto c = rdb.createAtom(TEXT("c"));
+	auto d = rdb.createAtom(TEXT("d"));
+	auto e = rdb.createAtom(TEXT("e"));
+
+	rdb.addRule(a, b.neg());
+	rdb.addRule(b, a.neg());
+	rdb.addRule(c, a.pos());
+	rdb.addRule(c, vector{b.pos(), d.pos()});
+	rdb.addRule(d, vector{b.pos(), c.pos()});
+	rdb.addRule(d, e.pos());
+	rdb.addRule(e, vector{b.pos(), a.neg()});
+	rdb.addRule(e, vector{c.pos(), d.pos()});
+
+	rdb.finalize();
+
+	EATEST_VERIFY(rdb.getAtom(a)->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(b)->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(c)->scc >= 0);
+	EATEST_VERIFY(rdb.getAtom(d)->scc == rdb.getAtom(c)->scc);
+	EATEST_VERIFY(rdb.getAtom(e)->scc == rdb.getAtom(c)->scc);
+	return nErrorCount;
+}
 
 static constexpr int FORCE_SEED = 0;
 static constexpr int NUM_TIMES = 10;
@@ -236,6 +267,7 @@ int main(int argc, char* argv[])
 	TestApplication Suite("Solver Tests", argc, argv);
 	Suite.AddTest("ValueBitset", test_ValueBitset);
 	Suite.AddTest("Digraph", test_Digraph);
+	Suite.AddTest("RuleSCCs", test_ruleSCCs);
 	Suite.AddTest("Clause-Basic", []() { return TestSolvers::solveClauseBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Inequality-Basic", []() { return TestSolvers::solveInequalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Cardinality-Basic", []() { return TestSolvers::solveCardinalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
