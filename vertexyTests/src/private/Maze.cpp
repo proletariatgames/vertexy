@@ -3,6 +3,7 @@
 #include "ConstraintSolver.h"
 #include "EATest/EATest.h"
 #include "constraints/ReachabilityConstraint.h"
+#include "constraints/ShortestPathConstraint.h"
 #include "constraints/TableConstraint.h"
 #include "constraints/IffConstraint.h"
 #include "decision/LogOrderHeuristic.h"
@@ -17,7 +18,9 @@ using namespace VertexyTests;
 // Interval of solver steps to print out current maze status. Set to 1 to see each solver step.
 static constexpr int MAZE_REFRESH_RATE = 0;
 // The number of keys/doors that should exist in the maze.
-static constexpr int NUM_KEYS = 3;
+static constexpr int NUM_KEYS = 1;
+// Test Shortest Path constraint (slow), recommend 1 key.
+static constexpr bool TEST_SHORTEST_PATH = true;
 // True to print edge variables in FMaze::Print
 static constexpr bool PRINT_EDGES = false;
 // Whether to write a decision log as DecisionLog.txt
@@ -156,6 +159,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
 	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5/*numRows * numCols*/});
 	//
 	// DECLARE CONSTRAINTS
 	//
@@ -321,11 +325,22 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 
 		auto selfStepTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepData);
 
-		// If this tile is the entrance in the maze, constrain it to be the entrance in this step.
-		solver.makeGraphConstraint<IffConstraint>(grid,
-			GraphRelationClause(selfStepTile, step_Origin),
-			vector{GraphRelationClause(selfTile, cell_Entrance)}
-		);
+		if (TEST_SHORTEST_PATH)
+		{
+			//if this is the most recent door, constrain it to the be the entrance in this step
+			solver.makeGraphConstraint<IffConstraint>(grid,
+				GraphRelationClause(selfStepTile, step_Origin),
+				vector{ GraphRelationClause(selfTile, step == 0 ? cell_Entrance : vector<int>{cell_Doors[step - 1]})}
+			);
+		}
+		else
+		{
+			//If this tile is the entrance in the maze, constrain it to be the entrance in this step.
+			solver.makeGraphConstraint<IffConstraint>(grid,
+					GraphRelationClause(selfStepTile, step_Origin),
+						vector{ GraphRelationClause(selfTile, cell_Entrance) }
+			);
+		}
 
 		// A tile can never be passable in any step if it is a wall
 		solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
@@ -430,7 +445,14 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		}
 
 		// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
-		solver.makeConstraint<ReachabilityConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid);
+		if (TEST_SHORTEST_PATH)
+		{
+			solver.makeConstraint<ShortestPathConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+		}
+		else
+		{
+			solver.makeConstraint<ReachabilityConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid);
+		}
 	}
 
 	// Uncomment to print out the maze every time the solver backtracks (for debugging)

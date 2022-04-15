@@ -469,7 +469,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 	}
 
 	// If this now requires reachability... 
-	if (!db->anyPossible(variable, m_notReachableMask)) //impossible that it's not reachable
+	if (!db->anyPossible(variable, m_notReachableMask))
 	{
 		int vertex = m_variableToSourceVertexIndex[variable];
 
@@ -479,7 +479,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		{
 			if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 			{
-				++numReachableSources; //should only be incremented if within given range
+				++numReachableSources; 
 				lastReachableSource = it->first;
 				if (numReachableSources > 1)
 				{
@@ -570,7 +570,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 
 				if (determination == EReachabilityDetermination::DefinitelyUnreachable)
 				{
-					sanityCheckUnreachable(db, vertex);
+					//sanityCheckUnreachable(db, vertex);
 					if (!db->constrainToValues(vertexVar, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
 					{
 						failure = true;
@@ -711,7 +711,7 @@ void ITopologySearchConstraint::onReachabilityChanged(int vertexIndex, VarID sou
 		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyUnreachable)
 		{
 			VarID var = m_sourceGraphData->get(vertexIndex);
-			sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
+			//sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
 
 			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
 			{
@@ -779,7 +779,7 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 				return EReachabilityDetermination::PossiblyReachable;
 			}
 		}
-		else if (it->second.maxReachability->isReachable(vertexIndex) /* && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex))*/)
+		else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex)))
 		{
 			return EReachabilityDetermination::PossiblyReachable;
 		}

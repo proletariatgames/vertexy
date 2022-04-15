@@ -40,6 +40,18 @@ vector<Literal> IVariableDatabase::defaultExplainer(const NarrowingExplanationPa
 	return clauses;
 }
 
+int IVariableDatabase::getMinimumPossibleDomainValue(VarID varID) const
+{
+	vxy_assert(varID.isValid());
+	return getSolver()->getDomain(varID).getValueForIndex(getMinimumPossibleValue(varID));
+}
+
+int IVariableDatabase::getMaximumPossibleDomainValue(VarID varID) const
+{
+	vxy_assert(varID.isValid());
+	return getSolver()->getDomain(varID).getValueForIndex(getMaximumPossibleValue(varID));
+}
+
 SolverVariableDatabase::SolverVariableDatabase(ConstraintSolver* inSolver)
 	: IVariableDatabase()
 	, m_solver(inSolver)

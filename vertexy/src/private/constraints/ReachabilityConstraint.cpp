@@ -100,7 +100,7 @@ EventListenerHandle ReachabilityConstraint::addMaxCallback(RamalRepsType& maxRea
 
 vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExplanationParams& params) const
 {
-	return IVariableDatabase::defaultExplainer(params);
+	//return IVariableDatabase::defaultExplainer(params);
 
 	vxy_assert_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
 
@@ -209,7 +209,7 @@ vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExp
 
 vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
 {
-	return IVariableDatabase::defaultExplainer(params);
+	//return IVariableDatabase::defaultExplainer(params);
 
 	vxy_assert(!m_explainingSourceRequirement);
 	ValueGuard<bool> guard(m_explainingSourceRequirement, true);

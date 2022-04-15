@@ -71,18 +71,16 @@ ShortestPathConstraint::ShortestPathConstraint(
 
 bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
 {
-	int maximum = db->getMaximumPossibleValue(m_distance);
-
 	switch (m_op)
 	{
 	case EConstraintOperator::GreaterThan:
-		return dist > db->getMinimumPossibleValue(m_distance);
+		return dist > db->getMinimumPossibleDomainValue(m_distance);
 	case EConstraintOperator::GreaterThanEq:
-		return dist >= db->getMinimumPossibleValue(m_distance);
+		return dist >= db->getMinimumPossibleDomainValue(m_distance);
 	case EConstraintOperator::LessThan:
-		return dist < db->getMaximumPossibleValue(m_distance);
+		return dist < db->getMaximumPossibleDomainValue(m_distance);
 	case EConstraintOperator::LessThanEq:
-		return dist <= db->getMaximumPossibleValue(m_distance);
+		return dist <= db->getMaximumPossibleDomainValue(m_distance);
 	}
 
 	vxy_assert(false); //NotEqual not supported
@@ -94,27 +92,51 @@ shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeT
 	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, false, true);
 }
 
-EventListenerHandle Vertexy::ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
+EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
 {
 	return minReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(db, distance))
+		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(db, distance))
 		{
 			onReachabilityChanged(changedVertex, source, true);
 		}
 	});
 }
 
-EventListenerHandle Vertexy::ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
+EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
 {
 	return maxReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(db, distance))
+		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(db, distance))
 		{
 			onReachabilityChanged(changedVertex, source, false);
 		}
 	});
 }
+
+//EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
+//{
+//	return minReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
+//	{
+//		if (!m_backtracking && !m_explainingSourceRequirement)
+//		{
+//			vxy_assert(isReachable);
+//			onReachabilityChanged(changedVertex, source, true);
+//		}
+//	});
+//}
+//
+//EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
+//{
+//	return maxReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
+//	{
+//		if (!m_backtracking && !m_explainingSourceRequirement)
+//		{
+//			vxy_assert(!isReachable);
+//			onReachabilityChanged(changedVertex, source, false);
+//		}
+//	});
+//}
 
 
 
