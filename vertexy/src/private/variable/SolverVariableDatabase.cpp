@@ -5,6 +5,7 @@
 #include "SignedClause.h"
 #include "constraints/ClauseConstraint.h"
 #include "constraints/ISolverConstraint.h"
+#include "util/SolverDecisionLog.h"
 
 using namespace Vertexy;
 
@@ -164,6 +165,11 @@ void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IS
 		for (auto& heuristic : m_solver->getDecisionHeuristics())
 		{
 			heuristic->onVariableAssignment(varID, info.potentialValues, m_lockedValues);
+		}
+
+		if (m_solver->getOutputLog() != nullptr)
+		{
+			m_solver->getOutputLog()->addSolverRecord(m_solver->getCurrentDecisionLevel(), getVariableName(varID), (constraint ? constraint->getID() : -1), m_lockedValues);
 		}
 
 		info.latestModification = timestamp;

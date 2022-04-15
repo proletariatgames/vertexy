@@ -832,7 +832,7 @@ public:
 			}
 			else
 			{
-				out += TEXT(", ");
+				out += TEXT("; ");
 			}
 			if (start + 1 == end)
 			{
