@@ -47,7 +47,7 @@ SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs
 		vxy_sanity(m_solver.m_variableDB.isInContradiction(contradictingVariable));
 		explanation = m_solver.getExplanationForModification(m_solver.m_variableDB.getLastModificationTimestamp(contradictingVariable));
 	}
-	// VERTEXY_LOG("Initial conflict explanation: %s", Solver.LiteralArrayToString(Explanation).c_str());
+	// VERTEXY_LOG("Initial conflict explanation: %s", m_solver.literalArrayToString(explanation).c_str());
 
 	// Some explanations can return empty values, which are useless (they won't ever be a support)
 	// Remove them.
@@ -224,7 +224,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 	vxy_assert(m_nodes[mostRecentNodeIndex].var == inOutExplanation[mostRecentNodeIndex].variable);
 	vxy_sanity(m_nodes[mostRecentNodeIndex].time == findLatestFalseTime(m_nodes[mostRecentNodeIndex].var, inOutExplanation[mostRecentNodeIndex].values, m_nodes[mostRecentNodeIndex].time));
 
-	if (m_nodes.empty())
+	if (m_nodes.empty() || m_nodes[mostRecentNodeIndex].time < 0)
 	{
 		// No solution
 		return -1;

@@ -53,7 +53,7 @@ public:
         // heads relying on this body for (non)support
         vector<AtomInfo*> heads;
         // Whether this body was specified as a constraint (body with no head)
-        bool isConstraint = false;
+        bool isDisallowed = false;
     };
 
     explicit RuleDatabase(ConstraintSolver& solver);
@@ -85,9 +85,63 @@ public:
         addRule(TRule(TRuleHead(head), vbody));
     }
 
+    template<typename H, typename B>
+    void addRule(const TRuleHead<H>& head, const vector<B>& body)
+    {
+        vector<AnyBodyElement> vbody;
+        vbody.reserve(body.size());
+        for (auto& b : body) { vbody.push_back(TRuleBodyElement<B>::create(b)); }
+
+        addRule(TRule(head, vbody));
+    }
+
+    template<typename H, typename B>
+    void addRule(const TRuleHead<H>& head, const B& singleElementBody)
+    {
+        vector<AnyBodyElement> vbody;
+        vbody.push_back(TRuleBodyElement<B>::create(singleElementBody));
+
+        addRule(TRule(head, vbody));
+    }
+
     void addRule(const TRuleDefinition<AtomID>& rule);
     void addRule(const TRuleDefinition<Literal>& rule);
     void addRule(const TRuleDefinition<SignedClause>& rule);
+
+    template<typename H>
+    void addFact(const H& fact, const ERuleHeadType type=ERuleHeadType::Normal)
+    {
+        addRule(TRule(TRuleHead<H>(fact, type), vector<AnyBodyElement>()));
+    }
+
+    template<typename H>
+    void addFact(const vector<H>& fact, const ERuleHeadType type=ERuleHeadType::Normal)
+    {
+        addRule(TRule(TRuleHead<H>(fact, type), vector<AnyBodyElement>()));
+    }
+
+    void addFact(const TRuleHead<AtomID>& fact) { addRule(TRule(TRuleHead(fact), vector<AnyBodyElement>())); }
+    void addFact(const TRuleHead<Literal>& fact) { addRule(TRule(TRuleHead(fact), vector<AnyBodyElement>())); }
+    void addFact(const TRuleHead<SignedClause>& fact) { addRule(TRule(TRuleHead(fact), vector<AnyBodyElement>())); }
+
+    template<typename B>
+    void disallow(const vector<B>& body)
+    {
+        vector<AnyBodyElement> vbody;
+        vbody.reserve(body.size());
+        for (auto& b : body) { vbody.push_back(TRuleBodyElement<B>::create(b)); }
+
+        addRule(TRule(TRuleHead<AtomID>(ERuleHeadType::Normal), vbody));
+    }
+
+    template<typename B>
+    void disallow(const B& singleElementBody)
+    {
+        vector<AnyBodyElement> vbody;
+        vbody.push_back(TRuleBodyElement<B>::create(singleElementBody));
+
+        addRule(TRule(TRuleHead<AtomID>(ERuleHeadType::Normal), vbody));
+    }
 
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<GraphAtomLiteral>& rule);
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<RuleGraphRelation>& rule);
@@ -152,6 +206,7 @@ protected:
     using GraphAtomSet = hash_map<int32_t, unique_ptr<GraphAtomInfo>>;
 
     AtomID createHeadAtom(const Literal& equivalence);
+    AtomID getFactAtom();
     void transformRule(const RuleHead& head, const RuleBody& body);
     void transformSum(AtomID head, const RuleBody& sumBody);
     void transformChoice(const RuleHead& head, const RuleBody& body);
@@ -159,7 +214,7 @@ protected:
     bool simplifyAndEmitRule(AtomID head, const RuleBody& body);
 
     BodyInfo* findOrCreateBodyInfo(const RuleBody& body);
-    Literal getLiteralForAtom(AtomInfo* atomInfo);
+    const Literal& getLiteralForAtom(AtomInfo* atomInfo);
     Literal translateAtomLiteral(AtomLiteral lit);
 
     bool isLiteralPossible(AtomLiteral literal) const;
@@ -198,6 +253,8 @@ protected:
     TarjanAlgorithm m_tarjan;
 
     bool m_isTight = true;
+    AtomID m_factAtom;
+
     int32_t m_nextGraphAtomID = 1;
 };
 

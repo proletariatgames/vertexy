@@ -188,7 +188,7 @@ protected:
 		m_inSet[ival] = m_curStamp;
 	}
 
-	vector<uint8_t> m_inSet;
+	vector<uint32_t> m_inSet;
 	vector<T> m_elements;
 	uint32_t m_curStamp = 1;
 	mutable ToIndexType m_indexer;

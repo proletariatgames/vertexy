@@ -419,7 +419,9 @@ void ClauseConstraint::computeLbd(const SolverVariableDatabase& db)
 			m_extendedInfo->LBD = uint8_t(numUniqueDecisionLevels);
 		}
 	}
-	vxy_assert(m_extendedInfo->LBD > 0);
+
+	// learned constraints from UnfoundedSetAnalyzer can have a zero LBD
+	// vxy_assert(m_extendedInfo->LBD > 0);
 }
 
 #undef SANITY_CHECK

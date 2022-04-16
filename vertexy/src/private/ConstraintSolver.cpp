@@ -23,14 +23,14 @@
 #include "variable/WordVariablePropagator.h"
 #include "topology/GraphRelations.h"
 #include "util/SolverDecisionLog.h"
+#include "ds/FastLookupSet.h"
+#include "rules/UnfoundedSetAnalyzer.h"
+#include "util/TimeUtils.h"
 
 #include <EASTL/algorithm.h>
 #include <EASTL/sort.h>
 #include <EASTL/variant.h>
 #include <EASTL/stack.h>
-
-#include "ds/FastLookupSet.h"
-#include "util/TimeUtils.h"
 
 using namespace Vertexy;
 
@@ -48,7 +48,11 @@ static constexpr bool TEST_GRAPH_PROMOTIONS = true;
 static constexpr bool SIMPLIFY_CONSTRAINTS = true;
 
 // How often we log solver steps, for progress reporting.
-static constexpr int DECISION_LOG_FREQUENCY = 50000;
+static constexpr int DECISION_LOG_FREQUENCY = -1;
+// Whether to log EVERY variable propagation. Very noisy!
+static constexpr bool LOG_VARIABLE_PROPAGATIONS = false;
+// Whether to log every time the solver backtracks. Very noisy!
+static constexpr bool LOG_BACKTRACKS = false;
 
 // The literal block distance (LBD) for learned constraints where we put them in the permanent constraint pool.
 // Permanent constraints will remain forever.
@@ -80,6 +84,8 @@ using DEFAULT_BASE_HEURISTIC = CoarseLRBHeuristic;
 const VarID VarID::INVALID = VarID();
 const GraphConstraintID GraphConstraintID::INVALID = GraphConstraintID();
 
+ConstraintSolver* ConstraintSolver::s_currentSolver = nullptr;
+
 ConstraintSolver::ConstraintSolver(const wstring& name, int seed, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic)
 	: m_variableDB(this)
 	, m_restartPolicy(*this)
@@ -105,6 +111,10 @@ ConstraintSolver::ConstraintSolver(const wstring& name, int seed, const shared_p
 	m_variableToDecisionLevel.push_back(0);
 	m_variablePropagators.push_back(nullptr);
 	m_variableToGraphs.push_back({});
+}
+
+ConstraintSolver::~ConstraintSolver()
+{
 }
 
 VarID ConstraintSolver::makeVariable(const wstring& varName, const SolverVariableDomain& domain, const vector<int>& potentialValues)
@@ -749,6 +759,13 @@ int ConstraintSolver::getSolvedValue(VarID varID) const
 	return m_variableDomains[varID.raw()].getValueForIndex(m_variableDB.getSolvedValue(varID));
 }
 
+bool ConstraintSolver::isAtomTrue(AtomID atomID) const
+{
+	auto& lit = m_ruleDB.getAtom(atomID)->equivalence;
+	auto& cur = m_variableDB.getPotentialValues(lit.variable);
+	return cur.isSubsetOf(lit.values);
+}
+
 vector<int> ConstraintSolver::getPotentialValues(VarID varID) const
 {
 	vector<int> out;
@@ -783,13 +800,19 @@ EConstraintSolverResult ConstraintSolver::solve()
 
 EConstraintSolverResult ConstraintSolver::startSolving()
 {
+	ConstraintSolver::s_currentSolver = this;
+
 	m_stats.reset();
 	m_stats.startTime = TimeUtils::getSeconds();
-	m_stats.numInitialConstraints = count_if(m_constraints.begin(), m_constraints.end(), [](auto& c) { return c != nullptr; });
 
 	if (!m_initialArcConsistencyEstablished)
 	{
 		vxy_assert(m_currentStatus == EConstraintSolverResult::Uninitialized);
+
+		// create constraints for rules
+		m_ruleDB.finalize();
+
+		m_stats.numInitialConstraints = m_constraints.size();
 		m_numUserConstraints = m_stats.numInitialConstraints;
 		m_initialArcConsistencyEstablished = false;
 
@@ -821,6 +844,18 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 			return m_currentStatus;
 		}
 
+		// if the rules aren't tight, we need to watch for and analyze unfounded sets (cyclical supports)
+		if (!m_ruleDB.isTight())
+		{
+			m_unfoundedSetAnalyzer = make_unique<UnfoundedSetAnalyzer>(*this);
+			if (!m_unfoundedSetAnalyzer->initialize())
+			{
+				m_stats.endTime = TimeUtils::getSeconds();
+				m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+				return m_currentStatus;
+			}
+		}
+
 		if (!propagate())
 		{
 			m_stats.endTime = TimeUtils::getSeconds();
@@ -843,8 +878,15 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 	}
 	else if (m_currentStatus == EConstraintSolverResult::Solved)
 	{
+		if (getCurrentDecisionLevel() == 0)
+		{
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return m_currentStatus;
+		}
+
 		// Find the next solution
 		m_currentStatus = EConstraintSolverResult::Unsolved;
+		m_stats.numInitialConstraints = count_if(m_constraints.begin(), m_constraints.end(), [](auto& c) { return c != nullptr; });
 
 		// Mark the current solution as a nogood, and start the next solution
 		vector<Literal> currentSolutionLits;
@@ -934,7 +976,7 @@ EConstraintSolverResult ConstraintSolver::step()
 		{
 			// No need to keep this around, just propagate it and forget it
 			vxy_assert(backtrackLevel == 0);
-			bool success = m_variableDB.constrainToValues(learnedConstraint->getLiteral(0).variable, learnedConstraint->getLiteral(0).values, nullptr, nullptr);
+			bool success = m_variableDB.constrainToValues(learnedConstraint->getLiteral(0), nullptr, nullptr);
 			vxy_assert(success);
 
 			vxy_assert(!learnedConstraint->isLocked());
@@ -947,7 +989,8 @@ EConstraintSolverResult ConstraintSolver::step()
 			bool success = learnedConstraint->initialize(&m_variableDB, nullptr);
 			vxy_assert(success);
 
-			learnedConstraint->makeUnit(&m_variableDB, 0);
+			success = learnedConstraint->makeUnit(&m_variableDB, 0);
+			vxy_assert(success);
 		}
 	}
 	else
@@ -996,7 +1039,7 @@ EConstraintSolverResult ConstraintSolver::step()
 
 			if (VERTEXY_LOG_ACTIVE())
 			{
-				if (!m_decisionLevels.empty() && ((m_stats.stepCount % m_decisionLogFrequency) == 0))
+				if (!m_decisionLevels.empty() && m_decisionLogFrequency > 0 && ((m_stats.stepCount % m_decisionLogFrequency) == 0))
 				{
 					VERTEXY_LOG("Level %d Step %d Var:%s[%d] Value:%s", getCurrentDecisionLevel(), m_stats.stepCount, m_variableDB.getVariableName(pickedVar).c_str(), pickedVar.raw(), valueSetToString(pickedVar, pickedValue).c_str());
 				}
@@ -1043,6 +1086,26 @@ bool ConstraintSolver::propagate()
 		}
 	}
 
+	if (!propagateVariables())
+	{
+		return false;
+	}
+
+	// Check for unfounded sets in rules: heads that do not have any non-cyclical supports.
+	if (m_unfoundedSetAnalyzer != nullptr)
+	{
+		// Note that this will call propagateVariables (multiple times) if it finds any unfounded sets
+		if (!m_unfoundedSetAnalyzer->analyze())
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool ConstraintSolver::propagateVariables()
+{
 	while (!m_variablePropagationQueue.empty() || !m_constraintPropagationQueue.empty())
 	{
 		if (!emptyVariableQueue())
@@ -1133,7 +1196,10 @@ bool ConstraintSolver::getNextDecisionLiteral(VarID& variable, ValueSet& value)
 void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel, bool isRestart/*=false*/)
 {
 	vxy_assert(decisionLevel < getCurrentDecisionLevel());
-	// VERTEXY_LOG("Level %d Step %d BACKTRACK to %d", GetCurrentDecisionLevel(), Stats.StepCount, DecisionLevel);
+	if constexpr (LOG_BACKTRACKS)
+	{
+		VERTEXY_LOG("Level %d Step %d BACKTRACK to %d", getCurrentDecisionLevel(), m_stats.stepCount, decisionLevel);
+	}
 
 	// Slightly grow activity incremental value, in order to prioritize more recent constraints
 	m_constraintConflictIncr *= CONSTRAINT_ACTIVITY_DECAY;
@@ -1170,6 +1236,11 @@ void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel,
 		constraint->backtrack(&m_variableDB, decisionLevel);
 	}
 
+	if (m_unfoundedSetAnalyzer != nullptr)
+	{
+		m_unfoundedSetAnalyzer->onBacktrack();
+	}
+
 	// Remove any propagations that were queued (since we just undid them)
 	m_variablePropagationQueue.clear();
 	m_constraintPropagationQueue.clear();
@@ -1187,9 +1258,14 @@ void ConstraintSolver::notifyVariableModification(VarID variable, IConstraint* c
 		m_variableQueuedSet[variable.raw()] = true;
 		m_variablePropagationQueue.emplace_back(constraint, variable, m_variableDB.getLastModificationTimestamp(variable));
 	}
+
+	if (LOG_VARIABLE_PROPAGATIONS && m_initialArcConsistencyEstablished)
+	{
+		VERTEXY_LOG("    %s -> %s", m_variableDB.getVariableName(variable).c_str(), m_variableDB.getPotentialValues(variable).toString().c_str());
+	}
 }
 
-void ConstraintSolver::queueConstraintPropagation(IConstraint* constraint)
+void ConstraintSolver::queueConstraintPropagation(const IConstraint* constraint)
 {
 	const int constraintID = constraint->getID();
 	if (constraintID >= m_constraintQueuedSet.size() || !m_constraintQueuedSet[constraintID])
@@ -1644,7 +1720,7 @@ bool ConstraintSolver::createLiteralsForGraphPromotion(const ClauseConstraint& p
 void ConstraintSolver::purgeConstraints()
 {
 	// Binary constraints always go to front, otherwise sort by activity
-	quick_sort(m_temporaryLearnedConstraints.begin(), m_temporaryLearnedConstraints.end(), [&](ClauseConstraint* lhs, ClauseConstraint* rhs)
+	quick_sort(m_temporaryLearnedConstraints.begin(), m_temporaryLearnedConstraints.end(), [&](const ClauseConstraint* lhs, const ClauseConstraint* rhs)
 	{
 		vxy_assert(lhs->getNumLiterals() >= 2);
 		vxy_assert(rhs->getNumLiterals() >= 2);
@@ -1681,8 +1757,7 @@ void ConstraintSolver::purgeConstraints()
 		}
 	}
 
-	int i;
-	for (i = m_temporaryLearnedConstraints.size() - 1; i >= 0 && m_temporaryLearnedConstraints.size() > numRemaining; --i)
+	for (int i = m_temporaryLearnedConstraints.size() - 1; i >= 0 && m_temporaryLearnedConstraints.size() > numRemaining; --i)
 	{
 		auto& cons = m_temporaryLearnedConstraints[i];
 

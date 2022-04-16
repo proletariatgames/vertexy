@@ -18,7 +18,7 @@ struct TWeighted
     int weight;
 };
 
-template<typename IDType> struct TBoolLiteral;
+template<int SIG> struct TBoolLiteral;
 
 template<int SIG>
 struct TBoolID
@@ -31,15 +31,17 @@ struct TBoolID
     bool isValid() const { return value > 0; }
     bool operator==(const TBoolID& other) const { return value == other.value; }
     bool operator!=(const TBoolID& other) const { return value != other.value; }
-    TBoolLiteral<TBoolID<SIG>> pos() const { return TBoolLiteral<TBoolID<SIG>>(*this, true); }
-    TBoolLiteral<TBoolID<SIG>> neg() const { return TBoolLiteral<TBoolID<SIG>>(*this, false); }
+    TBoolLiteral<SIG> pos() const { return TBoolLiteral<SIG>(*this, true); }
+    TBoolLiteral<SIG> neg() const { return TBoolLiteral<SIG>(*this, false); }
 
     int32_t value;
 };
 
-template<typename IDType>
+template<int SIG>
 struct TBoolLiteral
 {
+    using IDType = TBoolID<SIG>;
+
     TBoolLiteral() : value(0) {}
     explicit TBoolLiteral(IDType id, bool value=true)
         : value(value ? id.value : -id.value)
@@ -61,8 +63,8 @@ struct TBoolLiteral
 using AtomID = TBoolID<0>;
 using GraphAtomID = TBoolID<1>;
 
-using AtomLiteral = TBoolLiteral<AtomID>;
-using GraphAtomLiteral = TBoolLiteral<GraphAtomID>;
+using AtomLiteral = TBoolLiteral<0>;
+using GraphAtomLiteral = TBoolLiteral<1>;
 
 enum class ERuleHeadType : uint8_t
 {
@@ -75,27 +77,27 @@ template<typename T>
 struct TRuleHead
 {
     TRuleHead(ERuleHeadType type) : type(type) {}
-    TRuleHead(const T& head) : type(ERuleHeadType::Normal)
+    TRuleHead(const T& head, ERuleHeadType type=ERuleHeadType::Normal) : type(type)
     {
         heads.push_back(head);
     }
-    TRuleHead(T&& head) noexcept : type(ERuleHeadType::Normal)
+    TRuleHead(T&& head, ERuleHeadType type=ERuleHeadType::Normal) noexcept : type(type)
     {
         heads.push_back(move(head));
     }
     TRuleHead(const vector<T>& hds, ERuleHeadType type) : type(type)
     {
         vxy_assert(!hds.empty());
-        vxy_assert(type != ERuleHeadType::Normal || hds.size() == 1);
-        vxy_assert(type != ERuleHeadType::Disjunction || hds.size() > 1);
+        vxy_assert_msg(type != ERuleHeadType::Normal || hds.size() == 1, "Normal rule heads can only have one element");
+        vxy_assert_msg(type != ERuleHeadType::Disjunction || hds.size() > 1, "Disjunction rule heads must have at least two elements");
         heads = hds;
     }
 
     TRuleHead(vector<T>&& hds, ERuleHeadType type) noexcept : type(type)
     {
         vxy_assert(!hds.empty());
-        vxy_assert(type != ERuleHeadType::Normal || hds.size() == 1);
-        vxy_assert(type != ERuleHeadType::Disjunction || hds.size() > 1);
+        vxy_assert_msg(type != ERuleHeadType::Normal || hds.size() == 1, "Normal rule heads can only have one element");
+        vxy_assert_msg(type != ERuleHeadType::Disjunction || hds.size() > 1, "Disjunction rule heads must have at least two elements");
         heads = move(hds);
     }
 

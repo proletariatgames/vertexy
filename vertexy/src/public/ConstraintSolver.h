@@ -58,7 +58,7 @@ struct ConstraintHashFuncs
 	/**
 	 * @return True if the keys match.
 	 */
-	bool operator()(ClauseConstraint* consA, ClauseConstraint* consB) const
+	bool operator()(const ClauseConstraint* consA, const ClauseConstraint* consB) const
 	{
 		if (consA->getNumLiterals() != consB->getNumLiterals())
 		{
@@ -88,7 +88,7 @@ struct ConstraintHashFuncs
 	}
 
 	/** Calculates a hash index for a key. */
-	uint32_t operator()(ClauseConstraint* cons) const
+	uint32_t operator()(const ClauseConstraint* cons) const
 	{
 		eastl::hash<VarID> varHasher;
 		eastl::hash<ValueSet> valHasher;
@@ -109,16 +109,20 @@ class ConstraintSolver
 	friend class SolverVariableDatabase;
 	friend class ConstraintFactoryParams;
 	friend class ConflictAnalyzer;
+	friend class UnfoundedSetAnalyzer;
 	friend class SolverDecisionLog;
 
 	using BaseHeuristicType = CoarseLRBHeuristic;
 	using RestartPolicyType = LubyRestartPolicy;
+
+	static ConstraintSolver* s_currentSolver; // for debugging
 
 public:
 	using RandomStreamType = std::mt19937;
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
 	ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
+	~ConstraintSolver();
 
 	//
 	// Solving API
@@ -174,6 +178,9 @@ public:
 	// Note this returns the TRANSLATED value, not the internal (offset) value
 	int getSolvedValue(VarID varID) const;
 
+	// Returns whether a rule atom is currently true.
+	bool isAtomTrue(AtomID atomID) const;
+
 	// Returns the solution. Will assert if current state isn't Solved.
 	hash_map<VarID, SolvedVariableRecord> getSolution() const;
 
@@ -222,7 +229,7 @@ public:
 	// Maps FVarID to the decision level that was variable was chosen on, or 0.
 	const vector<uint32_t>& getVariableToDecisionLevelMap() const { return m_variableToDecisionLevel; }
 
-	// Gets the level the variable was chosen for deciison, or 0 if not yet chosen.
+	// Gets the level the variable was chosen for decision, or 0 if not yet chosen.
 	SolverDecisionLevel getDecisionLevelForVariable(VarID varID) const
 	{
 		vxy_assert(varID.isValid());
@@ -385,8 +392,8 @@ public:
 	}
 
 	// Access the database for creating ASP-style rules
-	RuleDatabase& getRuleDatabase() { return m_ruleDB; }
-	const RuleDatabase& getRuleDatabase() const { return m_ruleDB; }
+	RuleDatabase& getRuleDB() { return m_ruleDB; }
+	const RuleDatabase& getRuleDB() const { return m_ruleDB; }
 
 	// Return all the variables that a given constraint refers to
 	const vector<VarID>& getVariablesForConstraint(const IConstraint* constraint) const
@@ -397,7 +404,7 @@ public:
 	// Called by constraints to mark themselves for propagation in the constraint propagation queue.
 	// This allows constraints to defer their propagation until after all variable propagation has finished,
 	// which can be more efficient if the constraint involves a large number of variables.
-	void queueConstraintPropagation(IConstraint* constraint);
+	void queueConstraintPropagation(const IConstraint* constraint);
 
 	// Used by constraint factories
 	inline int getNextConstraintID() const { return m_constraints.size(); }
@@ -432,6 +439,8 @@ protected:
 	IConstraint* registerConstraint(IConstraint* constraint);
 
 	bool propagate();
+	bool propagateVariables();
+
 	bool emptyVariableQueue();
 	bool emptyConstraintQueue();
 
@@ -590,6 +599,8 @@ protected:
 
 	RuleDatabase m_ruleDB;
 	ConflictAnalyzer m_analyzer;
+
+	unique_ptr<class UnfoundedSetAnalyzer> m_unfoundedSetAnalyzer;
 
 	mutable ConstraintSolverStats m_stats;
 	shared_ptr<SolverDecisionLog> m_outputLog;

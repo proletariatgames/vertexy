@@ -33,12 +33,30 @@ void RuleDatabase::finalize()
         vxy_assert(!bodyInfo->lit.variable.isValid());
 
         // Create a new boolean variable representing the body and constrain it.
-        VarID boolVar = m_solver.makeVariable({wstring::CtorSprintf(), TEXT("body-%d"), i}, booleanVariableDomain);
+        wstring bodyName;
+        bodyName.append_sprintf(TEXT("body-%d["), bodyInfo->id);
+        bool first = true;
+        for (auto itv = bodyInfo->body.values.begin(), itvEnd = bodyInfo->body.values.end(); itv != itvEnd; ++itv)
+        {
+            if (!first) bodyName.append(TEXT(","));
+            first = false;
+
+            auto atomLit = translateAtomLiteral(*itv);
+            bodyName.append_sprintf(TEXT("(%s=%s)"), m_solver.getVariableName(atomLit.variable).c_str(), atomLit.values.toString().c_str());
+        }
+        bodyName += TEXT("]");
+
+        VarID boolVar = m_solver.makeVariable(bodyName, booleanVariableDomain);
         bodyInfo->lit = Literal(boolVar, TRUE_VALUE);
 
         m_nogoodBuilder.reserve(bodyInfo->body.values.size()+1);
         for (auto itv = bodyInfo->body.values.begin(), itvEnd = bodyInfo->body.values.end(); itv != itvEnd; ++itv)
         {
+            if (m_factAtom.isValid() && *itv == m_factAtom.pos())
+            {
+                continue;
+            }
+
             auto atomLit = translateAtomLiteral(*itv);
             m_nogoodBuilder.add(atomLit);
 
@@ -55,13 +73,13 @@ void RuleDatabase::finalize()
         for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
         {
             // nogood(-H, B)
-            auto headLit = getLiteralForAtom(*ith);
+            auto& headLit = getLiteralForAtom(*ith);
             vxy_sanity(headLit.variable != bodyInfo->lit.variable);
             vector clauses {headLit, bodyInfo->lit.inverted() };
             m_solver.makeConstraint<ClauseConstraint>(clauses);
         }
 
-        if (bodyInfo->isConstraint)
+        if (bodyInfo->isDisallowed)
         {
             // body can't be true
             vector invertedBody { bodyInfo->lit.inverted() };
@@ -75,6 +93,15 @@ void RuleDatabase::finalize()
     for (auto it = m_atoms.begin()+1, itEnd = m_atoms.end(); it != itEnd; ++it)
     {
         auto atomInfo = it->get();
+        if (atomInfo->id == m_factAtom)
+        {
+            auto& trueLit = getLiteralForAtom(atomInfo);
+            vxy_sanity(trueLit.values.size() == 2);
+            m_solver.getVariableDB()->setInitialValue(trueLit.variable, trueLit.values);
+
+            continue;
+        }
+
         // nogood(H, -B1, -B2, ...)
         m_nogoodBuilder.reserve(atomInfo->supports.size()+1);
         m_nogoodBuilder.add(getLiteralForAtom(atomInfo));
@@ -111,7 +138,7 @@ void RuleDatabase::NogoodBuilder::emit(ConstraintSolver& solver)
     m_literals.clear();
 }
 
-Literal RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
+const Literal& RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
 {
     if (atomInfo->equivalence.variable.isValid())
     {
@@ -121,7 +148,7 @@ Literal RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
 
     if (!atomInfo->variable.isValid())
     {
-        atomInfo->variable = m_solver.makeVariable({wstring::CtorSprintf(), TEXT("atom-%d"), atomInfo->id.value}, booleanVariableDomain);
+        atomInfo->variable = m_solver.makeVariable(atomInfo->name, booleanVariableDomain);
     }
     atomInfo->equivalence = Literal(atomInfo->variable, TRUE_VALUE);
     return atomInfo->equivalence;
@@ -130,7 +157,7 @@ Literal RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
 Literal RuleDatabase::translateAtomLiteral(AtomLiteral lit)
 {
     auto atomInfo = getAtom(lit.id());
-    auto translatedLit = getLiteralForAtom(atomInfo);
+    auto& translatedLit = getLiteralForAtom(atomInfo);
     return lit.sign() ? translatedLit : translatedLit.inverted();
 }
 
@@ -228,7 +255,15 @@ void RuleDatabase::addRule(const TRuleDefinition<AtomID>& rule)
     else
     {
         vxy_sanity(normalized.getNumBodyElements() <= 1);
-        transformRule(TRuleHead(normalized.getHead()), normalized.getBodyElement(0));
+        if (normalized.getNumBodyElements() > 0)
+        {
+            transformRule(TRuleHead(normalized.getHead()), normalized.getBodyElement(0));
+        }
+        else
+        {
+            static RuleBody emptyBody = RuleBody::create(vector<AtomLiteral>{});
+            transformRule(normalized.getHead(), emptyBody);
+        }
     }
 }
 
@@ -283,8 +318,8 @@ void RuleDatabase::transformRule(const RuleHead& head, const RuleBody& body)
     }
     else
     {
-        vxy_sanity(head.heads.size() == 1);
-        simplifyAndEmitRule(head.heads[0], body);
+        vxy_sanity(head.heads.size() <= 1);
+        simplifyAndEmitRule(head.heads.empty() ? AtomID() : head.heads[0], body);
     }
 }
 
@@ -302,7 +337,8 @@ void RuleDatabase::transformChoice(const RuleHead& head, const RuleBody& body)
 
     for (int i = 0; i < head.heads.size(); ++i)
     {
-        AtomID choiceAtom = createAtom();
+        wstring choiceAtomName; choiceAtomName.append_sprintf(TEXT("off-%s"), getAtom(head.heads[i])->name.c_str());
+        AtomID choiceAtom = createAtom(choiceAtomName.c_str());
         TRuleBodyElement<AtomLiteral> extBody = body;
         extBody.values.push_back(choiceAtom.neg());
         simplifyAndEmitRule(head.heads[i], extBody);
@@ -312,14 +348,9 @@ void RuleDatabase::transformChoice(const RuleHead& head, const RuleBody& body)
 
 void RuleDatabase::transformDisjunction(const RuleHead& head, const RuleBody& body)
 {
-    vxy_sanity(head.type != ERuleHeadType::Choice);
-    vxy_sanity(!body.isSum);
-
-    if (head.heads.size() <= 1)
-    {
-        simplifyAndEmitRule(head.heads.empty() ? AtomID() : head.heads[0], body);
-        return;
-    }
+    vxy_assert(head.type != ERuleHeadType::Choice);
+    vxy_assert(!body.isSum);
+    vxy_assert(head.heads.size() > 1);
 
     // For each head:
     // Hi <- <body> /\ {not Hn | n != i}
@@ -371,27 +402,37 @@ bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
     // remove duplicates
     // silently discard rule if it is self-contradicting (p and -p)
     RuleBody newBody = body;
-    for (auto it = newBody.values.begin(), itEnd = newBody.values.end(); it != itEnd; ++it)
+    if (newBody.values.empty())
+    {
+        // Empty body means this is a fact. Set the body to the fact atom, which is always true.
+        newBody.values.push_back(getFactAtom().pos());
+    }
+
+    for (auto it = newBody.values.begin(); it != newBody.values.end(); ++it)
     {
         AtomLiteral cur = *it;
         if (!isLiteralPossible(cur))
         {
+            // body impossible, no need to add rule.
             return false;
         }
 
+        // remove duplicates of the same atom
         auto next = it+1;
-        while (next != itEnd)
+        while (true)
         {
-            next = find(next, itEnd, cur);
-            if (next != itEnd)
+            next = find(next, newBody.values.end(), cur);
+            if (next == newBody.values.end())
             {
-                next = newBody.values.erase_unsorted(next);
+                break;
             }
+            next = newBody.values.erase_unsorted(next);
         }
 
         AtomLiteral inversed = cur.inverted();
-        if (find(it+1, itEnd, inversed) != itEnd)
+        if (contains(next, newBody.values.end(), inversed))
         {
+            // body contains an atom and its inverse == impossible to satisfy, no need to add rule.
             return false;
         }
     }
@@ -408,7 +449,7 @@ bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
     }
     else
     {
-        newBodyInfo->isConstraint = true;
+        newBodyInfo->isDisallowed = true;
     }
 
     // Link each positive atom in the body to the body depending on it.
@@ -497,6 +538,16 @@ bool RuleDatabase::BodyHasher::compareBodies(const RuleBody& lbody, const RuleBo
     return true;
 }
 
+AtomID RuleDatabase::getFactAtom()
+{
+    if (m_factAtom.isValid())
+    {
+        return m_factAtom;
+    }
+    m_factAtom = createAtom(TEXT("<true-fact>"));
+    return m_factAtom;
+}
+
 AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
 {
     auto found = m_atomMap.find(equivalence);
@@ -538,7 +589,7 @@ AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
         return foundID;
     }
 
-    wstring name(wstring::CtorSprintf(), TEXT("atom-%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
+    wstring name(wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
     AtomID newAtom = createAtom(name.c_str());
 
     m_atomMap[equivalence] = newAtom;
@@ -565,7 +616,7 @@ AtomLiteral RuleDatabase::createAtom(const Literal& lit, const wchar_t* name)
     wstring sname;
     if (name == nullptr)
     {
-        sname = {wstring::CtorSprintf(), TEXT("atom-%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(lit.variable).c_str(), lit.values.toString().c_str()};
+        sname = {wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(lit.variable).c_str(), lit.values.toString().c_str()};
         name = sname.c_str();
     }
 
@@ -584,7 +635,7 @@ AtomID RuleDatabase::createAtom(const wchar_t* name)
     m_atoms.push_back(make_unique<AtomInfo>(newAtom));
     if (name == nullptr)
     {
-        m_atoms.back()->name.sprintf(TEXT("atom-%d"), newAtom.value);
+        m_atoms.back()->name.sprintf(TEXT("atom%d"), newAtom.value);
     }
     else
     {
@@ -701,9 +752,8 @@ void RuleDatabase::computeSCCs()
         {
             // there is a loop in the positive dependency graph, so problem is non-tight.
             m_isTight = false;
+            ++nextSCC;
         }
-
-        ++nextSCC;
     };
 
     m_tarjan.findStronglyConnectedComponents(m_atoms.size()-1 + m_bodies.size(),
@@ -760,7 +810,7 @@ GraphAtomLiteral RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topo
     wstring sname;
     if (name == nullptr)
     {
-        sname = {wstring::CtorSprintf(), TEXT("graphAtom-%d(%s)"), m_nextGraphAtomID, relation->toString().c_str()};
+        sname = {wstring::CtorSprintf(), TEXT("graphAtom%d(%s)"), m_nextGraphAtomID, relation->toString().c_str()};
         name = sname.c_str();
     }
 
@@ -784,7 +834,7 @@ GraphAtomID RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topology,
     wstring sname;
     if (name == nullptr)
     {
-        sname = {wstring::CtorSprintf(), TEXT("graphAtom-%d"), newAtom.value};
+        sname = {wstring::CtorSprintf(), TEXT("graphAtom%d"), newAtom.value};
         name = sname.c_str();
     }
 
