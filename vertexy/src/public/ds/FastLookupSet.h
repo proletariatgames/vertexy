@@ -22,6 +22,14 @@ public:
 		m_inSet.resize(indexReserve, 0);
 	}
 
+	TFastLookupSet(TFastLookupSet&& other) noexcept
+		: m_inSet(move(other.m_inSet))
+		, m_elements(move(other.m_elements))
+		, m_curStamp(other.m_curStamp)
+		, m_indexer(move(other.m_indexer))
+	{
+	}
+
 	void reserve(int amt)
 	{
 		m_elements.reserve(amt);
@@ -55,6 +63,26 @@ public:
 		}
 	}
 
+	TFastLookupSet& operator=(const TFastLookupSet& rhs)
+	{
+		m_inSet = rhs.m_inSet;
+		m_elements = rhs.m_elements;
+		m_curStamp = rhs.m_curStamp;
+		m_indexer = rhs.m_indexer;
+
+		return *this;
+	}
+
+	TFastLookupSet& operator=(TFastLookupSet&& rhs) noexcept
+	{
+		m_inSet = move(rhs.m_inSet);
+		m_elements = move(rhs.m_elements);
+		m_curStamp = rhs.m_curStamp;
+		m_indexer = move(rhs.m_indexer);
+
+		return *this;
+	}
+
 	inline bool empty() const { return m_elements.empty(); }
 
 	inline bool contains(const T& val) const
@@ -77,7 +105,7 @@ public:
 		quick_sort(m_elements.begin(), m_elements.end(), predicate);
 	}
 
-	void add(T val)
+	void add(const T& val)
 	{
 		if (!contains(val))
 		{
@@ -86,7 +114,7 @@ public:
 		}
 	}
 
-	void remove(T val)
+	void remove(const T& val)
 	{
 		if (contains(val))
 		{
@@ -94,6 +122,45 @@ public:
 			m_elements.erase_first_unsorted(val);
 		}
 	}
+
+	template<typename Pred>
+	void removeIf(Pred&& pred)
+	{
+		auto insert = m_elements.begin();
+		for (auto it = insert, itEnd = m_elements.end(); it != itEnd; ++it)
+		{
+			if (!pred(*it))
+			{
+				swap(*insert, *it);
+				++insert;
+			}
+			else
+			{
+				m_inSet[m_indexer(*it)] = 0;
+			}
+		}
+		m_elements.erase(insert, m_elements.end());
+	}
+
+	void removeAt(int index)
+	{
+		vxy_sanity(m_inSet[m_indexer(m_elements[index])]);
+		m_inSet[m_indexer(m_elements[index])] = 0;
+		m_elements.erase_unsorted(m_elements.begin()+index);
+	}
+
+	T pop()
+	{
+		T val = m_elements.back();
+		vxy_sanity(m_inSet[m_indexer(val)]);
+		m_inSet[m_indexer(val)] = 0;
+		m_elements.pop_back();
+
+		return val;
+	}
+
+	inline T& back() { return m_elements.back(); }
+	inline const T& back() const { return m_elements.back(); }
 
 	inline int size() const { return m_elements.size(); }
 
@@ -103,7 +170,7 @@ public:
 	inline auto end() const { return m_elements.end(); }
 
 	inline T& operator[](int i) { return m_elements[i]; }
-	inline T operator[](int i) const { return m_elements[i]; }
+	inline const T& operator[](int i) const { return m_elements[i]; }
 
 protected:
 	inline void markContained(T val)
@@ -121,8 +188,8 @@ protected:
 		m_inSet[ival] = m_curStamp;
 	}
 
-	vector<uint32_t> m_inSet;
-	vector<int> m_elements;
+	vector<uint8_t> m_inSet;
+	vector<T> m_elements;
 	uint32_t m_curStamp = 1;
 	mutable ToIndexType m_indexer;
 };

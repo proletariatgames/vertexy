@@ -170,6 +170,11 @@ public:
 		return value >= 0 && value < values.size() ? values[value] : false;
 	}
 
+	inline bool anyPossible(const Literal& lit) const
+	{
+		return anyPossible(lit.variable, lit.values);
+	}
+
 	template <typename T, int N>
 	inline bool anyPossible(VarID varID, const TValueBitset<T, N>& values) const
 	{
@@ -187,6 +192,11 @@ public:
 	{
 		vxy_assert(varID.isValid());
 		return getPotentialValues(varID).lastIndexOf(true);
+	}
+
+	inline bool excludeValues(const Literal& literalToExclude, IConstraint* origin, ExplainerFunction explainer=nullptr)
+	{
+		return excludeValues(literalToExclude.variable, literalToExclude.values, origin, explainer);
 	}
 
 	template <typename T, int N>
@@ -211,6 +221,11 @@ public:
 
 		unlockVariable(varID, removed, origin, move(explainer));
 		return checkContradiction(varID, origin, explainer);
+	}
+
+	inline bool constrainToValues(const Literal& literal, IConstraint* origin, ExplainerFunction explainer=nullptr)
+	{
+		return constrainToValues(literal.variable, literal.values, origin, explainer);
 	}
 
 	template <typename T, int N>

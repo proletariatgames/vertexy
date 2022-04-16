@@ -98,7 +98,7 @@ public:
 		--m_extendedInfo->lockCount;
 	}
 
-	void makeUnit(IVariableDatabase* db, int literalIndex);
+	bool makeUnit(IVariableDatabase* db, int literalIndex);
 
 	inline bool isLearned() const { return m_extendedInfo.get() && m_extendedInfo->isLearned; }
 

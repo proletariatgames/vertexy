@@ -90,7 +90,7 @@ bool IffConstraint::initialize(IVariableDatabase* db)
 	}
 	else if (lastSupport >= 0 && db->getPotentialValues(m_head).isSubsetOf(m_headValue))
 	{
-		if (!db->constrainToValues(m_body[lastSupport].variable, m_body[lastSupport].values, this))
+		if (!db->constrainToValues(m_body[lastSupport], this))
 		{
 			return false;
 		}
@@ -198,7 +198,7 @@ bool IffConstraint::propagate(IVariableDatabase* db)
 		}
 		else if (lastSupport >= 0 && curHeadValue.isSubsetOf(m_headValue))
 		{
-			if (!db->constrainToValues(m_body[lastSupport].variable, m_body[lastSupport].values, this))
+			if (!db->constrainToValues(m_body[lastSupport], this))
 			{
 				return false;
 			}
@@ -249,7 +249,7 @@ bool IffConstraint::propagateBodyTrue(IVariableDatabase* db, bool& outFullySatis
 			}
 		}
 
-		bool success = db->constrainToValues(m_body[mostRecentIndex].variable, m_body[mostRecentIndex].values, this);
+		bool success = db->constrainToValues(m_body[mostRecentIndex], this);
 		vxy_assert(!success);
 
 		return false;
@@ -257,7 +257,7 @@ bool IffConstraint::propagateBodyTrue(IVariableDatabase* db, bool& outFullySatis
 	else if (numSupports == 1)
 	{
 		// Last support MUST be true.
-		if (!db->constrainToValues(m_body[lastSupportIndex].variable, m_body[lastSupportIndex].values, this))
+		if (!db->constrainToValues(m_body[lastSupportIndex], this))
 		{
 			return false;
 		}
@@ -273,7 +273,7 @@ bool IffConstraint::propagateBodyFalse(IVariableDatabase* db, bool& outFullySati
 	{
 		auto& vals = db->getPotentialValues(m_body[i].variable);
 		outFullySatisfied = outFullySatisfied && !vals.anyPossible(m_body[i].values);
-		if (!db->excludeValues(m_body[i].variable, m_body[i].values, this))
+		if (!db->excludeValues(m_body[i], this))
 		{
 			return false;
 		}

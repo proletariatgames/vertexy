@@ -16,7 +16,7 @@ RuleDatabase::RuleDatabase(ConstraintSolver& solver)
     m_atoms.push_back(make_unique<AtomInfo>());
 }
 
-bool RuleDatabase::finalize()
+void RuleDatabase::finalize()
 {
     computeSCCs();
 
@@ -72,7 +72,7 @@ bool RuleDatabase::finalize()
     //
     // Go through each head, and constrain it to be false if ALL supporting bodies are false.
     //
-    for (auto it = m_atoms.begin(), itEnd = m_atoms.end(); it != itEnd; ++it)
+    for (auto it = m_atoms.begin()+1, itEnd = m_atoms.end(); it != itEnd; ++it)
     {
         auto atomInfo = it->get();
         // nogood(H, -B1, -B2, ...)
@@ -86,8 +86,6 @@ bool RuleDatabase::finalize()
         }
         m_nogoodBuilder.emit(m_solver);
     }
-
-    return true;
 }
 
 void RuleDatabase::NogoodBuilder::add(const Literal& lit)
@@ -734,7 +732,7 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
     else
     {
         auto refBodyInfo = m_bodies[node - (m_atoms.size()-1)].get();
-        // visit each atom (head) that this body is supporting.
+        // visit each head that this body is supporting.
         for (auto ith = refBodyInfo->heads.begin(), ithEnd = refBodyInfo->heads.end(); ith != ithEnd; ++ith)
         {
             visitor((*ith)->id.value-1);

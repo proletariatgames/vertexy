@@ -57,6 +57,8 @@ public:
     };
 
     explicit RuleDatabase(ConstraintSolver& solver);
+    RuleDatabase(const RuleDatabase&) = delete;
+    RuleDatabase(RuleDatabase&&) = delete;
 
     AtomID createAtom(const wchar_t* name=nullptr);
     AtomLiteral createAtom(const Literal& equivalence, const wchar_t* name=nullptr);
@@ -93,7 +95,8 @@ public:
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<Literal>& rule);
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<SignedClause>& rule);
 
-    bool finalize();
+    void finalize();
+    bool isTight() const { return m_isTight; }
 
     int getNumAtoms() const { return m_atoms.size(); }
     const AtomInfo* getAtom(AtomID id) const { vxy_assert(id.isValid()); return m_atoms[id.value].get(); }

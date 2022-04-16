@@ -167,7 +167,7 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 	// Remove any literals that are impossible
 	for (int i = 0; i < m_numLiterals;)
 	{
-		if (db->anyPossible(m_literals[i].variable, m_literals[i].values))
+		if (db->anyPossible(m_literals[i]))
 		{
 			++i;
 		}
@@ -190,7 +190,7 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 	return true;
 }
 
-void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
+bool ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 {
 	vxy_assert(isLearned());
 
@@ -201,11 +201,11 @@ void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 		{
 			continue;
 		}
-		vxy_assert(!db->anyPossible(m_literals[i].variable, m_literals[i].values));
+		vxy_assert(!db->anyPossible(m_literals[i]));
 	}
 	#endif
-	bool success = db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this);
-	vxy_assert(success);
+
+	return db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this);
 }
 
 void ClauseConstraint::reset(IVariableDatabase* db)
@@ -274,7 +274,7 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 	#if SANITY_CHECK
 	for (int i = 0; i < m_numLiterals; ++i)
 	{
-		vxy_assert(i == otherIndex || !db->anyPossible(m_literals[i].variable, m_literals[i].values));
+		vxy_assert(i == otherIndex || !db->anyPossible(m_literals[i]));
 	}
 	#endif
 
@@ -313,12 +313,12 @@ void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)
 
 	if (litIndex < 2 && litIndex < m_numLiterals)
 	{
-		if (!db->anyPossible(m_literals[litIndex].variable, m_literals[litIndex].values))
+		if (!db->anyPossible(m_literals[litIndex]))
 		{
 			// attempt to keep both two watched literals positive
 			for (int j = 2; j < m_numLiterals; ++j)
 			{
-				if (db->anyPossible(m_literals[j].variable, m_literals[j].values))
+				if (db->anyPossible(m_literals[j]))
 				{
 					swap(m_literals[litIndex], m_literals[j]);
 					if (m_watches[litIndex] != INVALID_WATCHER_HANDLE)
@@ -368,7 +368,7 @@ bool ClauseConstraint::checkConflicting(IVariableDatabase* db) const
 {
 	for (int i = 0; i < m_numLiterals; ++i)
 	{
-		if (db->anyPossible(m_literals[i].variable, m_literals[i].values))
+		if (db->anyPossible(m_literals[i]))
 		{
 			return false;
 		}
