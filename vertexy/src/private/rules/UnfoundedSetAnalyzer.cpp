@@ -40,7 +40,10 @@ bool UnfoundedSetAnalyzer::initialize()
     {
         auto bodyInfo = ruleDB.getBody(bodyID);
         vxy_sanity(bodyID == bodyInfo->id);
-        initializeBodySupports(bodyInfo);
+        if (bodyInfo->isVariable())
+        {
+            initializeBodySupports(bodyInfo);
+        }
     }
 
     emptySourcePropagationQueue();
@@ -50,7 +53,7 @@ bool UnfoundedSetAnalyzer::initialize()
     {
         AtomID atomId(atomIdx);
         auto atomInfo = ruleDB.getAtom(atomId);
-        if (atomInfo->scc < 0)
+        if (atomInfo->scc < 0 || !atomInfo->isVariable())
         {
             // TODO: pre-prune rule database to only atoms in SCC
             continue;
@@ -67,7 +70,7 @@ bool UnfoundedSetAnalyzer::initialize()
     for (int bodyIdx = 0; bodyIdx < m_bodyData.size(); ++bodyIdx)
     {
         const BodyInfo* bodyInfo = ruleDB.getBody(bodyIdx);
-        if (!db->anyPossible(bodyInfo->lit))
+        if (!bodyInfo->isVariable() || !db->anyPossible(bodyInfo->lit))
         {
             continue;
         }
@@ -76,7 +79,7 @@ bool UnfoundedSetAnalyzer::initialize()
         const bool canSupport = containsPredicate(bodyInfo->heads.begin(), bodyInfo->heads.end(),
             [&](const AtomInfo* headInfo)
             {
-                return headInfo->scc >= 0;
+                return headInfo->isVariable() && headInfo->scc >= 0;
             }
         );
 
@@ -163,6 +166,11 @@ bool UnfoundedSetAnalyzer::findUnfoundedSet(AtomLookupSet& outSet)
         for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
         {
             const AtomInfo* headInfo = *it2;
+            if (!headInfo->isVariable())
+            {
+                continue;
+            }
+
             AtomData& headData = m_atomData[headInfo->id.value];
 
             if (headData.source == bodyInfo->id)
@@ -280,6 +288,11 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourc
         for (auto it = headInfo->supports.begin(), itEnd = headInfo->supports.end(); it != itEnd; ++it)
         {
             const BodyInfo* bodyInfo = *it;
+            if (!bodyInfo->isVariable())
+            {
+                continue;
+            }
+
             const BodyData& bodyData = m_bodyData[bodyInfo->id];
 
             // If there was a source body, findNewSource should've found one!
@@ -301,6 +314,11 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourc
                 }
 
                 const AtomInfo* bodyLitInfo = rdb.getAtom(itv->id());
+                if (!bodyLitInfo->isVariable())
+                {
+                    continue;
+                }
+
                 if (bodyLitInfo->scc != bodyInfo->scc)
                 {
                     continue;
@@ -338,6 +356,10 @@ bool UnfoundedSetAnalyzer::findNewSource(const AtomInfo* headInfo)
     for (auto it = headInfo->supports.begin(), itEnd = headInfo->supports.end(); it != itEnd; ++it)
     {
         const BodyInfo* bodyInfo = *it;
+        if (!bodyInfo->isVariable())
+        {
+            continue;
+        }
         const BodyData& bodyData = m_bodyData[bodyInfo->id];
 
         // Can support if this body is in a different SCC, or the same SCC but all its literals are sourced
@@ -445,6 +467,10 @@ UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(c
         for (auto it = atomInfo->supports.begin(), itEnd = atomInfo->supports.end(); it != itEnd; ++it)
         {
             const BodyInfo* bodyInfo = *it;
+            if (!bodyInfo->isVariable())
+            {
+                continue;
+            }
             vxy_sanity(bodyInfo->scc != scc || m_bodyData[bodyInfo->id].numUnsourcedLits > 0 || !db.anyPossible(bodyInfo->lit));
 
             bool bExternal = true;
@@ -516,7 +542,7 @@ void UnfoundedSetAnalyzer::initializeBodySupports(const BodyInfo* bodyInfo)
     for (auto it = bodyInfo->heads.begin(), itEnd = bodyInfo->heads.end(); it != itEnd; ++it)
     {
         AtomInfo* headInfo = *it;
-        if (headInfo->scc != bodyInfo->scc && db->anyPossible(headInfo->equivalence))
+        if (headInfo->isVariable() && headInfo->scc != bodyInfo->scc && db->anyPossible(headInfo->equivalence))
         {
             setSource(headInfo, bodyInfo->id);
             m_sourcePropagationQueue.push_back(headInfo);
@@ -527,6 +553,8 @@ void UnfoundedSetAnalyzer::initializeBodySupports(const BodyInfo* bodyInfo)
 void UnfoundedSetAnalyzer::setSource(const AtomInfo* atomInfo, int32_t bodyId)
 {
     vxy_assert(!hasValidSource(atomInfo->id));
+    vxy_assert(atomInfo->isVariable());
+    vxy_assert(m_solver.getRuleDB().getBody(bodyId)->isVariable());
     vxy_sanity(m_solver.getVariableDB()->anyPossible(atomInfo->equivalence));
 
     AtomData& atomData = m_atomData[atomInfo->id.value];
@@ -545,6 +573,7 @@ void UnfoundedSetAnalyzer::emptySourcePropagationQueue()
     while (!m_sourcePropagationQueue.empty())
     {
         const AtomInfo* atomInfo = m_sourcePropagationQueue.back();
+        vxy_assert(atomInfo->isVariable());
         m_sourcePropagationQueue.pop_back();
 
         const AtomData& atomData = m_atomData[atomInfo->id.value];
@@ -564,10 +593,17 @@ void UnfoundedSetAnalyzer::propagateSourceAssignment(AtomID id)
     auto db = m_solver.getVariableDB();
 
     const AtomInfo* atomInfo = m_solver.getRuleDB().getAtom(id);
+    vxy_assert(atomInfo->isVariable());
+
     // for each body that includes this atom...
     for (auto it = atomInfo->positiveDependencies.begin(), itEnd = atomInfo->positiveDependencies.end(); it != itEnd; ++it)
     {
         const BodyInfo* bodyInfo = *it;
+        if (!bodyInfo->isVariable())
+        {
+            continue;
+        }
+
         if (bodyInfo->scc != atomInfo->scc)
         {
             continue;
@@ -586,6 +622,11 @@ void UnfoundedSetAnalyzer::propagateSourceAssignment(AtomID id)
             for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
             {
                 const AtomInfo* headAtomInfo = *it2;
+                if (!headAtomInfo->isVariable())
+                {
+                    continue;
+                }
+
                 if (!hasValidSource(headAtomInfo->id) && db->anyPossible(headAtomInfo->equivalence))
                 {
                     if constexpr (LOG_SOURCE_CHANGES)
@@ -603,10 +644,17 @@ void UnfoundedSetAnalyzer::propagateSourceAssignment(AtomID id)
 void UnfoundedSetAnalyzer::propagateSourceRemoval(AtomID id)
 {
     const AtomInfo* atomInfo = m_solver.getRuleDB().getAtom(id);
+    vxy_assert(atomInfo->isVariable());
+
     // for each body that includes this atom...
     for (auto it = atomInfo->positiveDependencies.begin(), itEnd = atomInfo->positiveDependencies.end(); it != itEnd; ++it)
     {
         const BodyInfo* bodyInfo = *it;
+        if (!bodyInfo->isVariable())
+        {
+            continue;
+        }
+
         if (bodyInfo->scc != atomInfo->scc)
         {
             continue;
@@ -623,6 +671,11 @@ void UnfoundedSetAnalyzer::propagateSourceRemoval(AtomID id)
             for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
             {
                 const AtomInfo* headAtomInfo = *it2;
+                if (!headAtomInfo->isVariable())
+                {
+                    continue;
+                }
+
                 AtomData& atomData = m_atomData[headAtomInfo->id.value];
                 if (atomData.source == bodyInfo->id && atomData.sourceIsValid)
                 {

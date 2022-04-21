@@ -130,9 +130,12 @@ void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IC
 			learned->lock();
 		}
 
-		for (auto& heuristic : m_solver->getDecisionHeuristics())
+		if (m_solver->m_heuristicsInitialized)
 		{
-			heuristic->onVariableAssignment(varID, info.potentialValues, m_lockedValues);
+			for (auto& heuristic : m_solver->getDecisionHeuristics())
+			{
+				heuristic->onVariableAssignment(varID, info.potentialValues, m_lockedValues);
+			}
 		}
 
 		if (m_solver->getOutputLog() != nullptr)

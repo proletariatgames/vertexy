@@ -18,30 +18,45 @@ public:
 
     struct BodyInfo;
 
+    enum class ETruthStatus : uint8_t
+    {
+        False,
+        True,
+        Undetermined
+    };
+
     struct AtomInfo
     {
         AtomInfo() {}
         AtomInfo(AtomID id) : id(id) {}
+
+        bool isVariable() const { return equivalence.variable.isValid(); }
 
         AtomID id;
         // name for debugging
         wstring name;
         // the strongly connected component ID this belongs to
         int scc = -1;
-        // the boolean variable corresponding to this atom, if created.
-        VarID variable = VarID::INVALID;
         // Optional equivalence to a constraint solver literal
         Literal equivalence;
         // Bodies this head relies on for support
         vector<BodyInfo*> supports;
-        // Bodies referring to this atom
+        // Bodies referring to this atom positively
         vector<BodyInfo*> positiveDependencies;
+        // Bodies referring to this atom negatively
+        vector<BodyInfo*> negativeDependencies;
+        // the current truth status for this atom
+        ETruthStatus status = ETruthStatus::Undetermined;
+        // whether this atom is enqueued for early propagation
+        bool enqueued = false;
     };
 
     struct BodyInfo
     {
         BodyInfo() : id(-1) {}
         explicit BodyInfo(int id, const RuleBody& body) : id(id), body(body) {}
+
+        bool isVariable() const { return lit.variable.isValid(); }
 
         int32_t id;
         // the strongly connected component ID this belongs to.
@@ -52,8 +67,14 @@ public:
         RuleBody body;
         // heads relying on this body for (non)support
         vector<AtomInfo*> heads;
-        // Whether this body was specified as a constraint (body with no head)
-        bool isDisallowed = false;
+        // whether this body must not ever hold true
+        bool isNegativeConstraint = false;
+        // how many literals within the body that have not yet been assigned True status
+        int numUndeterminedTails = 0;
+        // the current truth status for this atom
+        ETruthStatus status = ETruthStatus::Undetermined;
+        // whether this atom is enqueued for early propagation
+        bool enqueued = false;
     };
 
     explicit RuleDatabase(ConstraintSolver& solver);
@@ -166,7 +187,7 @@ public:
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<Literal>& rule);
     // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<SignedClause>& rule);
 
-    void finalize();
+    bool finalize();
     bool isTight() const { return m_isTight; }
 
     int getNumAtoms() const { return m_atoms.size(); }
@@ -210,13 +231,13 @@ protected:
     class NogoodBuilder
     {
     public:
-        void clear() { m_literals.clear(); }
-        void reserve(int n) { m_literals.reserve(n); }
+        void clear() { literals.clear(); }
+        void reserve(int n) { literals.reserve(n); }
+        bool empty() const { return literals.empty(); }
         void add(const Literal& lit);
         void emit(ConstraintSolver& solver);
 
-    protected:
-        vector<Literal> m_literals;
+        vector<Literal> literals;
     };
 
     using GraphRelationList = vector<tuple<GraphLiteralRelationPtr, GraphAtomID>>;
@@ -230,11 +251,19 @@ protected:
     void transformDisjunction(const RuleHead& head, const RuleBody& body);
     bool simplifyAndEmitRule(AtomID head, const RuleBody& body);
 
+    bool setAtomStatus(AtomInfo* atom, ETruthStatus status);
+    bool setBodyStatus(BodyInfo* body, ETruthStatus status);
+    bool propagateFacts();
+    bool isLiteralAssumed(AtomLiteral literal) const;
+
+    bool emptyAtomQueue();
+    bool emptyBodyQueue();
+
+    bool synchronizeAtomVariable(const AtomInfo* atom);
+
     BodyInfo* findOrCreateBodyInfo(const RuleBody& body);
     const Literal& getLiteralForAtom(AtomInfo* atomInfo);
-    Literal translateAtomLiteral(AtomLiteral lit);
-
-    bool isLiteralPossible(AtomLiteral literal) const;
+    Literal instantiateAtomLiteral(AtomLiteral lit);
 
     vector<RuleBody> normalizeBody(const vector<AnyBodyElement>& elements);
     RuleBody normalizeBodyElement(const AnyBodyElement& element);
@@ -265,6 +294,10 @@ protected:
 
     // Maps clause relations to corresponding GraphAtom
     hash_map<shared_ptr<ITopology>, unique_ptr<GraphRelationList>> m_graphAtomMaps;
+
+    vector<AtomInfo*> m_atomsToPropagate;
+    vector<BodyInfo*> m_bodiesToPropagate;
+    bool m_conflict = false;
 
     NogoodBuilder m_nogoodBuilder;
     TarjanAlgorithm m_tarjan;

@@ -16,74 +16,113 @@ RuleDatabase::RuleDatabase(ConstraintSolver& solver)
     m_atoms.push_back(make_unique<AtomInfo>());
 }
 
-void RuleDatabase::finalize()
+bool RuleDatabase::finalize()
 {
-    computeSCCs();
+    if (!propagateFacts())
+    {
+        return false;
+    }
+
+    auto db = m_solver.getVariableDB();
 
     //
     // First go through each body, creating a boolean variable representing whether the body is satisfied,
     // and constraint that variable so it is true IFF all literals are true, and false IFF any literal is false.
     // Additionally, for each head attached to this body, constrain the head to be true if the body variable is true.
     //
-    int i = 0;
-    for (auto it = m_bodies.begin(), itEnd = m_bodies.end(); it != itEnd; ++it, ++i)
+    for (auto it = m_bodies.begin(), itEnd = m_bodies.end(); it != itEnd; ++it)
     {
         auto bodyInfo = it->get();
+        if (bodyInfo->status != ETruthStatus::Undetermined)
+        {
+            continue;
+        }
+
         vxy_assert(!bodyInfo->body.isSum);
         vxy_assert(!bodyInfo->lit.variable.isValid());
 
         // Create a new boolean variable representing the body and constrain it.
         wstring bodyName;
         bodyName.append_sprintf(TEXT("body-%d["), bodyInfo->id);
+
+        m_nogoodBuilder.reserve(bodyInfo->body.values.size()+1);
         bool first = true;
         for (auto itv = bodyInfo->body.values.begin(), itvEnd = bodyInfo->body.values.end(); itv != itvEnd; ++itv)
         {
+            if (isLiteralAssumed(*itv))
+            {
+                // literal is always true, no need to include.
+                continue;
+            }
+
+            auto atomLit = instantiateAtomLiteral(*itv);
+            vxy_sanity(bodyInfo->lit.variable != atomLit.variable);
+            m_nogoodBuilder.add(atomLit);
+
             if (!first) bodyName.append(TEXT(","));
             first = false;
-
-            auto atomLit = translateAtomLiteral(*itv);
             bodyName.append_sprintf(TEXT("(%s=%s)"), m_solver.getVariableName(atomLit.variable).c_str(), atomLit.values.toString().c_str());
         }
+
+        vxy_assert(!m_nogoodBuilder.empty());
+
         bodyName += TEXT("]");
 
+        // create the solver variable for the body
         VarID boolVar = m_solver.makeVariable(bodyName, booleanVariableDomain);
         bodyInfo->lit = Literal(boolVar, TRUE_VALUE);
+        Literal invertedBodyLit = bodyInfo->lit.inverted();
 
-        m_nogoodBuilder.reserve(bodyInfo->body.values.size()+1);
-        for (auto itv = bodyInfo->body.values.begin(), itvEnd = bodyInfo->body.values.end(); itv != itvEnd; ++itv)
+        if (!db->getPotentialValues(invertedBodyLit.variable).isSubsetOf(invertedBodyLit.values))
         {
-            if (m_factAtom.isValid() && *itv == m_factAtom.pos())
+            for (int i = 0; i < m_nogoodBuilder.literals.size(); ++i)
+            {
+                auto& lit = m_nogoodBuilder.literals[i];
+                if (db->getPotentialValues(lit.variable).isSubsetOf(lit.values))
+                {
+                    continue;
+                }
+
+                // nogood(B, -Bv)
+                vector clauses { bodyInfo->lit.inverted(), m_nogoodBuilder.literals[i] };
+                m_solver.makeConstraint<ClauseConstraint>(clauses);
+            }
+        }
+
+        // nogood(-B, Bv1, Bv2, Bv3, ...)
+        if (db->getPotentialValues(bodyInfo->lit.variable).isSubsetOf(bodyInfo->lit.values))
+        {
+            m_nogoodBuilder.clear();
+        }
+        else
+        {
+            m_nogoodBuilder.add(bodyInfo->lit.inverted());
+            m_nogoodBuilder.emit(m_solver);
+        }
+
+        for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
+        {
+            if (isLiteralAssumed((*ith)->id.pos()))
             {
                 continue;
             }
 
-            auto atomLit = translateAtomLiteral(*itv);
-            m_nogoodBuilder.add(atomLit);
-
-            // nogood(B, -Bv)
-            vxy_sanity(bodyInfo->lit.variable != atomLit.variable);
-            vector clauses { bodyInfo->lit.inverted(), atomLit };
-            m_solver.makeConstraint<ClauseConstraint>(clauses);
-        }
-
-        // nogood(-B, Bv1, Bv2, Bv3, ...)
-        m_nogoodBuilder.add(bodyInfo->lit.inverted());
-        m_nogoodBuilder.emit(m_solver);
-
-        for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
-        {
             // nogood(-H, B)
             auto& headLit = getLiteralForAtom(*ith);
             vxy_sanity(headLit.variable != bodyInfo->lit.variable);
+
             vector clauses {headLit, bodyInfo->lit.inverted() };
             m_solver.makeConstraint<ClauseConstraint>(clauses);
         }
 
-        if (bodyInfo->isDisallowed)
+        if (bodyInfo->isNegativeConstraint)
         {
             // body can't be true
-            vector invertedBody { bodyInfo->lit.inverted() };
-            m_solver.makeConstraint<ClauseConstraint>(invertedBody);
+            if (!m_solver.getVariableDB()->excludeValues(bodyInfo->lit, nullptr))
+            {
+                m_conflict = true;
+                return false;
+            }
         }
     }
 
@@ -93,12 +132,15 @@ void RuleDatabase::finalize()
     for (auto it = m_atoms.begin()+1, itEnd = m_atoms.end(); it != itEnd; ++it)
     {
         auto atomInfo = it->get();
-        if (atomInfo->id == m_factAtom)
+        if (atomInfo->status != ETruthStatus::Undetermined)
         {
-            auto& trueLit = getLiteralForAtom(atomInfo);
-            vxy_sanity(trueLit.values.size() == 2);
-            m_solver.getVariableDB()->setInitialValue(trueLit.variable, trueLit.values);
+            continue;
+        }
 
+        vxy_assert(atomInfo->equivalence.variable.isValid());
+
+        if (isLiteralAssumed(atomInfo->id.neg()))
+        {
             continue;
         }
 
@@ -108,34 +150,57 @@ void RuleDatabase::finalize()
         for (auto itb = atomInfo->supports.begin(), itbEnd = atomInfo->supports.end(); itb != itbEnd; ++itb)
         {
             auto bodyInfo = *itb;
+            // we should've been marked trivially true if one of our supports was,
+            // or it should've been removed as a support if it is trivially false.
+            vxy_assert(bodyInfo->status == ETruthStatus::Undetermined);
             vxy_sanity(bodyInfo->lit.variable.isValid());
+
+            if (db->getPotentialValues(bodyInfo->lit.variable).isSubsetOf(bodyInfo->lit.values))
+            {
+                // body can never be false, so no need to include it.
+                continue;
+            }
+
+            // if the body is false, it cannot support us
             m_nogoodBuilder.add(bodyInfo->lit.inverted());
         }
         m_nogoodBuilder.emit(m_solver);
     }
+
+    if (!m_conflict)
+    {
+        computeSCCs();
+    }
+
+    return !m_conflict;
 }
 
 void RuleDatabase::NogoodBuilder::add(const Literal& lit)
 {
-    auto found = find_if(m_literals.begin(), m_literals.end(), [&](auto& t)
+    auto found = find_if(literals.begin(), literals.end(), [&](auto& t)
     {
         return t.variable == lit.variable;
     });
 
-    if (found != m_literals.end())
+    if (found != literals.end())
     {
-        found->values.exclude(lit.values);
+        found->values.include(lit.values);
     }
     else
     {
-        m_literals.push_back(lit.inverted());
+        literals.push_back(lit);
     }
 }
 
 void RuleDatabase::NogoodBuilder::emit(ConstraintSolver& solver)
 {
-    solver.makeConstraint<ClauseConstraint>(m_literals);
-    m_literals.clear();
+    for (auto& lit : literals)
+    {
+        lit = lit.inverted();
+    }
+
+    solver.makeConstraint<ClauseConstraint>(literals);
+    literals.clear();
 }
 
 const Literal& RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
@@ -146,15 +211,12 @@ const Literal& RuleDatabase::getLiteralForAtom(AtomInfo* atomInfo)
         return atomInfo->equivalence;
     }
 
-    if (!atomInfo->variable.isValid())
-    {
-        atomInfo->variable = m_solver.makeVariable(atomInfo->name, booleanVariableDomain);
-    }
-    atomInfo->equivalence = Literal(atomInfo->variable, TRUE_VALUE);
+    VarID var = m_solver.makeVariable(atomInfo->name, booleanVariableDomain);
+    atomInfo->equivalence = Literal(var, TRUE_VALUE);
     return atomInfo->equivalence;
 }
 
-Literal RuleDatabase::translateAtomLiteral(AtomLiteral lit)
+Literal RuleDatabase::instantiateAtomLiteral(AtomLiteral lit)
 {
     auto atomInfo = getAtom(lit.id());
     auto& translatedLit = getLiteralForAtom(atomInfo);
@@ -371,49 +433,52 @@ void RuleDatabase::transformSum(AtomID head, const RuleBody& sumBody)
     vxy_fail_msg("NYI");
 }
 
-bool RuleDatabase::isLiteralPossible(AtomLiteral literal) const
+bool RuleDatabase::isLiteralAssumed(AtomLiteral literal) const
 {
-    const AtomInfo* atomInfo = getAtom(literal.id());
-    if (atomInfo->equivalence.variable.isValid())
+    auto atom = getAtom(literal.id());
+    if ((literal.sign() && atom->status == ETruthStatus::False) ||
+        (!literal.sign() && atom->status == ETruthStatus::True))
     {
-        SolverVariableDatabase* db = m_solver.getVariableDB();
-        const ValueSet& values = m_solver.getVariableDB()->getPotentialValues(atomInfo->equivalence.variable);
-        if ((literal.sign() && !values.anyPossible(atomInfo->equivalence.values)) ||
-            (!literal.sign() && !values.anyPossible(atomInfo->equivalence.values.inverted())))
+        vxy_fail(); // we should've failed due to conflict already
+        return false;
+    }
+
+    if (atom->status != ETruthStatus::Undetermined)
+    {
+        return true;
+    }
+
+    if (atom->equivalence.variable.isValid())
+    {
+        auto db = m_solver.getVariableDB();
+        if (literal.sign() && db->getPotentialValues(atom->equivalence.variable).isSubsetOf(atom->equivalence.values))
         {
-            return false;
+            return true;
+        }
+        else if (!literal.sign() && !db->getPotentialValues(atom->equivalence.variable).anyPossible(atom->equivalence.values))
+        {
+            return true;
         }
     }
 
-    // No variable created yet, so we can assume possible.
-    return true;
+    return false;
 }
 
 bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
 {
     vxy_assert(!body.isSum);
 
-    // silently discard rule if head is initially false
-    if (head.isValid() && !isLiteralPossible(head.pos()))
-    {
-        return false;
-    }
-
     // remove duplicates
     // silently discard rule if it is self-contradicting (p and -p)
     RuleBody newBody = body;
-    if (newBody.values.empty())
-    {
-        // Empty body means this is a fact. Set the body to the fact atom, which is always true.
-        newBody.values.push_back(getFactAtom().pos());
-    }
-
     for (auto it = newBody.values.begin(); it != newBody.values.end(); ++it)
     {
         AtomLiteral cur = *it;
-        if (!isLiteralPossible(cur))
+
+        AtomLiteral inversed = cur.inverted();
+        if (contains(it+1, newBody.values.end(), inversed))
         {
-            // body impossible, no need to add rule.
+            // body contains an atom and its inverse == impossible to satisfy, no need to add rule.
             return false;
         }
 
@@ -428,13 +493,14 @@ bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
             }
             next = newBody.values.erase_unsorted(next);
         }
+    }
 
-        AtomLiteral inversed = cur.inverted();
-        if (contains(next, newBody.values.end(), inversed))
-        {
-            // body contains an atom and its inverse == impossible to satisfy, no need to add rule.
-            return false;
-        }
+    bool isFact = false;
+    if (body.values.empty())
+    {
+        // Empty input body means this is a fact. Set the body to the fact atom, which is always true.
+        newBody.values.push_back(getFactAtom().pos());
+        isFact = true;
     }
 
     // create the BodyInfo (or return the existing one if this is a duplicate)
@@ -446,19 +512,26 @@ bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
         auto headInfo = getAtom(head);
         headInfo->supports.push_back(newBodyInfo);
         newBodyInfo->heads.push_back(headInfo);
+
+        if (isFact)
+        {
+            setAtomStatus(headInfo, ETruthStatus::True);
+        }
     }
     else
     {
-        newBodyInfo->isDisallowed = true;
+        // this body has no head, so it should never hold true.
+        newBodyInfo->isNegativeConstraint = true;
     }
 
-    // Link each positive atom in the body to the body depending on it.
+    // Link each atom in the body to the body depending on it.
     for (auto it = newBody.values.begin(), itEnd = newBody.values.end(); it != itEnd; ++it)
     {
-        if (it->sign())
+        auto atomInfo = getAtom(it->id());
+        auto& deps = it->sign() ? atomInfo->positiveDependencies : atomInfo->negativeDependencies;
+        if (!contains(deps.begin(), deps.end(), newBodyInfo))
         {
-            auto atomInfo = getAtom(it->id());
-            atomInfo->positiveDependencies.push_back(newBodyInfo);
+            deps.push_back(newBodyInfo);
         }
     }
 
@@ -467,6 +540,8 @@ bool RuleDatabase::simplifyAndEmitRule(AtomID head, const RuleBody& body)
 
 RuleDatabase::BodyInfo* RuleDatabase::findOrCreateBodyInfo(const RuleBody& body)
 {
+    vxy_assert(!body.values.empty());
+
     int32_t hash = BodyHasher::hashBody(body);
     auto found = m_bodySet.find_range_by_hash(hash);
     for (auto it = found.first; it != found.second; ++it)
@@ -478,9 +553,11 @@ RuleDatabase::BodyInfo* RuleDatabase::findOrCreateBodyInfo(const RuleBody& body)
     }
 
     auto newBodyInfo = make_unique<BodyInfo>(m_bodies.size(), body);
+    newBodyInfo->numUndeterminedTails = body.values.size();
 
     m_bodySet.insert(hash, nullptr, newBodyInfo.get());
     m_bodies.push_back(move(newBodyInfo));
+
     return m_bodies.back().get();
 }
 
@@ -545,6 +622,8 @@ AtomID RuleDatabase::getFactAtom()
         return m_factAtom;
     }
     m_factAtom = createAtom(TEXT("<true-fact>"));
+
+    setAtomStatus(getAtom(m_factAtom), ETruthStatus::True);
     return m_factAtom;
 }
 
@@ -560,12 +639,22 @@ AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
     found = m_atomMap.find(inverted);
     if (found != m_atomMap.end())
     {
+        // flip the sign of the atom
         AtomID foundID = found->second;
         AtomInfo* atomInfo = m_atoms[foundID.value].get();
         vxy_assert_msg(atomInfo->supports.size() == 0, "rule heads assigned with opposing values?");
 
         atomInfo->equivalence = equivalence;
-        // replace all occurrences of this literal with the negation.
+        if (atomInfo->status == ETruthStatus::False)
+        {
+            atomInfo->status = ETruthStatus::True;
+        }
+        else if (atomInfo->status == ETruthStatus::True)
+        {
+            atomInfo->status = ETruthStatus::False;
+        }
+
+        // flip the sign in any bodies this atom appears in.
         for (auto& bodyPtr : m_bodies)
         {
             RuleBody& body = bodyPtr->body;
@@ -577,10 +666,12 @@ AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
                     if (it->sign())
                     {
                         getAtom(it->id())->positiveDependencies.push_back(bodyPtr.get());
+                        getAtom(it->id())->negativeDependencies.erase_first_unsorted(bodyPtr.get());
                     }
                     else
                     {
                         getAtom(it->id())->positiveDependencies.erase_first_unsorted(bodyPtr.get());
+                        getAtom(it->id())->negativeDependencies.push_back(bodyPtr.get());
                     }
                 }
             }
@@ -644,7 +735,6 @@ AtomID RuleDatabase::createAtom(const wchar_t* name)
 
     return newAtom;
 }
-
 
 vector<TRuleBodyElement<AtomLiteral>> RuleDatabase::normalizeBody(const vector<AnyBodyElement>& elements)
 {
@@ -789,6 +879,212 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
         }
     }
 }
+
+bool RuleDatabase::setAtomStatus(AtomInfo* atom, ETruthStatus status)
+{
+    vxy_assert(status != ETruthStatus::Undetermined);
+    if (atom->status != status)
+    {
+        if (atom->status == ETruthStatus::Undetermined)
+        {
+            atom->status = status;
+        }
+        else
+        {
+            m_conflict = true;
+            return false;
+        }
+
+        if (!atom->enqueued)
+        {
+            atom->enqueued = true;
+            m_atomsToPropagate.push_back(atom);
+        }
+    }
+    return true;
+}
+
+bool RuleDatabase::setBodyStatus(BodyInfo* body, ETruthStatus status)
+{
+    vxy_assert(status != ETruthStatus::Undetermined);
+    if (body->status != status)
+    {
+        if (body->status == ETruthStatus::Undetermined)
+        {
+            body->status = status;
+        }
+        else
+        {
+            m_conflict = true;
+            return false;
+        }
+
+        if (!body->enqueued)
+        {
+            body->enqueued = true;
+            m_bodiesToPropagate.push_back(body);
+        }
+    }
+    return true;
+}
+
+bool RuleDatabase::propagateFacts()
+{
+    // mark any atoms that have no supports as false.
+    for (auto& atom : m_atoms)
+    {
+        if (atom->id != m_factAtom && atom->supports.empty())
+        {
+            if (!setAtomStatus(atom.get(), ETruthStatus::False))
+            {
+                return false;
+            }
+        }
+    }
+
+    // propagate until we reach fixpoint.
+    while (!m_atomsToPropagate.empty() || !m_bodiesToPropagate.empty())
+    {
+        if (!emptyAtomQueue())
+        {
+            return false;
+        }
+
+        if (!emptyBodyQueue())
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool RuleDatabase::emptyAtomQueue()
+{
+    while (!m_atomsToPropagate.empty())
+    {
+        AtomInfo* atom = m_atomsToPropagate.back();
+        m_atomsToPropagate.pop_back();
+
+        vxy_assert(atom->enqueued);
+        atom->enqueued = false;
+
+        vxy_assert(atom->status != ETruthStatus::Undetermined);
+        if (!synchronizeAtomVariable(atom))
+        {
+            return false;
+        }
+
+        auto positiveSide = (atom->status == ETruthStatus::True) ? &atom->positiveDependencies : &atom->negativeDependencies;
+        auto negativeSide = (atom->status == ETruthStatus::True) ? &atom->negativeDependencies : &atom->positiveDependencies;
+
+        // For each body this atom is in positively, reduce that bodies' number of undeterminedTails.
+        // If all the body's tails (i.e. atoms that make up the body) are determined, we can mark the body as true.
+        for (auto it = positiveSide->begin(), itEnd = positiveSide->end(); it != itEnd; ++it)
+        {
+            BodyInfo* depBody = *it;
+            vxy_assert(depBody->numUndeterminedTails > 0);
+            depBody->numUndeterminedTails--;
+            if (depBody->numUndeterminedTails == 0)
+            {
+                if (!setBodyStatus(depBody, ETruthStatus::True))
+                {
+                    return false;
+                }
+            }
+        }
+
+        // for each body this atom is in negatively, falsify the body
+        for (auto it = negativeSide->begin(), itEnd = negativeSide->end(); it != itEnd; ++it)
+        {
+            BodyInfo* depBody = *it;
+            vxy_assert(depBody->numUndeterminedTails > 0);
+            depBody->numUndeterminedTails--;
+
+            if (!setBodyStatus(depBody, ETruthStatus::False))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool RuleDatabase::emptyBodyQueue()
+{
+    while (!m_bodiesToPropagate.empty())
+    {
+        BodyInfo* body = m_bodiesToPropagate.back();
+        m_bodiesToPropagate.pop_back();
+
+        vxy_assert(body->enqueued);
+        body->enqueued = false;
+
+        vxy_assert(body->status != ETruthStatus::Undetermined);
+
+        if (body->status == ETruthStatus::True)
+        {
+            // mark all heads of this body as true
+            for (auto it = body->heads.begin(), itEnd = body->heads.end(); it != itEnd; ++it)
+            {
+                if (!setAtomStatus(*it, ETruthStatus::True))
+                {
+                    return false;
+                }
+            }
+        }
+        else
+        {
+            // Remove this body from the list of each head's supports.
+            // If an atom no longer has any supports, it can be falsified.
+            for (auto it = body->heads.begin(), itEnd = body->heads.end(); it != itEnd; ++it)
+            {
+                AtomInfo* atom = *it;
+                vxy_assert(contains(atom->supports.begin(), atom->supports.end(), body));
+                atom->supports.erase_first_unsorted(body);
+                if (atom->supports.size() == 0)
+                {
+                    if (!setAtomStatus(atom, ETruthStatus::False))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+bool RuleDatabase::synchronizeAtomVariable(const AtomInfo* atom)
+{
+    vxy_assert(atom->status != ETruthStatus::Undetermined);
+    if (!atom->equivalence.variable.isValid())
+    {
+        // no variable created yet
+        return true;
+    }
+
+    if (atom->status == ETruthStatus::True)
+    {
+        if (!m_solver.getVariableDB()->constrainToValues(atom->equivalence, nullptr))
+        {
+            m_conflict = true;
+            return false;
+        }
+    }
+    else if (atom->status == ETruthStatus::False)
+    {
+        if (!m_solver.getVariableDB()->excludeValues(atom->equivalence, nullptr))
+        {
+            m_conflict = true;
+            return false;
+        }
+    }
+    return true;
+}
+
 
 GraphAtomLiteral RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topology, const RuleGraphRelation& equivalence, const wchar_t* name)
 {

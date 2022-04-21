@@ -187,32 +187,35 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
         EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
         solver.dumpStats(printVerbose);
 
-        int cx = 0, cy = 0;
-        do
+        if (solver.getCurrentStatus() == EConstraintSolverResult::Solved)
         {
-            int dx = -1, dy = -1;
-            for (int x1 = 0; x1 < boardSize; ++x1)
+            int cx = 0, cy = 0;
+            do
             {
-                for (int y1 = 0; y1 < boardSize; ++y1)
+                int dx = -1, dy = -1;
+                for (int x1 = 0; x1 < boardSize; ++x1)
                 {
-                    if (solver.isAtomTrue(moves[cx][cy][x1][y1]))
+                    for (int y1 = 0; y1 < boardSize; ++y1)
                     {
-                        dx = x1;
-                        dy = y1;
-                        goto next;
+                        if (solver.isAtomTrue(moves[cx][cy][x1][y1]))
+                        {
+                            dx = x1;
+                            dy = y1;
+                            goto next;
+                        }
                     }
                 }
-            }
 
-            next:
-            EATEST_VERIFY(dx >= 0 && dy >= 0);
-            if (printVerbose)
-            {
-                VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
-            }
-            cx = dx;
-            cy = dy;
-        } while (cx > 0 || cy > 0);
+                next:
+                EATEST_VERIFY(dx >= 0 && dy >= 0);
+                if (printVerbose)
+                {
+                    VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
+                }
+                cx = dx;
+                cy = dy;
+            } while (cx > 0 || cy > 0);
+        }
     }
 
     return nErrorCount;
@@ -322,22 +325,25 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
         EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
         solver.dumpStats(printVerbose);
 
-        int cx = 0, cy = 0;
-        do
+        if (solver.getCurrentStatus() == EConstraintSolverResult::Solved)
         {
-            int solved = solver.getSolvedValue(moves[cx][cy]);
-            int dx = solved%boardSize;
-            int dy = solved/boardSize;
-
-            next:
-            EATEST_VERIFY(dx >= 0 && dy >= 0);
-            if (printVerbose)
+            int cx = 0, cy = 0;
+            do
             {
-                VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
-            }
-            cx = dx;
-            cy = dy;
-        } while (cx > 0 || cy > 0);
+                int solved = solver.getSolvedValue(moves[cx][cy]);
+                int dx = solved%boardSize;
+                int dy = solved/boardSize;
+
+                next:
+                EATEST_VERIFY(dx >= 0 && dy >= 0);
+                if (printVerbose)
+                {
+                    VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
+                }
+                cx = dx;
+                cy = dy;
+            } while (cx > 0 || cy > 0);
+        }
     }
 
     return nErrorCount;

@@ -564,6 +564,7 @@ protected:
 
 	// Decision heuristic stack
 	vector<shared_ptr<ISolverDecisionHeuristic>> m_heuristicStack;
+	bool m_heuristicsInitialized = false;
 
 	// Policy for determining when we restart
 	RestartPolicyType m_restartPolicy;

@@ -761,7 +761,13 @@ int ConstraintSolver::getSolvedValue(VarID varID) const
 
 bool ConstraintSolver::isAtomTrue(AtomID atomID) const
 {
-	auto& lit = m_ruleDB.getAtom(atomID)->equivalence;
+	auto atomInfo = m_ruleDB.getAtom(atomID);
+	auto& lit = atomInfo->equivalence;
+	if (!lit.variable.isValid())
+	{
+		vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
+		return atomInfo->status == RuleDatabase::ETruthStatus::True;
+	}
 	auto& cur = m_variableDB.getPotentialValues(lit.variable);
 	return cur.isSubsetOf(lit.values);
 }
@@ -810,7 +816,12 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 		vxy_assert(m_currentStatus == EConstraintSolverResult::Uninitialized);
 
 		// create constraints for rules
-		m_ruleDB.finalize();
+		if (!m_ruleDB.finalize())
+		{
+			m_stats.endTime = TimeUtils::getSeconds();
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return m_currentStatus;
+		}
 
 		m_stats.numInitialConstraints = m_constraints.size();
 		m_numUserConstraints = m_stats.numInitialConstraints;
@@ -820,6 +831,7 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 		{
 			m_heuristicStack[i]->initialize();
 		}
+		m_heuristicsInitialized = true;
 
 		for (int i = 0; i < m_constraints.size(); ++i)
 		{
