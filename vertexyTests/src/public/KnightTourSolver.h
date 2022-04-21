@@ -17,7 +17,8 @@ class KnightTourSolver
     }
 
 public:
-    static int solve(int times, int boardSize, int seed, bool printVerbose=true);
+    static int solveAtomic(int times, int boardSize, int seed, bool printVerbose=true);
+    static int solvePacked(int times, int boardSize, int seed, bool printVerbose=true);
 };
 
 }

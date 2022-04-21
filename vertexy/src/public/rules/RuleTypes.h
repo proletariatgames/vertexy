@@ -173,6 +173,10 @@ public:
 
 using RuleGraphRelation = variant<GraphLiteralRelationPtr, GraphClauseRelationPtr>;
 
+using AnyLiteralType = variant<
+    AtomLiteral, SignedClause, Literal
+>;
+
 using AnyBodyElement = variant<
     TRuleBodyElement<AtomLiteral>,
     TRuleBodyElement<SignedClause>,

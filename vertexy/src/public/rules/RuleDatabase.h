@@ -76,6 +76,23 @@ public:
         addRule(TRule(TRuleHead(head), vbody));
     }
 
+    template<typename H>
+    void addRule(const H& head, const vector<AnyLiteralType>& body)
+    {
+        vector<AnyBodyElement> vbody;
+        vbody.reserve(body.size());
+        for (auto& b : body)
+        {
+            visit([&](auto&& typedB)
+            {
+                using B = decay_t<decltype(typedB)>;
+                vbody.push_back(TRuleBodyElement<B>::create(typedB));
+            }, b);
+        }
+
+        addRule(TRule(TRuleHead(head), vbody));
+    }
+
     template<typename H, typename B>
     void addRule(const H& head, const B& singleElementBody)
     {

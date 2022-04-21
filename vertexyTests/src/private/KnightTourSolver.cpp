@@ -18,7 +18,7 @@ using namespace VertexyTests;
 
 // Move a Knight on a chessboard so that it visits each cell exactly once, and ends up on the tile it started from.
 // See https://en.wikipedia.org/wiki/Knight%27s_tour
-int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbose)
+int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool printVerbose)
 {
     int nErrorCount = 0;
 
@@ -203,6 +203,131 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
                     }
                 }
             }
+
+            next:
+            EATEST_VERIFY(dx >= 0 && dy >= 0);
+            if (printVerbose)
+            {
+                VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
+            }
+            cx = dx;
+            cy = dy;
+        } while (cx > 0 || cy > 0);
+    }
+
+    return nErrorCount;
+}
+
+int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool printVerbose)
+{
+    int nErrorCount = 0;
+
+    ConstraintSolver solver(TEXT("KnightTour-Packed"), seed);
+    VERTEXY_LOG("KnightTour-Packed(%d)", solver.getSeed());
+
+    auto& rdb = solver.getRuleDB();
+
+    vector<vector<VarID>> moves;
+    moves.resize(boardSize);
+    vector<vector<vector<AtomID>>> valid;
+    valid.resize(boardSize);
+    vector<vector<AtomID>> reached;
+    reached.resize(boardSize);
+
+    vector<VarID> allMoves;
+
+    SolverVariableDomain moveDomain(0, boardSize*boardSize);
+    for (int x1 = 0; x1 < boardSize; ++x1)
+    {
+        valid[x1].resize(boardSize);
+        for (int y1 = 0; y1 < boardSize; ++y1)
+        {
+            wstring reachedName {wstring::CtorSprintf(), TEXT("reached(%d,%d)"), x1, y1};
+            reached[x1].push_back(rdb.createAtom(reachedName.c_str()));
+
+            wstring moveName {wstring::CtorSprintf(), TEXT("move(%d,%d)"), x1, y1};
+            moves[x1].push_back(solver.makeVariable(moveName, moveDomain));
+            allMoves.push_back(moves[x1].back());
+
+            valid[x1][y1].resize(boardSize*boardSize);
+
+            for (int x2 = 0; x2 < boardSize; ++ x2) for (int y2 = 0; y2 < boardSize; ++y2)
+            {
+                int pos2 = x2 + y2*boardSize;
+
+                wstring validName {wstring::CtorSprintf(), TEXT("valid(%d,%d,%d,%d)"), x1, y1, x2, y2};
+
+                valid[x1][y1][pos2] = rdb.createAtom(validName.c_str());
+                // { move(x1,y1,x2,y2) } <- valid(x1,y1,x2,y2).
+                rdb.addRule(TRuleHead(SignedClause(moves[x1][y1], {pos2}), ERuleHeadType::Choice), valid[x1][y1][pos2].pos());
+            }
+        }
+    }
+
+    auto markValidMove = [&](int x1, int y1, int x2, int y2)
+    {
+        if (x2 >= 0 && x2 < boardSize && y2 >= 0 && y2 < boardSize)
+        {
+            int offs = x2 + y2*boardSize;
+            rdb.addFact(valid[x1][y1][offs]);
+        }
+    };
+
+    for (int x = 0; x < boardSize; ++x)
+    {
+        for (int y = 0; y < boardSize; ++y)
+        {
+            markValidMove(x, y, x-1, y-2);
+            markValidMove(x, y, x-1, y+2);
+            markValidMove(x, y, x+1, y-2);
+            markValidMove(x, y, x+1, y+2);
+
+            markValidMove(x, y, x+2, y-1);
+            markValidMove(x, y, x+2, y+1);
+            markValidMove(x, y, x-2, y-1);
+            markValidMove(x, y, x-2, y+1);
+        }
+    }
+
+    solver.allDifferent(allMoves);
+
+    for (int x1 = 0; x1 < boardSize; ++x1)
+    {
+        for (int y1 = 0; y1 < boardSize; ++y1)
+        {
+            // reached(x1,y1) <- move(0,0,x1,y1).
+            int pos = x1 + y1*boardSize;
+            rdb.addRule(reached[x1][y1], SignedClause(moves[0][0], {pos}));
+
+            for (int x2 = 0; x2 < boardSize; ++x2)
+            {
+                for (int y2 = 0; y2 < boardSize; ++y2)
+                {
+                    // reached(x1,y1) <- reached(x2,y2), move(x2,y2,x1,y1).
+                    rdb.addRule(reached[x1][y1], vector<AnyLiteralType>{
+                        reached[x2][y2].pos(),
+                        SignedClause(moves[x2][y2], {pos})
+                    });
+                }
+            }
+
+            // :- reached(x1,y1).
+            rdb.disallow(reached[x1][y1].neg());
+        }
+    }
+
+    for (int time = 0; time < times; ++time)
+    {
+        solver.solve();
+        EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+        solver.dumpStats(printVerbose);
+
+        int cx = 0, cy = 0;
+        do
+        {
+            int solved = solver.getSolvedValue(moves[cx][cy]);
+            int dx = solved%boardSize;
+            int dy = solved/boardSize;
 
             next:
             EATEST_VERIFY(dx >= 0 && dy >= 0);

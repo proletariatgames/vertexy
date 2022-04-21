@@ -1259,7 +1259,7 @@ void ConstraintSolver::notifyVariableModification(VarID variable, IConstraint* c
 		m_variablePropagationQueue.emplace_back(constraint, variable, m_variableDB.getLastModificationTimestamp(variable));
 	}
 
-	if (LOG_VARIABLE_PROPAGATIONS && m_initialArcConsistencyEstablished)
+	if (LOG_VARIABLE_PROPAGATIONS)
 	{
 		VERTEXY_LOG("    %s -> %s", m_variableDB.getVariableName(variable).c_str(), m_variableDB.getPotentialValues(variable).toString().c_str());
 	}
