@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en-US">
+ 
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Icicles Visualization</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script type="text/javascript" src="icicles.js"></script>
+</head>
+ 
+<body>
+    <form>
+        <label for="fileUpload">Upload Solver Log</label>
+        <input type="file" id="fileUpload">
+    </form>
+    <div class="breadcrumb-container"></div>
+    <div class="icicle-container"></div>
+    <script>
+        document.getElementById("fileUpload").addEventListener("change", onFileUpload, false);
+    </script>
+</body>
+ 
+</html>
