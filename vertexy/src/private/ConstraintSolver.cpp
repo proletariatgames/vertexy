@@ -393,6 +393,7 @@ RuleDatabase& ConstraintSolver::getRuleDB()
 {
 	if (m_ruleDB == nullptr)
 	{
+		vxy_assert_msg(!m_initialArcConsistencyEstablished, "Cannot access rule database after solving has started!");
 		m_ruleDB = make_unique<RuleDatabase>(*this);
 	}
 	return *m_ruleDB.get();
@@ -739,7 +740,10 @@ bool ConstraintSolver::simplify()
 		}
 	}
 
-	VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+	if (numConstraintsRemoved > 0 || numLiteralsRemoved > 0)
+	{
+		VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+	}
 	return true;
 }
 
@@ -835,6 +839,9 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 				m_currentStatus = EConstraintSolverResult::Unsatisfiable;
 				return m_currentStatus;
 			}
+
+			// do we have any strongly-connected components in the rule dependency graph?
+			m_stats.nonTightRules = !m_ruleDB->isTight();
 
 			// store away atom lookups
 			m_atomValues.resize(m_ruleDB->getNumAtoms());

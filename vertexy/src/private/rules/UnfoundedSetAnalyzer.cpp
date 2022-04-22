@@ -28,7 +28,6 @@ UnfoundedSetAnalyzer::~UnfoundedSetAnalyzer()
 bool UnfoundedSetAnalyzer::initialize()
 {
     auto db = m_solver.getVariableDB();
-    RuleDatabase& ruleDB = m_solver.getRuleDB();
 
     vector<int32_t> atomOffsets, bodyOffsets;
     initializeData(atomOffsets, bodyOffsets);
@@ -412,7 +411,6 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(AtomData* lostSourceAtom,
     vxy_assert(!lostSourceAtom->sourceIsValid);
 
     auto db = m_solver.getVariableDB();
-    auto& rdb = m_solver.getRuleDB();
 
     auto& processQueue = outSet;
     processQueue.clear();
@@ -547,7 +545,6 @@ bool UnfoundedSetAnalyzer::findNewSource(AtomData* head)
 bool UnfoundedSetAnalyzer::excludeUnfoundedSet(vector<AtomData*>& set)
 {
     auto& db = *m_solver.getVariableDB();
-    auto& rdb = m_solver.getRuleDB();
 
     AssertionBuilder clause;
     while (!set.empty())
@@ -583,8 +580,6 @@ bool UnfoundedSetAnalyzer::excludeUnfoundedSet(vector<AtomData*>& set)
 
 bool UnfoundedSetAnalyzer::createNogoodForAtom(const AtomData* atomToFalsify, const vector<AtomData*>& unfoundedSet, const AssertionBuilder& clause)
 {
-    auto& rdb = m_solver.getRuleDB();
-
     vector<Literal> assertionLiterals = clause.getAssertion(*atomToFalsify->lit);
 
     // TODO: Graph relations
@@ -612,8 +607,6 @@ UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(c
     vxy_assert(!unfoundedSet.empty());
 
     auto& db = *m_solver.getVariableDB();
-    auto& rdb = m_solver.getRuleDB();
-
     AssertionBuilder clauseBuilder;
 
     // For each atom we're going to falsify...
@@ -685,7 +678,6 @@ SolverTimestamp UnfoundedSetAnalyzer::getAssertingTime(const Literal& lit) const
 void UnfoundedSetAnalyzer::initializeBodySupports(BodyData* body)
 {
     auto db = m_solver.getVariableDB();
-    auto& rdb = m_solver.getRuleDB();
 
     // if the body atom is already false, we can't ever act as a support.
     if (!db->anyPossible(body->variable, TRUE_VALUE))
