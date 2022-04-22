@@ -201,6 +201,7 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
                         {
                             dx = x1;
                             dy = y1;
+                            EATEST_VERIFY(solver.isAtomTrue(valid[cx][cy][dx][dy]));
                             goto next;
                         }
                     }
@@ -333,6 +334,7 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
                 int solved = solver.getSolvedValue(moves[cx][cy]);
                 int dx = solved%boardSize;
                 int dy = solved/boardSize;
+                EATEST_VERIFY(solver.isAtomTrue(valid[cx][cy][solved]));
 
                 next:
                 EATEST_VERIFY(dx >= 0 && dy >= 0);
