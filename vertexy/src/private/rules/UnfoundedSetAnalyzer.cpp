@@ -6,7 +6,9 @@
 
 using namespace Vertexy;
 
-static constexpr bool LOG_SOURCE_CHANGES = false;
+static const SolverVariableDomain booleanVariableDomain(0, 1);
+static const ValueSet FALSE_VALUE = booleanVariableDomain.getBitsetForValue(0);
+static const ValueSet TRUE_VALUE = booleanVariableDomain.getBitsetForValue(1);
 
 UnfoundedSetAnalyzer::UnfoundedSetAnalyzer(ConstraintSolver& solver)
     : m_solver(solver)
@@ -17,8 +19,7 @@ UnfoundedSetAnalyzer::~UnfoundedSetAnalyzer()
 {
     for (auto& sink : m_sinks)
     {
-        const BodyInfo* bodyInfo = m_solver.getRuleDB().getBody(sink->getBodyId());
-        m_solver.getVariableDB()->removeVariableWatch(bodyInfo->lit.variable, sink->getHandle(), sink.get());
+        m_solver.getVariableDB()->removeVariableWatch(sink->getBody()->variable, sink->getHandle(), sink.get());
         sink.reset();
     }
     m_sinks.clear();
@@ -29,89 +30,263 @@ bool UnfoundedSetAnalyzer::initialize()
     auto db = m_solver.getVariableDB();
     RuleDatabase& ruleDB = m_solver.getRuleDB();
 
-    m_atomData.resize(ruleDB.getNumAtoms());
-    m_bodyData.resize(ruleDB.getNumBodies());
+    vector<int32_t> atomOffsets, bodyOffsets;
+    initializeData(atomOffsets, bodyOffsets);
 
-    m_unfoundedSet.setIndexSize(ruleDB.getNumAtoms());
-    m_remainUnfoundedSet.setIndexSize(ruleDB.getNumAtoms());
-    m_needsNewSourceQueue.setIndexSize(ruleDB.getNumAtoms());
-
-    for (int bodyID = 0; bodyID < ruleDB.getNumBodies(); ++bodyID)
+    // Propagate initial non-cyclical supports to all atoms from external bodies
+    for (int i = 0; i < bodyOffsets.size(); ++i)
     {
-        auto bodyInfo = ruleDB.getBody(bodyID);
-        vxy_sanity(bodyID == bodyInfo->id);
-        if (bodyInfo->isVariable())
+        auto body = reinterpret_cast<BodyData*>(&m_bodyBuffer[bodyOffsets[i]]);
+        initializeBodySupports(body);
+
+        // watch for the body to be falsified
+        if (db->anyPossible(body->variable, TRUE_VALUE))
         {
-            initializeBodySupports(bodyInfo);
+            m_sinks.push_back(make_unique<Sink>(*this, body));
+            m_sinks.back()->setHandle(
+                db->addVariableValueWatch(body->variable, TRUE_VALUE, m_sinks.back().get())
+            );
         }
     }
-
+    // propagate initial body supports to any other bodies/atoms.
     emptySourcePropagationQueue();
 
     // Falsify any atoms that have no external support
-    for (int atomIdx = 1; atomIdx < m_atomData.size(); ++atomIdx)
+    for (int i = 0; i < atomOffsets.size(); ++i)
     {
-        AtomID atomId(atomIdx);
-        auto atomInfo = ruleDB.getAtom(atomId);
-        if (atomInfo->scc < 0 || !atomInfo->isVariable())
-        {
-            // TODO: pre-prune rule database to only atoms in SCC
-            continue;
-        }
+        auto atomData = reinterpret_cast<AtomData*>(&m_atomBuffer[atomOffsets[i]]);
+        vxy_assert(atomData->scc > 0);
 
-        if (!hasValidSource(atomId) &&
-            !db->excludeValues(atomInfo->equivalence, nullptr))
+        if (!atomData->sourceIsValid &&
+            !db->excludeValues(*atomData->lit, nullptr))
         {
             return false;
         }
     }
 
-    // Watch bodies that we need to maintain external support
-    for (int bodyIdx = 0; bodyIdx < m_bodyData.size(); ++bodyIdx)
+    return true;
+}
+
+void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vector<int32_t>& outBodyOffsets)
+{
+    auto& rdb = m_solver.getRuleDB();
+
+    auto visitBodyHeads = [](const RuleDatabase::BodyInfo* bodyInfo, auto&& callback)
     {
-        const BodyInfo* bodyInfo = ruleDB.getBody(bodyIdx);
-        if (!bodyInfo->isVariable() || !db->anyPossible(bodyInfo->lit))
+        for (RuleDatabase::AtomInfo* atomInfo : bodyInfo->heads)
+        {
+            if (atomInfo->isVariable())
+            {
+                callback(atomInfo);
+            }
+        }
+    };
+
+    auto visitBodyPositiveLits = [&](const RuleDatabase::BodyInfo* bodyInfo, auto&& callback)
+    {
+        for (AtomLiteral atomLit : bodyInfo->body.values)
+        {
+            if (atomLit.sign())
+            {
+                if (RuleDatabase::AtomInfo* atomInfo = rdb.getAtom(atomLit.id()); atomInfo->isVariable() &&
+                    atomInfo->scc >= 0 && atomInfo->scc == bodyInfo->scc)
+                {
+                    callback(atomInfo);
+                }
+            }
+        }
+    };
+
+    auto visitAtomSupports = [](const RuleDatabase::AtomInfo* atomInfo, auto&& callback)
+    {
+        for (RuleDatabase::BodyInfo* bodyInfo : atomInfo->supports)
+        {
+            if (bodyInfo->isVariable())
+            {
+                callback(bodyInfo);
+            }
+        }
+    };
+
+    auto visitAtomPositiveDeps = [](const RuleDatabase::AtomInfo* atomInfo, auto&& callback)
+    {
+        for (RuleDatabase::BodyInfo* bodyInfo : atomInfo->positiveDependencies)
+        {
+            if (bodyInfo->isVariable() &&
+                atomInfo->scc >= 0 && bodyInfo->scc == atomInfo->scc)
+            {
+                callback(bodyInfo);
+            }
+        }
+    };
+
+    //
+    // Determine required size for atom heap.
+    //
+
+    outAtomOffsets.clear();
+
+    vector<AtomID> relevantAtoms;
+    int32_t atomHeapSize = 0;
+
+    vector<int32_t> atomMapping;
+    atomMapping.resize(rdb.getNumAtoms(), -1);
+
+    for (int i = 1; i < rdb.getNumAtoms(); ++i)
+    {
+        const RuleDatabase::AtomInfo* atomInfo = rdb.getAtom(AtomID(i));
+        if (!atomInfo->isVariable() || atomInfo->scc < 0)
         {
             continue;
         }
 
-        // TODO: prune bodies that cannot support atoms outside of SCCs
+        int numDeps = 0;
+        visitAtomPositiveDeps(atomInfo, [&](auto) { ++numDeps; });
+
+        int numSupports = 0;
+        visitAtomSupports(atomInfo, [&](auto) { ++numSupports; });
+
+        atomMapping[i] = relevantAtoms.size();
+        relevantAtoms.push_back(AtomID(i));
+        outAtomOffsets.push_back(atomHeapSize);
+
+        constexpr int numSentinels = 2;
+        atomHeapSize += sizeof(AtomData) + numDeps*sizeof(int32_t) + numSupports*sizeof(int32_t) + numSentinels*sizeof(int32_t);
+    }
+    m_atomBuffer.resize(atomHeapSize);
+    m_atomLiterals.resize(relevantAtoms.size());
+
+    //
+    // Determine required size of body heap.
+    //
+
+    outBodyOffsets.clear();
+
+    vector<int32_t> relevantBodies;
+    int32_t bodyHeapSize = 0;
+
+    vector<int32_t> bodyMapping;
+    bodyMapping.resize(rdb.getNumBodies(), -1);
+
+    for (int i = 0; i < rdb.getNumBodies(); ++i)
+    {
+        const RuleDatabase::BodyInfo* bodyInfo = rdb.getBody(i);
+        if (!bodyInfo->isVariable())
+        {
+            continue;
+        }
+
         const bool canSupport = containsPredicate(bodyInfo->heads.begin(), bodyInfo->heads.end(),
-            [&](const AtomInfo* headInfo)
+            [&](auto headInfo)
             {
                 return headInfo->isVariable() && headInfo->scc >= 0;
             }
         );
-
-        // We only need to watch bodies that refer to atoms that have cyclic dependencies.
-        if (canSupport)
+        if (!canSupport)
         {
-            m_sinks.push_back(make_unique<Sink>(*this, bodyIdx));
-            m_sinks.back()->setHandle(
-                db->addVariableValueWatch(bodyInfo->lit.variable, bodyInfo->lit.values, m_sinks.back().get())
-            );
+            continue;
         }
+
+        int numHeads = 0;
+        visitBodyHeads(bodyInfo, [&](auto) { ++numHeads; });
+        int numTails = 0;
+        visitBodyPositiveLits(bodyInfo, [&](auto) { ++numTails; });
+
+        bodyMapping[i] = relevantBodies.size();
+        relevantBodies.push_back(i);
+        outBodyOffsets.push_back(bodyHeapSize);
+
+        constexpr int numSentinels = 2;
+        bodyHeapSize += sizeof(BodyData) + numHeads*sizeof(int32_t) + numTails*sizeof(int32_t) + numSentinels*sizeof(int32_t);
+    }
+    m_bodyBuffer.resize(bodyHeapSize);
+
+    //
+    // Create the atoms
+    //
+
+    for (int i = 0; i < relevantAtoms.size(); ++i)
+    {
+        AtomData* newAtom = new (&m_atomBuffer[outAtomOffsets[i]]) AtomData();
+        const RuleDatabase::AtomInfo* atomInfo = rdb.getAtom(relevantAtoms[i]);
+
+        m_atomLiterals[i] = atomInfo->equivalence;
+        newAtom->lit = &m_atomLiterals[i];
+        newAtom->source = -1;
+        newAtom->sourceIsValid = false;
+        newAtom->inUnfoundedSet = false;
+        newAtom->scc = atomInfo->scc+1;
+
+        int offs = 0;
+        visitAtomSupports(atomInfo, [&](auto bodyInfo)
+        {
+            vxy_assert(bodyMapping[bodyInfo->id] >= 0);
+            newAtom->data[offs++] = outBodyOffsets[bodyMapping[bodyInfo->id]];
+        });
+
+        newAtom->data[offs++] = SENTINEL;
+        newAtom->depsOffset = offs;
+
+        visitAtomPositiveDeps(atomInfo, [&](auto bodyInfo)
+        {
+            vxy_assert(bodyMapping[bodyInfo->id] >= 0);
+            newAtom->data[offs++] = outBodyOffsets[bodyMapping[bodyInfo->id]];
+        });
+
+        newAtom->data[offs] = SENTINEL;
     }
 
-    return true;
+    //
+    // Create the bodies
+    //
+
+    for (int i = 0; i < relevantBodies.size(); ++i)
+    {
+        BodyData* newBody = new (&m_bodyBuffer[outBodyOffsets[i]]) BodyData();
+        const RuleDatabase::BodyInfo* bodyInfo = rdb.getBody(relevantBodies[i]);
+        newBody->variable = bodyInfo->lit.variable;
+        newBody->scc = bodyInfo->scc+1;
+        newBody->numWatching = 0;
+        vxy_assert(newBody->variable.isValid());
+        vxy_sanity(bodyInfo->lit.values == TRUE_VALUE);
+
+        int offs = 0;
+        visitBodyHeads(bodyInfo, [&](auto atomInfo)
+        {
+            vxy_assert(atomMapping[atomInfo->id.value] >= 0);
+            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value]];
+        });
+
+        newBody->data[offs++] = SENTINEL;
+        newBody->valuesOffset = offs;
+
+        int numLits = 0;
+        visitBodyPositiveLits(bodyInfo, [&](auto atomInfo)
+        {
+            vxy_assert(atomMapping[atomInfo->id.value] >= 0);
+            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value]];
+            ++numLits;
+        });
+        newBody->numUnsourcedLits = numLits;
+
+        newBody->data[offs] = SENTINEL;
+    }
 }
 
 bool UnfoundedSetAnalyzer::Sink::onVariableNarrowed(IVariableDatabase* db, VarID var, const ValueSet& previousValue, bool& removeHandle)
 {
-    m_outer.onBodyFalsified(m_bodyId);
+    m_outer.onBodyFalsified(m_body);
     return true;
 }
 
-void UnfoundedSetAnalyzer::onBodyFalsified(int32_t bodyId)
+void UnfoundedSetAnalyzer::onBodyFalsified(BodyData* body)
 {
-    const BodyInfo* bodyInfo = m_solver.getRuleDB().getBody(bodyId);
-    vxy_sanity(!m_solver.getVariableDB()->anyPossible(bodyInfo->lit));
+    vxy_sanity(!m_solver.getVariableDB()->anyPossible(body->variable, TRUE_VALUE));
 
-    const BodyData& data = m_bodyData[bodyId];
-    if (data.numWatching > 0)
+    if (body->numWatching > 0)
     {
         // Add this to the queue, to be processed once propagation has hit fixpoint.
-        m_falseBodyQueue.push_back(bodyInfo);
+        m_falseBodyQueue.push_back(body);
     }
 }
 
@@ -121,7 +296,7 @@ void UnfoundedSetAnalyzer::onBacktrack()
     vxy_sanity(!containsPredicate(m_falseBodyQueue.begin(), m_falseBodyQueue.end(),
         [&](auto bodyInfo)
         {
-            return !m_solver.getVariableDB()->anyPossible(bodyInfo->lit);
+            return !m_solver.getVariableDB()->anyPossible(bodyInfo->variable, TRUE_VALUE);
         }
     ));
     m_falseBodyQueue.clear();
@@ -133,11 +308,18 @@ bool UnfoundedSetAnalyzer::analyze()
     // Attempt to repair sources, potentially returning an unfounded set (atoms that have no non-cyclic supports)
     //
 
-    m_unfoundedSet.clear();
+    vxy_assert(m_unfoundedSet.empty());
     while (findUnfoundedSet(m_unfoundedSet))
     {
         if (!excludeUnfoundedSet(m_unfoundedSet))
         {
+            for (auto atom : m_unfoundedSet)
+            {
+                vxy_assert(atom->inUnfoundedSet);
+                atom->inUnfoundedSet = false;
+            }
+            m_unfoundedSet.clear();
+
             return false;
         }
     }
@@ -145,7 +327,7 @@ bool UnfoundedSetAnalyzer::analyze()
     return true;
 }
 
-bool UnfoundedSetAnalyzer::findUnfoundedSet(AtomLookupSet& outSet)
+bool UnfoundedSetAnalyzer::findUnfoundedSet(vector<AtomData*>& outSet)
 {
     //
     // Go through all the body literals that became false, and remove them as valid supports from
@@ -157,34 +339,22 @@ bool UnfoundedSetAnalyzer::findUnfoundedSet(AtomLookupSet& outSet)
 
     for (auto it = m_falseBodyQueue.begin(), itEnd = m_falseBodyQueue.end(); it != itEnd; ++it)
     {
-        const BodyInfo* bodyInfo = *it;
-        const BodyData& bodyData = m_bodyData[bodyInfo->id];
-        vxy_sanity(!m_solver.getVariableDB()->anyPossible(bodyInfo->lit));
-        vxy_assert(bodyData.numWatching > 0);
+        BodyData* bodyData = *it;
+        vxy_sanity(!m_solver.getVariableDB()->anyPossible(bodyData->variable, TRUE_VALUE));
+        vxy_assert(bodyData->numWatching > 0);
 
         vxy_sanity(m_sourcePropagationQueue.empty());
-        for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
+        for (auto it2 = iterateBodyHeads(bodyData); it2; ++it2)
         {
-            const AtomInfo* headInfo = *it2;
-            if (!headInfo->isVariable())
+            AtomData* headData = *it2;
+            if (getAtomSource(headData) == bodyData)
             {
-                continue;
-            }
-
-            AtomData& headData = m_atomData[headInfo->id.value];
-
-            if (headData.source == bodyInfo->id)
-            {
-                if constexpr (LOG_SOURCE_CHANGES)
+                if (headData->sourceIsValid)
                 {
-                    VERTEXY_LOG("**Atom %s lost source %s", headInfo->name.c_str(), m_solver.getVariableName(bodyInfo->lit.variable).c_str());
+                    headData->sourceIsValid = false;
+                    m_sourcePropagationQueue.push_back(headData);
                 }
-                if (headData.sourceIsValid)
-                {
-                    headData.sourceIsValid = false;
-                    m_sourcePropagationQueue.push_back(headInfo);
-                }
-                m_needsNewSourceQueue.add(headInfo->id);
+                m_needsNewSourceQueue.push_back(headData);
             }
         }
 
@@ -201,36 +371,37 @@ bool UnfoundedSetAnalyzer::findUnfoundedSet(AtomLookupSet& outSet)
     //
     while (!m_needsNewSourceQueue.empty())
     {
-        AtomID atomId = m_needsNewSourceQueue.pop();
-        const AtomInfo* atomInfo = m_solver.getRuleDB().getAtom(atomId);
-        vxy_assert(atomInfo->scc >= 0);
+        AtomData* atomData = m_needsNewSourceQueue.back();
+        m_needsNewSourceQueue.pop_back();
 
-        if (hasValidSource(atomId))
+        vxy_assert(atomData->scc != 0);
+
+        if (atomData->sourceIsValid)
         {
             // received a source through source propagation
             continue;
         }
 
-        if (!m_solver.getVariableDB()->anyPossible(atomInfo->equivalence))
+        if (!m_solver.getVariableDB()->anyPossible(*atomData->lit))
         {
             continue;
         }
 
         // attempt to find a new source for this atom.
         // Otherwise, build an unfounded set and return it.
-        if (!findNewSourceOrUnfoundedSet(atomInfo, outSet))
+        if (!findNewSourceOrUnfoundedSet(atomData, outSet))
         {
             return true;
         }
 
-        vxy_assert(hasValidSource(atomId));
+        vxy_assert(atomData->sourceIsValid);
     }
 
     vxy_assert(m_needsNewSourceQueue.empty());
     return false;
 }
 
-bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourceAtom, AtomLookupSet& outSet)
+bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(AtomData* lostSourceAtom, vector<AtomData*>& outSet)
 {
     //
     // Given an atom that has lost its external source support, attempt to find a new source for it.
@@ -238,40 +409,43 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourc
     // directly/indirectly requires for support, which themselves have no external support.
     //
 
-    vxy_assert(!hasValidSource(lostSourceAtom->id));
+    vxy_assert(!lostSourceAtom->sourceIsValid);
 
     auto db = m_solver.getVariableDB();
     auto& rdb = m_solver.getRuleDB();
 
     auto& processQueue = outSet;
     processQueue.clear();
-    processQueue.add(lostSourceAtom->id);
+
+    vxy_assert(!lostSourceAtom->inUnfoundedSet);
+    lostSourceAtom->inUnfoundedSet = true;
+    processQueue.push_back(lostSourceAtom);
 
     m_remainUnfoundedSet.clear();
 
     bool needsSecondPass = false;
     for (int nextUnfounded = 0; nextUnfounded < processQueue.size(); ++nextUnfounded)
     {
-        AtomID atomId = processQueue[nextUnfounded];
-        const AtomInfo* headInfo = rdb.getAtom(atomId);
-        vxy_assert(headInfo->scc == lostSourceAtom->scc);
+        AtomData* headData = processQueue[nextUnfounded];
+        vxy_assert(headData->scc == lostSourceAtom->scc);
 
-        if (hasValidSource(atomId))
+        if (headData->sourceIsValid)
         {
+            headData->inUnfoundedSet = false;
+
+            needsSecondPass = true;
             continue;
         }
 
         // TODO: can avoid looping twice by checking for a new source as well adding to outSet
-        if (findNewSource(headInfo))
+        if (findNewSource(headData))
         {
-            vxy_sanity(m_atomData[headInfo->id.value].sourceIsValid);
-            if constexpr (LOG_SOURCE_CHANGES)
-            {
-                VERTEXY_LOG("**Atom %s found new source %s", headInfo->name.c_str(), m_solver.getVariableName(rdb.getBody(m_atomData[headInfo->id.value].source)->lit.variable).c_str());
-            }
+            vxy_sanity(headData->sourceIsValid);
+            headData->inUnfoundedSet = false;
+
             // This head still has some (in)direct support outside of its SCC.
             // Propagate this new source assignment, which might add support for other heads in the unfounded set.
-            m_sourcePropagationQueue.push_back(headInfo);
+            m_sourcePropagationQueue.push_back(headData);
             emptySourcePropagationQueue();
 
             // other heads might've become supported due to propagation, so we need to rebuild the final list after.
@@ -281,52 +455,36 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourc
 
         // No new source could be found, so this head remains potentially unfounded.
         // (propagation of another head later in the list might make it sourced - see needsSecondPass)
-        m_remainUnfoundedSet.add(atomId);
+        vxy_assert(headData->inUnfoundedSet);
+        m_remainUnfoundedSet.push_back(headData);
 
         // For each body of this head in the SCC, add all the body's unsourced lits in our SCC to the processing queue.
         // (U := U ∪ (β+ ∩ (scc(p) ∩ S)) in the paper.)
-        for (auto it = headInfo->supports.begin(), itEnd = headInfo->supports.end(); it != itEnd; ++it)
+        for (auto it = iterateAtomSupports(headData); it; ++it)
         {
-            const BodyInfo* bodyInfo = *it;
-            if (!bodyInfo->isVariable())
-            {
-                continue;
-            }
-
-            const BodyData& bodyData = m_bodyData[bodyInfo->id];
+            BodyData* bodyData = *it;
 
             // If there was a source body, findNewSource should've found one!
-            vxy_sanity((bodyInfo->scc == headInfo->scc && bodyData.numUnsourcedLits > 0) || !db->anyPossible(bodyInfo->lit));
+            vxy_sanity((bodyData->scc == headData->scc && bodyData->numUnsourcedLits > 0) || !db->anyPossible(bodyData->variable, TRUE_VALUE));
 
-            if (!db->anyPossible(bodyInfo->lit))
+            if (!db->anyPossible(bodyData->variable, TRUE_VALUE))
             {
                 continue;
             }
 
             // Get the unsourced atoms that form the body and add them to the unfounded set.
-            auto& bodyLits = bodyInfo->body.values;
-            for (auto itv = bodyLits.begin(), itvEnd = bodyLits.end(); itv != itvEnd; ++itv)
+            for (auto itv = iterateBodyPositiveLiterals(bodyData); itv; ++itv)
             {
-                if (!itv->sign())
-                {
-                    // TODO: remove this check once database is pre-pruned
-                    continue;
-                }
-
-                const AtomInfo* bodyLitInfo = rdb.getAtom(itv->id());
-                if (!bodyLitInfo->isVariable())
+                AtomData* bodyLitInfo = *itv;
+                if (bodyLitInfo->scc != bodyData->scc)
                 {
                     continue;
                 }
 
-                if (bodyLitInfo->scc != bodyInfo->scc)
+                if (!bodyLitInfo->sourceIsValid && !bodyLitInfo->inUnfoundedSet && db->anyPossible(*bodyLitInfo->lit))
                 {
-                    continue;
-                }
-
-                if (!hasValidSource(itv->id()) && db->anyPossible(bodyLitInfo->equivalence))
-                {
-                    processQueue.add(itv->id());
+                    bodyLitInfo->inUnfoundedSet = true;
+                    processQueue.push_back(bodyLitInfo);
                 }
             }
         }
@@ -337,49 +495,56 @@ bool UnfoundedSetAnalyzer::findNewSourceOrUnfoundedSet(const AtomInfo* lostSourc
     {
         // we sourced at least one item, which might've caused items processed earlier in the list to become
         // sourced as well. So we need to do a final pass to find all truly unsourced atoms.
-        outSet.removeIf([&](AtomID atom)
+        for (auto it = outSet.begin(); it != outSet.end();)
         {
-            return hasValidSource(atom);
-        });
+            auto next = it+1;
+            AtomData* atom = *it;
+            if (atom->sourceIsValid)
+            {
+                vxy_assert(atom->inUnfoundedSet);
+                atom->inUnfoundedSet = false;
+                next = outSet.erase_unsorted(it);
+            }
+            else
+            {
+                vxy_assert(atom->inUnfoundedSet);
+            }
+            it = next;
+        }
     }
 
     return outSet.empty();
 }
 
-bool UnfoundedSetAnalyzer::findNewSource(const AtomInfo* headInfo)
+bool UnfoundedSetAnalyzer::findNewSource(AtomData* head)
 {
     auto db = m_solver.getVariableDB();
-    vxy_assert(!hasValidSource(headInfo->id));
+    vxy_assert(!head->sourceIsValid);
 
     // This head no longer has its non-cyclic support.
     // Get the bodies that support it, and see if any can act as a new support.
-    for (auto it = headInfo->supports.begin(), itEnd = headInfo->supports.end(); it != itEnd; ++it)
+    for (auto it = iterateAtomSupports(head); it; ++it)
     {
-        const BodyInfo* bodyInfo = *it;
-        if (!bodyInfo->isVariable())
-        {
-            continue;
-        }
-        const BodyData& bodyData = m_bodyData[bodyInfo->id];
+        BodyData* bodyData = *it;
 
         // Can support if this body is in a different SCC, or the same SCC but all its literals are sourced
         // by bodies outside the SCC.
-        if (bodyInfo->scc != headInfo->scc || bodyData.numUnsourcedLits == 0)
+        if (bodyData->scc != head->scc || bodyData->numUnsourcedLits == 0)
         {
-            if (db->anyPossible(bodyInfo->lit))
+            if (db->anyPossible(bodyData->variable, TRUE_VALUE))
             {
                 // Ok, this can act as a new source!
-                setSource(headInfo, bodyInfo->id);
+                setSource(head, bodyData);
                 return true;
             }
         }
     }
 
-    vxy_assert(!hasValidSource(headInfo->id));
+    vxy_assert(!head->sourceIsValid);
     return false;
 }
 
-bool UnfoundedSetAnalyzer::excludeUnfoundedSet(AtomLookupSet& set)
+bool UnfoundedSetAnalyzer::excludeUnfoundedSet(vector<AtomData*>& set)
 {
     auto& db = *m_solver.getVariableDB();
     auto& rdb = m_solver.getRuleDB();
@@ -387,9 +552,10 @@ bool UnfoundedSetAnalyzer::excludeUnfoundedSet(AtomLookupSet& set)
     AssertionBuilder clause;
     while (!set.empty())
     {
-        AtomID atomToFalsify = set.back();
-        const AtomInfo* atomInfo = rdb.getAtom(atomToFalsify);
-        if (db.anyPossible(atomInfo->equivalence))
+        AtomData* atomToFalsify = set.back();
+        vxy_assert(atomToFalsify->inUnfoundedSet);
+
+        if (db.anyPossible(*atomToFalsify->lit))
         {
             if (clause.empty())
             {
@@ -407,18 +573,19 @@ bool UnfoundedSetAnalyzer::excludeUnfoundedSet(AtomLookupSet& set)
             }
         }
 
-        set.pop();
+        vxy_assert(atomToFalsify->inUnfoundedSet);
+        atomToFalsify->inUnfoundedSet = false;
+        set.pop_back();
     }
 
     return true;
 }
 
-bool UnfoundedSetAnalyzer::createNogoodForAtom(AtomID atomToFalsify, const AtomLookupSet& unfoundedSet, const AssertionBuilder& clause)
+bool UnfoundedSetAnalyzer::createNogoodForAtom(const AtomData* atomToFalsify, const vector<AtomData*>& unfoundedSet, const AssertionBuilder& clause)
 {
     auto& rdb = m_solver.getRuleDB();
 
-    const AtomInfo* atomInfo = rdb.getAtom(atomToFalsify);
-    vector<Literal> assertionLiterals = clause.getAssertion(atomInfo->equivalence);
+    vector<Literal> assertionLiterals = clause.getAssertion(*atomToFalsify->lit);
 
     // TODO: Graph relations
     auto learned = m_solver.learn(assertionLiterals, nullptr);
@@ -436,11 +603,11 @@ bool UnfoundedSetAnalyzer::createNogoodForAtom(AtomID atomToFalsify, const AtomL
         return false;
     }
 
-    vxy_sanity(!m_solver.getVariableDB()->anyPossible(atomInfo->equivalence));
+    vxy_sanity(!m_solver.getVariableDB()->anyPossible(*atomToFalsify->lit));
     return true;
 }
 
-UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(const AtomLookupSet& unfoundedSet)
+UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(const vector<AtomData*>& unfoundedSet)
 {
     vxy_assert(!unfoundedSet.empty());
 
@@ -450,37 +617,34 @@ UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(c
     AssertionBuilder clauseBuilder;
 
     // For each atom we're going to falsify...
-    int scc = rdb.getAtom(unfoundedSet[0])->scc;
+    int scc = unfoundedSet[0]->scc;
     for (int i = 0; i < unfoundedSet.size(); ++i)
     {
-        const AtomInfo* atomInfo = rdb.getAtom(unfoundedSet[i]);
-        vxy_assert(atomInfo->scc == scc);
-        vxy_sanity(!hasValidSource(atomInfo->id));
+        AtomData* atomData = unfoundedSet[i];
+        vxy_assert(atomData->scc == scc);
+        vxy_sanity(!atomData->sourceIsValid);
 
-        if (!db.anyPossible(atomInfo->equivalence))
+        if (!db.anyPossible(*atomData->lit))
         {
             // atom is already false, so we're not propagating it.
             continue;
         }
 
         // go through each possible external support for the atom that we're falsifying, and add it to the reason we're false.
-        for (auto it = atomInfo->supports.begin(), itEnd = atomInfo->supports.end(); it != itEnd; ++it)
+        for (auto it = iterateAtomSupports(atomData); it; ++it)
         {
-            const BodyInfo* bodyInfo = *it;
-            if (!bodyInfo->isVariable())
-            {
-                continue;
-            }
-            vxy_sanity(bodyInfo->scc != scc || m_bodyData[bodyInfo->id].numUnsourcedLits > 0 || !db.anyPossible(bodyInfo->lit));
+            BodyData* bodyData = *it;
+            vxy_sanity(bodyData->scc != scc || bodyData->numUnsourcedLits > 0 || !db.anyPossible(bodyData->variable, TRUE_VALUE));
 
             bool bExternal = true;
-            if (bodyInfo->scc == scc)
+            if (bodyData->scc == scc)
             {
                 // Check if all positive atoms in this body are outside of the set.
                 // We only need to do this for bodies in same SCC; otherwise it's external by definition.
-                for (auto itBody = bodyInfo->body.values.begin(), itBodyEnd = bodyInfo->body.values.end(); itBody != itBodyEnd; ++itBody)
+                for (auto itBody = iterateBodyPositiveLiterals(bodyData); itBody; ++itBody)
                 {
-                    if (itBody->sign() && unfoundedSet.contains(itBody->id()))
+                    AtomData* bodyLit = *itBody;
+                    if (bodyLit->inUnfoundedSet)
                     {
                         bExternal = false;
                         break;
@@ -490,7 +654,8 @@ UnfoundedSetAnalyzer::AssertionBuilder UnfoundedSetAnalyzer::getExternalBodies(c
 
             if (bExternal)
             {
-                clauseBuilder.add(bodyInfo->lit, getAssertingTime(bodyInfo->lit));
+                Literal bodyLit(bodyData->variable, TRUE_VALUE);
+                clauseBuilder.add(bodyLit, getAssertingTime(bodyLit));
             }
         }
     }
@@ -517,184 +682,120 @@ SolverTimestamp UnfoundedSetAnalyzer::getAssertingTime(const Literal& lit) const
     return time;
 }
 
-void UnfoundedSetAnalyzer::initializeBodySupports(const BodyInfo* bodyInfo)
+void UnfoundedSetAnalyzer::initializeBodySupports(BodyData* body)
 {
     auto db = m_solver.getVariableDB();
     auto& rdb = m_solver.getRuleDB();
 
-    // initialize to the number of positive atoms in the body in the same SCC.
-    // this count will be reduced for each positive atom that is externally supported.
-    m_bodyData[bodyInfo->id].numUnsourcedLits = count_if(bodyInfo->body.values.begin(), bodyInfo->body.values.end(),
-        [&](AtomLiteral bodyLit)
-        {
-            auto litAtom = rdb.getAtom(bodyLit.id());
-            return litAtom->scc == bodyInfo->scc && bodyLit.sign();
-        }
-    );
-
     // if the body atom is already false, we can't ever act as a support.
-    if (!db->anyPossible(bodyInfo->lit))
+    if (!db->anyPossible(body->variable, TRUE_VALUE))
     {
         return;
     }
 
     // Add us as a source support for every head in a different SCC than us.
-    for (auto it = bodyInfo->heads.begin(), itEnd = bodyInfo->heads.end(); it != itEnd; ++it)
+    for (auto it = iterateBodyHeads(body); it; ++it)
     {
-        AtomInfo* headInfo = *it;
-        if (headInfo->isVariable() && headInfo->scc != bodyInfo->scc && db->anyPossible(headInfo->equivalence))
+        AtomData* head = *it;
+        if (head->scc != body->scc && db->anyPossible(*head->lit))
         {
-            setSource(headInfo, bodyInfo->id);
-            m_sourcePropagationQueue.push_back(headInfo);
+            setSource(head, body);
+            m_sourcePropagationQueue.push_back(head);
         }
     }
 }
 
-void UnfoundedSetAnalyzer::setSource(const AtomInfo* atomInfo, int32_t bodyId)
+void UnfoundedSetAnalyzer::setSource(AtomData* atom, BodyData* body)
 {
-    vxy_assert(!hasValidSource(atomInfo->id));
-    vxy_assert(atomInfo->isVariable());
-    vxy_assert(m_solver.getRuleDB().getBody(bodyId)->isVariable());
-    vxy_sanity(m_solver.getVariableDB()->anyPossible(atomInfo->equivalence));
+    vxy_assert(!atom->sourceIsValid);
+    vxy_sanity(m_solver.getVariableDB()->anyPossible(*atom->lit));
 
-    AtomData& atomData = m_atomData[atomInfo->id.value];
-
-    if (atomData.source >= 0)
+    if (atom->source >= 0)
     {
-        m_bodyData[atomData.source].numWatching--;
+        getAtomSource(atom)->numWatching--;
     }
-    atomData.source = bodyId;
-    atomData.sourceIsValid = true;
-    m_bodyData[atomData.source].numWatching++;
+    atom->source = int32_t(
+        reinterpret_cast<const uint8_t*>(body) - m_bodyBuffer.data()
+    );
+    vxy_sanity(getAtomSource(atom) == body);
+    atom->sourceIsValid = true;
+    body->numWatching++;
 }
 
 void UnfoundedSetAnalyzer::emptySourcePropagationQueue()
 {
     while (!m_sourcePropagationQueue.empty())
     {
-        const AtomInfo* atomInfo = m_sourcePropagationQueue.back();
-        vxy_assert(atomInfo->isVariable());
+        AtomData* atom = m_sourcePropagationQueue.back();
         m_sourcePropagationQueue.pop_back();
 
-        const AtomData& atomData = m_atomData[atomInfo->id.value];
-        if (atomData.sourceIsValid)
+        if (atom->sourceIsValid)
         {
-            propagateSourceAssignment(atomInfo->id);
+            propagateSourceAssignment(atom);
         }
         else
         {
-            propagateSourceRemoval(atomInfo->id);
+            propagateSourceRemoval(atom);
         }
     }
 }
 
-void UnfoundedSetAnalyzer::propagateSourceAssignment(AtomID id)
+void UnfoundedSetAnalyzer::propagateSourceAssignment(AtomData* atom)
 {
     auto db = m_solver.getVariableDB();
 
-    const AtomInfo* atomInfo = m_solver.getRuleDB().getAtom(id);
-    vxy_assert(atomInfo->isVariable());
-
     // for each body that includes this atom...
-    for (auto it = atomInfo->positiveDependencies.begin(), itEnd = atomInfo->positiveDependencies.end(); it != itEnd; ++it)
+    for (auto it = iterateAtomPositiveDependencies(atom); it; ++it)
     {
-        const BodyInfo* bodyInfo = *it;
-        if (!bodyInfo->isVariable())
-        {
-            continue;
-        }
-
-        if (bodyInfo->scc != atomInfo->scc)
-        {
-            continue;
-        }
-
-        BodyData& bodyData = m_bodyData[bodyInfo->id];
+        BodyData* body = *it;
+        vxy_assert(body->scc == atom->scc);
 
         // deduct the number of the body's lits that are unsourced
-        vxy_sanity(bodyData.numUnsourcedLits > 0);
-        bodyData.numUnsourcedLits--;
+        vxy_sanity(body->numUnsourcedLits > 0);
+        body->numUnsourcedLits--;
 
         // if all our lits are sourced, then we can act as a support for any heads referring to us.
         // then propagate to any bodies that head atom is a part of.
-        if (bodyData.numUnsourcedLits == 0 && m_solver.getVariableDB()->anyPossible(bodyInfo->lit))
+        if (body->numUnsourcedLits == 0 && m_solver.getVariableDB()->anyPossible(body->variable, TRUE_VALUE))
         {
-            for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
+            for (auto it2 = iterateBodyHeads(body); it2; ++it2)
             {
-                const AtomInfo* headAtomInfo = *it2;
-                if (!headAtomInfo->isVariable())
+                AtomData* headAtom = *it2;
+                if (!headAtom->sourceIsValid && db->anyPossible(*headAtom->lit))
                 {
-                    continue;
-                }
-
-                if (!hasValidSource(headAtomInfo->id) && db->anyPossible(headAtomInfo->equivalence))
-                {
-                    if constexpr (LOG_SOURCE_CHANGES)
-                    {
-                        VERTEXY_LOG("**Atom %s gained source %s", headAtomInfo->name.c_str(), m_solver.getVariableName(bodyInfo->lit.variable).c_str());
-                    }
-                    setSource(headAtomInfo, bodyInfo->id);
-                    m_sourcePropagationQueue.push_back(headAtomInfo);
+                    setSource(headAtom, body);
+                    m_sourcePropagationQueue.push_back(headAtom);
                 }
             }
         }
     }
 }
 
-void UnfoundedSetAnalyzer::propagateSourceRemoval(AtomID id)
+void UnfoundedSetAnalyzer::propagateSourceRemoval(AtomData* atom)
 {
-    const AtomInfo* atomInfo = m_solver.getRuleDB().getAtom(id);
-    vxy_assert(atomInfo->isVariable());
-
     // for each body that includes this atom...
-    for (auto it = atomInfo->positiveDependencies.begin(), itEnd = atomInfo->positiveDependencies.end(); it != itEnd; ++it)
+    for (auto it = iterateAtomPositiveDependencies(atom); it; ++it)
     {
-        const BodyInfo* bodyInfo = *it;
-        if (!bodyInfo->isVariable())
-        {
-            continue;
-        }
-
-        if (bodyInfo->scc != atomInfo->scc)
-        {
-            continue;
-        }
-
-        BodyData& bodyData = m_bodyData[bodyInfo->id];
+        BodyData* body = *it;
+        vxy_assert(body->scc == atom->scc);
 
         // increase the number of the body's lits that are unsourced
-        bodyData.numUnsourcedLits++;
-        if (bodyData.numUnsourcedLits == 1 && bodyData.numWatching > 0)
+        body->numUnsourcedLits++;
+        if (body->numUnsourcedLits == 1 && body->numWatching > 0)
         {
             // we just became sourced->unsourced. tell our heads that they are no longer supported,
             // then propagate that to any bodies that head atom is part of.
-            for (auto it2 = bodyInfo->heads.begin(), it2End = bodyInfo->heads.end(); it2 != it2End; ++it2)
+            for (auto it2 = iterateBodyHeads(body); it2; ++it2)
             {
-                const AtomInfo* headAtomInfo = *it2;
-                if (!headAtomInfo->isVariable())
+                AtomData* head = *it2;
+                if (getAtomSource(head) == body && head->sourceIsValid)
                 {
-                    continue;
-                }
-
-                AtomData& atomData = m_atomData[headAtomInfo->id.value];
-                if (atomData.source == bodyInfo->id && atomData.sourceIsValid)
-                {
-                    if constexpr (LOG_SOURCE_CHANGES)
-                    {
-                        VERTEXY_LOG("**Atom %s lost source %s", headAtomInfo->name.c_str(), m_solver.getVariableName(bodyInfo->lit.variable).c_str());
-                    }
-                    atomData.sourceIsValid = false;
-                    m_sourcePropagationQueue.push_back(headAtomInfo);
+                    head->sourceIsValid = false;
+                    m_sourcePropagationQueue.push_back(head);
                 }
             }
         }
     }
-}
-
-bool UnfoundedSetAnalyzer::hasValidSource(AtomID id) const
-{
-    const AtomInfo* headAtomInfo = m_solver.getRuleDB().getAtom(id);
-    return m_atomData[headAtomInfo->id.value].sourceIsValid;
 }
 
 vector<Literal> UnfoundedSetAnalyzer::AssertionBuilder::getAssertion(const Literal& assertingLiteral) const

@@ -392,8 +392,7 @@ public:
 	}
 
 	// Access the database for creating ASP-style rules
-	RuleDatabase& getRuleDB() { return m_ruleDB; }
-	const RuleDatabase& getRuleDB() const { return m_ruleDB; }
+	RuleDatabase& getRuleDB();
 
 	// Return all the variables that a given constraint refers to
 	const vector<VarID>& getVariablesForConstraint(const IConstraint* constraint) const
@@ -598,7 +597,9 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
-	RuleDatabase m_ruleDB;
+	unique_ptr<RuleDatabase> m_ruleDB;
+	vector<variant<bool, Literal>> m_atomValues;
+
 	ConflictAnalyzer m_analyzer;
 
 	unique_ptr<class UnfoundedSetAnalyzer> m_unfoundedSetAnalyzer;
