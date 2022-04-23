@@ -16,6 +16,8 @@
 #include "ds/ValueBitset.h"
 #include "Maze.h"
 #include "ds/ESTree.h"
+#include "program/Program.h"
+#include "program/Program.h"
 #include "topology/DigraphTopology.h"
 
 using namespace Vertexy;
@@ -265,6 +267,81 @@ int main(int argc, char* argv[])
 {
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
+
+	// Rule formulas can only be defined within a Program::define() block
+	auto simpleMaze = Program::define([](int width, int height, int entranceX, int entranceY, int exitX, int exitY)
+	{
+		// Floating variables. These don't mean anything outside the context of a rule statement.
+		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
+		// it means that those Xs are the same. See below.
+		FormulaParameter X, Y, X1, Y1;
+
+		// define col(1), col(2), ... col(width) as atoms.
+		Formula<1> col = Program::range(1, width);
+		// define row(1), row(2), ... row(height) as atoms.
+		Formula<1> row = Program::range(1, height);
+
+		// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
+		Formula<2> grid;
+		grid(X,Y) <<= col(X) && row(Y);
+
+		// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
+		Formula<4> adjacent;
+		adjacent(X,Y,X,Y1) <<= grid(X,Y) && Y1 == Y + 1 && row(Y1);
+		adjacent(X,Y,X,Y1) <<= grid(X,Y) && Y1 == Y - 1 && row(Y1);
+		adjacent(X,Y,X1,Y) <<= grid(X,Y) && X1 == X + 1 && col(X1);
+		adjacent(X,Y,X1,Y) <<= grid(X,Y) && X1 == X - 1 && col(X1);
+
+		// Define a rule formula border(x,y), which is only true at the edges of the map.
+		Formula<2> border;
+		border(1,Y) <<= row(Y);
+		border(X,1) <<= col(X);
+		border(X,Y) <<= row(Y) && X == width;
+		border(X,Y) <<= col(X) && Y == height;
+
+		// define the entrance/exit positions, based on the program inputs.
+		Formula<2> entrance, exit;
+		entrance(X,Y) <<= X == entranceX && Y == entranceY;
+		exit(X,Y) <<= X == exitX && Y == exitY;
+
+		Formula<2> wall, empty;
+		// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
+		(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && -border(X,Y) && -entrance(X,Y) && -exit(X,Y);
+		// border is a wall as long as it's not the entrance or exit.
+		wall(X,Y) <<= border(X,Y) && -entrance(X,Y) && -exit(X,Y);
+
+		// entrance/exit are always empty.
+		empty(X,Y) <<= entrance(X,Y);
+		empty(X,Y) <<= exit(X,Y);
+
+		// disallow a 2x2 block of walls
+		Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+		// disallow a 2x2 block of empty
+		Program::disallow(empty(X,Y) && empty(X1, Y) && empty(X, Y1) && empty(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+
+		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
+		Program::disallow(wall(X,Y) && wall(X1+1,Y1+1) && empty(X1+1,Y) && empty(X, Y1+1));
+		Program::disallow(wall(X+1,Y) && wall(X,Y+1) && empty(X, Y) && empty(X+1, Y1+1));
+
+		// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
+		Formula<2> wallWithAdjacentWall;
+		wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
+
+		// disallow walls that don't have any adjacent walls
+		Program::disallow(wall(X,Y) && -border(X,Y) && -wallWithAdjacentWall(X,Y));
+
+		// encode reachability (faster to do this with a reachability constraint)
+		Formula<2> reach;
+		reach(X,Y) <<= entrance(X,Y);
+		reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
+		Program::disallow(empty(X,Y) && -reach(X,Y));
+	});
+
+	// give an instantiated version of the program to the solver.
+	// this is an addition to whatever other constraints you want to add!
+	solver.addProgram(simpleMaze(10, 10, /*entrance:*/1,5, /*exit:*/5,10));
+	solver.solve();
+
 
 	TestApplication Suite("Solver Tests", argc, argv);
 	Suite.AddTest("ValueBitset", test_ValueBitset);
