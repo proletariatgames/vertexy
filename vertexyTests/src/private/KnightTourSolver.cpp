@@ -113,20 +113,24 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
         for (int y1 = 0; y1 < boardSize; ++y1)
         {
             // :- not oneMoveEntering(x1,y1).
+            // rdb.disallow(-oneMoveEntering[x1][y1])
             rdb.disallow(oneMoveEntering[x1][y1].neg());
             // :- not oneMoveLeaving(x1,y1).
+            // rdb.disallow(-oneMoveLeaving[x1][y1])
             rdb.disallow(oneMoveLeaving[x1][y1].neg());
 
             for (int x2 = 0; x2 < boardSize; ++x2)
             {
                 for (int y2 = 0; y2 < boardSize; ++y2)
                 {
+                    // oneMoveEntering[x1][y1] << moves[x2][y2][x1][y1].and(-multipleMovesEntering[x1][y1])
                     // oneMoveEntering(x1,y1) <- move(x2,y2,x1,y1), not multipleMovesEntering(x1,y1).
                     rdb.addRule(oneMoveEntering[x1][y1], vector{
                         moves[x2][y2][x1][y1].pos(),
                         multipleMovesEntering[x1][y1].neg()
                     });
 
+                    // oneMoveLeaving[x1][y1] << moves[x1][y1][x2][y2].and(-multipleMovesLeaving[x1][y1])
                     // oneMoveLeaving(x1,y1) <- move(x1,y1,x2,y2), not multipleMovesLeaving(x1, y1)
                     rdb.addRule(oneMoveLeaving[x1][y1], vector{
                         moves[x1][y1][x2][y2].pos(),
@@ -272,6 +276,12 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
                 wstring validName {wstring::CtorSprintf(), TEXT("valid(%d,%d,%d,%d)"), x1, y1, x2, y2};
 
                 valid[x1][y1][pos2] = rdb.createAtom(validName.c_str());
+
+                //
+                // atom m = rdb.getAtom(SignedClause(moves[x1][y1], {pos2}));
+                // m.choice() << valid[x1][y1];
+
+
                 // { move(x1,y1,x2,y2) } <- valid(x1,y1,x2,y2).
                 rdb.addRule(TRuleHead(SignedClause(moves[x1][y1], {pos2}), ERuleHeadType::Choice), valid[x1][y1][pos2].pos());
             }
@@ -311,6 +321,8 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
         {
             // reached(x1,y1) <- move(0,0,x1,y1).
             int pos = x1 + y1*boardSize;
+            // Atom m = rdb.getAtom(SignedClause(moves[0][0], {pos});
+            // reached[x][y] << m
             rdb.addRule(reached[x1][y1], SignedClause(moves[0][0], {pos}));
 
             for (int x2 = 0; x2 < boardSize; ++x2)
@@ -318,6 +330,8 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
                 for (int y2 = 0; y2 < boardSize; ++y2)
                 {
                     // reached(x1,y1) <- reached(x2,y2), move(x2,y2,x1,y1).
+                    // Atom m2 = rdb.getAtom(SignedClause(moves[x2][y2], {pos});
+                    // reached[x1][y1] << reached[x2][y2].and(m2);
                     rdb.addRule(reached[x1][y1], vector<AnyLiteralType>{
                         reached[x2][y2].pos(),
                         SignedClause(moves[x2][y2], {pos})
@@ -326,6 +340,7 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
             }
 
             // :- reached(x1,y1).
+            // rdb.disallow(-reached[x1][y1]);
             rdb.disallow(reached[x1][y1].neg());
         }
     }
