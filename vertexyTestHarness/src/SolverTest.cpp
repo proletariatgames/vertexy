@@ -274,7 +274,7 @@ int main(int argc, char* argv[])
 		// Floating variables. These don't mean anything outside the context of a rule statement.
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
-		FormulaParameter X, Y, X1, Y1;
+		ProgramParameter X, Y, X1, Y1;
 
 		// define col(1), col(2), ... col(width) as atoms.
 		Formula<1> col = Program::range(1, width);
@@ -306,9 +306,9 @@ int main(int argc, char* argv[])
 
 		Formula<2> wall, empty;
 		// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
-		(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && -border(X,Y) && -entrance(X,Y) && -exit(X,Y);
+		(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
 		// border is a wall as long as it's not the entrance or exit.
-		wall(X,Y) <<= border(X,Y) && -entrance(X,Y) && -exit(X,Y);
+		wall(X,Y) <<= border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
 
 		// entrance/exit are always empty.
 		empty(X,Y) <<= entrance(X,Y);
@@ -328,19 +328,21 @@ int main(int argc, char* argv[])
 		wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
 
 		// disallow walls that don't have any adjacent walls
-		Program::disallow(wall(X,Y) && -border(X,Y) && -wallWithAdjacentWall(X,Y));
+		Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
 
 		// encode reachability (faster to do this with a reachability constraint)
 		Formula<2> reach;
 		reach(X,Y) <<= entrance(X,Y);
 		reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
-		Program::disallow(empty(X,Y) && -reach(X,Y));
+		Program::disallow(empty(X,Y) && ~reach(X,Y));
 	});
+
+	auto inst = simpleMaze(10,10,1,5,5,10);
 
 	// give an instantiated version of the program to the solver.
 	// this is an addition to whatever other constraints you want to add!
-	solver.addProgram(simpleMaze(10, 10, /*entrance:*/1,5, /*exit:*/5,10));
-	solver.solve();
+	// solver.addProgram(simpleMaze(10, 10, /*entrance:*/1,5, /*exit:*/5,10));
+	// solver.solve();
 
 
 	TestApplication Suite("Solver Tests", argc, argv);
