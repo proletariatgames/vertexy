@@ -1,5 +1,5 @@
 const width = 400;
-const height = 100;
+var height = 100;
 const segmentX = d => (d.x0);
 const segmentY = d => (d.y0);
 const segmentWidth = d => (d.x1 - d.x0);
@@ -10,7 +10,7 @@ const breadcrumbHeight = 30;
 var csv;
 var data;
 var icicle = { sequence: [], percentage: 0.0, varValue: "" };
-var deepestLevel = 0;
+var deepestLevel;
 
 // Runs when a file is uploaded via the button
 function onFileUpload()
@@ -25,7 +25,6 @@ function onFileUpload()
 // Initializes data based on the text of the uploaded file
 function initializeData(text)
 {
-    deepestLevel = 0;
     csv = d3.csvParseRows(text);
     data = buildHierarchy(csv);
 
@@ -56,6 +55,7 @@ function buildHierarchy(csv)
     const root = { name: "root", value: 0, children: [] };
     let currentHierarchy = [];
     currentHierarchy.push(root);
+    deepestLevel = 0;
     
     for (let i = 0; i < csv.length; i++) {
       // Extract csv vars
@@ -65,7 +65,7 @@ function buildHierarchy(csv)
       const varValue = csv[i][3];
   
       // If this is a propagated row, we're ignoring it for now
-      if (constraintID != "-1")
+      if (constraintID != "-1" || decisionLevel <= 0)
       {
         continue;
       }
@@ -90,15 +90,18 @@ function buildHierarchy(csv)
       currentHierarchy.push(childNode);
 
       // Update deepest level for breadcrumb vis
-      if (deepestLevel < childNode.level)
+      if (parseInt(deepestLevel) < parseInt(decisionLevel))
       {
-          deepestLevel = childNode.level;
+          deepestLevel = decisionLevel;
       }
     }
   
     // Update the value of the final leaf node
     const poppedNode = currentHierarchy.pop();
     poppedNode.value = 1;
+
+    // Update the height based on the deepest level
+    height = deepestLevel * 5;
     
     return root;
   }
@@ -136,12 +139,19 @@ partition = data =>
 function drawBreadcrumbs(container)
 {
     d3.select(container).selectAll("*").remove();
+    const breadcrumbWindowHeight = breadcrumbHeight * (1 + parseInt(deepestLevel / 9)) + 20;
 
     const svg = d3
       .select(container).append("svg")
-      .attr("viewBox", `0 0 ${breadcrumbWidth * 10} ${breadcrumbHeight * (2 + parseInt(deepestLevel / 9))}`)
+      .attr("viewBox", `0 0 ${breadcrumbWidth * 10} ${breadcrumbWindowHeight}`)
       .style("font", "12px sans-serif")
       .style("margin", "5px");
+
+    svg
+      .append("rect")
+      .attr("width", width)
+      .attr("height", breadcrumbWindowHeight)
+      .attr("fill", "none");
   
     const g = svg
       .selectAll("g")
@@ -166,13 +176,13 @@ function drawBreadcrumbs(container)
       .append("text")
       .text(icicle.percentage > 0 ? icicle.percentage + "%" : "")
       .attr("x", 50)
-      .attr("y", ((2 + parseInt(deepestLevel / 9)) * breadcrumbHeight - 10))
+      .attr("y", breadcrumbWindowHeight - 5)
   
     svg
       .append("text")
       .text(icicle.varValue)
       .attr("x", 0)
-      .attr("y", ((2 + parseInt(deepestLevel / 9)) * breadcrumbHeight - 10));
+      .attr("y", breadcrumbWindowHeight - 5);
   
     return svg.node();
 }
@@ -183,7 +193,6 @@ function drawIcicles(container)
     d3.select(container).selectAll("*").remove();
 
     const root = partition(data);
-    console.log(root);
     const svg = d3.select(container).append("svg");
     // Make this into a view, so that the currently hovered sequence is available to the breadcrumb
     const element = svg.node();
