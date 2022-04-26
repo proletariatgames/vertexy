@@ -159,7 +159,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
 	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5/*numRows * numCols*/});
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 0/*numRows * numCols*/});
 	//
 	// DECLARE CONSTRAINTS
 	//
@@ -325,12 +325,31 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 
 		auto selfStepTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepData);
 
+		auto stepDoorData = solver.makeVariableGraph(stepName, ITopology::adapt(grid), stepDomain, { wstring::CtorSprintf(), TEXT("StepDoor%d-"), step });
+		auto selfStepDoorTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepDoorData);
+		// constraint 
+		solver.makeGraphConstraint<IffConstraint>(grid,
+			GraphRelationClause(selfStepDoorTile, step_Origin),
+			vector{ GraphRelationClause(selfTile, step == 0 ? cell_Entrance : vector<int>{cell_Doors[step - 1]})}
+		);
+
+		// if stepDoor != reachable, tile can't be a door
+		solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+					GraphRelationClause(selfStepDoorTile, EClauseSign::Outside, step_Reachable),
+					GraphRelationClause(selfTile, step == NUM_KEYS ? cell_Exit : vector{ cell_Keys[step] })
+		);
+
 		if (TEST_SHORTEST_PATH)
 		{
 			//if this is the most recent door, constrain it to the be the entrance in this step
+			//solver.makeGraphConstraint<IffConstraint>(grid,
+			//	GraphRelationClause(selfStepTile, step_door),
+			//	vector{ GraphRelationClause(selfTile, step == 0 ? cell_Entrance : vector<int>{cell_Doors[step - 1]})}
+			//);
+
 			solver.makeGraphConstraint<IffConstraint>(grid,
-				GraphRelationClause(selfStepTile, step_Origin),
-				vector{ GraphRelationClause(selfTile, step == 0 ? cell_Entrance : vector<int>{cell_Doors[step - 1]})}
+					GraphRelationClause(selfStepTile, step_Origin),
+						vector{ GraphRelationClause(selfTile, cell_Entrance) }
 			);
 		}
 		else
@@ -447,7 +466,8 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
 		if (TEST_SHORTEST_PATH)
 		{
-			solver.makeConstraint<ShortestPathConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+			solver.makeConstraint<ShortestPathConstraint>(stepDoorData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+			solver.makeConstraint<ReachabilityConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid);
 		}
 		else
 		{

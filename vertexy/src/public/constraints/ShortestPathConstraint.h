@@ -2,7 +2,7 @@
 #pragma once
 #include "ConstraintTypes.h"
 #include "TopologySearchConstraint.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "SignedClause.h"
 #include "ds/ESTree.h"
 #include "ds/RamalReps.h"
@@ -61,8 +61,9 @@ public:
 
 protected:
 
-	virtual bool isValidDistance(const IVariableDatabase* db, int dist) const override;
-	virtual bool isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const override;
+	bool isValidDistance(const IVariableDatabase* db, int dist) const;
+
+	virtual bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const override;
 	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const override;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const override;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) override;

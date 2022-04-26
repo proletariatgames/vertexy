@@ -63,12 +63,7 @@ ReachabilityConstraint::ReachabilityConstraint(
 
 }
 
-bool ReachabilityConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
-{
-	return dist < INT_MAX;
-}
-
-bool ReachabilityConstraint::isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+bool ReachabilityConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
 {
 	return src.maxReachability->isReachable(vertex);
 }

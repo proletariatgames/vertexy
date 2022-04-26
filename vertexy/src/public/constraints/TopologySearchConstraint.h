@@ -2,7 +2,7 @@
 #pragma once
 #include "ConstraintTypes.h"
 #include "IBacktrackingSolverConstraint.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "SignedClause.h"
 #include "ds/ESTree.h"
 #include "ds/RamalReps.h"
@@ -73,8 +73,7 @@ protected:
 
 	struct ReachabilitySourceData;
 	//virtual
-	virtual bool isValidDistance(const IVariableDatabase* db, int dist) const = 0;
-	virtual bool isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const = 0;
+	virtual bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const = 0;
 	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const = 0;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
@@ -123,7 +122,7 @@ protected:
 		{
 		}
 
-		virtual ISolverConstraint* asConstraint() override { return &m_parent; }
+		virtual IConstraint* asConstraint() override { return &m_parent; }
 		virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
 
 	protected:

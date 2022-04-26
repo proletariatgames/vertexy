@@ -88,7 +88,7 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 }
 
 //is possibly reachable
-bool ShortestPathConstraint::isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+bool ShortestPathConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
 {
 	if (!src.maxReachability->isReachable(vertex))
 	{
@@ -169,20 +169,21 @@ EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minRea
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq))
-			{
-				if (isValidDistance(m_edgeChangeDb, distance))
-				{
-					onReachabilityChanged(changedVertex, source, true);
-				}
-			}
-			else
-			{
-				if (minReachable.isReachable(changedVertex)) //TODO: could be an assert
-				{
-					onReachabilityChanged(changedVertex, source, true);
-				}
-			}
+			onReachabilityChanged(changedVertex, source, true);
+			//if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq))
+			//{
+			//	if (isValidDistance(m_edgeChangeDb, distance))
+			//	{
+			//		onReachabilityChanged(changedVertex, source, true);
+			//	}
+			//}
+			//else
+			//{
+			//	if (minReachable.isReachable(changedVertex)) //TODO: could be an assert
+			//	{
+			//		onReachabilityChanged(changedVertex, source, true);
+			//	}
+			//}
 		}
 	});
 }
@@ -193,20 +194,21 @@ EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxRea
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq))
-			{
-				if (!isValidDistance(m_edgeChangeDb, distance))
-				{
-					onReachabilityChanged(changedVertex, source, false);
-				}
-			}
-			else
-			{
-				if (!maxReachable.isReachable(changedVertex))
-				{
-					onReachabilityChanged(changedVertex, source, false);
-				}
-			}
+			onReachabilityChanged(changedVertex, source, false);
+			//if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq))
+			//{
+			//	if (!isValidDistance(m_edgeChangeDb, distance))
+			//	{
+			//		onReachabilityChanged(changedVertex, source, false);
+			//	}
+			//}
+			//else
+			//{
+			//	if (!maxReachable.isReachable(changedVertex))
+			//	{
+			//		onReachabilityChanged(changedVertex, source, false);
+			//	}
+			//}
 		}
 	});
 }
