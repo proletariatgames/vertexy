@@ -17,8 +17,7 @@
 #include "ds/ValueBitset.h"
 #include "Maze.h"
 #include "ds/ESTree.h"
-#include "program/Program.h"
-#include "program/Program.h"
+#include "program/ProgramDSL.h"
 #include "topology/DigraphTopology.h"
 
 using namespace Vertexy;
