@@ -7,14 +7,14 @@
 
 using namespace Vertexy;
 
-DisjunctionConstraint* DisjunctionConstraint::Factory::construct(const ConstraintFactoryParams& params, ISolverConstraint* innerConsA, ISolverConstraint* innerConsB)
+DisjunctionConstraint* DisjunctionConstraint::Factory::construct(const ConstraintFactoryParams& params, IConstraint* innerConsA, IConstraint* innerConsB)
 {
 	params.markChildConstraint(innerConsA);
 	params.markChildConstraint(innerConsB);
 	return new DisjunctionConstraint(params, innerConsA, innerConsB);
 }
 
-DisjunctionConstraint::DisjunctionConstraint(const ConstraintFactoryParams& params, ISolverConstraint* innerConsA, ISolverConstraint* innerConsB)
+DisjunctionConstraint::DisjunctionConstraint(const ConstraintFactoryParams& params, IConstraint* innerConsA, IConstraint* innerConsB)
 	: IBacktrackingSolverConstraint(params)
 	, m_innerCons{innerConsA, innerConsB}
 	, m_fullySatLevel{-1,-1}
@@ -136,15 +136,15 @@ void DisjunctionConstraint::backtrack(const IVariableDatabase* db, SolverDecisio
 	}
 }
 
-bool DisjunctionConstraint::explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const
+vector<Literal> DisjunctionConstraint::explain(const NarrowingExplanationParams& params) const
 {
 	vxy_assert(m_unsatInfo[0].isUnsat() && m_unsatInfo[1].isUnsat());
 
-	outClauses.clear();
+	vector<Literal> outClauses;
 	outClauses.reserve(m_unsatInfo[0].explanation.size() + m_unsatInfo[1].explanation.size());
 	outClauses.insert(outClauses.end(), m_unsatInfo[0].explanation.begin(), m_unsatInfo[0].explanation.end());
 	outClauses.insert(outClauses.end(), m_unsatInfo[1].explanation.begin(), m_unsatInfo[1].explanation.end());
-	return true;
+	return outClauses;
 }
 
 bool DisjunctionConstraint::checkConflicting(IVariableDatabase* db) const
@@ -163,25 +163,18 @@ bool DisjunctionConstraint::markUnsat(const CommittableVariableDatabase& cdb, in
 	if (!m_unsatInfo[innerConsIndex].isUnsat())
 	{
 		vector<Literal> literals;
-		if (contradictingVar != VarID::INVALID)
-		{
-			vxy_assert(cdb.getPotentialValues(contradictingVar).isZero());
+		HistoricalVariableDatabase hdb(&cdb, m_lastPropagation[innerConsIndex]);
+		vxy_assert(!contradictingVar.isValid() || cdb.getPotentialValues(contradictingVar).isZero());
 
-			if (auto clauseCons = m_innerCons[innerConsIndex]->asClauseConstraint())
-			{
-				literals = clauseCons->getLiteralsCopy();
-			}
-			else
-			{
-				vxy_assert(m_lastPropagation[innerConsIndex] >= 0);
-				HistoricalVariableDatabase hdb(&cdb, m_lastPropagation[innerConsIndex]);
-				NarrowingExplanationParams explParams(cdb.getSolver(), &hdb, m_innerCons[innerConsIndex], contradictingVar, cdb.getPotentialValues(contradictingVar).isZero(), m_lastPropagation[innerConsIndex]);
-				literals = explainer(explParams);
-			}
+		vxy_assert(m_lastPropagation[innerConsIndex] >= 0);
+		NarrowingExplanationParams explParams(cdb.getSolver(), &hdb, m_innerCons[innerConsIndex], contradictingVar, cdb.getPotentialValues(contradictingVar).isZero(), m_lastPropagation[innerConsIndex]);
+		if (explainer != nullptr)
+		{
+			literals = explainer(explParams);
 		}
 		else
 		{
-			m_innerCons[innerConsIndex]->explainConflict(&cdb, literals);
+			literals = m_innerCons[innerConsIndex]->explain(explParams);
 		}
 
 		m_unsatInfo[innerConsIndex].markUnsat(cdb.getDecisionLevel(), literals);
@@ -202,7 +195,7 @@ CommittableVariableDatabase DisjunctionConstraint::createCommittableDB(IVariable
 	return cdb;
 }
 
-void DisjunctionConstraint::committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, ISolverConstraint* source, const ExplainerFunction& explainer)
+void DisjunctionConstraint::committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, IConstraint* source, const ExplainerFunction& explainer)
 {
 	const int innerConsIndex = db.getOuterSinkID();
 	vxy_sanity(innerConsIndex == 0 || innerConsIndex == 1);
@@ -271,7 +264,7 @@ ExplainerFunction DisjunctionConstraint::committableDatabaseWrapExplanation(cons
 	};
 }
 
-void DisjunctionConstraint::committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, ISolverConstraint* constraint)
+void DisjunctionConstraint::committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, IConstraint* constraint)
 {
 	vxy_sanity(constraint == m_innerCons[0] || constraint == m_innerCons[1]);
 	int innerConsIndex = constraint == m_innerCons[0] ? 0 : 1;
@@ -282,7 +275,7 @@ void DisjunctionConstraint::committableDatabaseConstraintSatisfied(const Committ
 	}
 }
 
-void DisjunctionConstraint::committableDatabaseQueueRequest(const CommittableVariableDatabase& db, ISolverConstraint* cons)
+void DisjunctionConstraint::committableDatabaseQueueRequest(const CommittableVariableDatabase& db, IConstraint* cons)
 {
 	vxy_sanity(cons == m_innerCons[0] || cons == m_innerCons[1]);
 	int innerConsIndex = cons == m_innerCons[0] ? 0 : 1;

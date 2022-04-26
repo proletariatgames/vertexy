@@ -4,13 +4,13 @@
 
 #include "ConstraintTypes.h"
 #include "ConstraintOperator.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 
 namespace Vertexy
 {
 
 /** Represents an inequality between two variables e.g. "X <= Y" */
-class InequalityConstraint : public ISolverConstraint
+class InequalityConstraint : public IConstraint
 {
 public:
 	InequalityConstraint(const ConstraintFactoryParams& params, VarID a, EConstraintOperator op, VarID b);
@@ -28,9 +28,9 @@ public:
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
 
 protected:
-	vector<Literal> explainer(const NarrowingExplanationParams& params) const;
 	bool applyOperator(IVariableDatabase* db, EConstraintOperator op, VarID lhs);
 	static EConstraintOperator getMirrorOperator(EConstraintOperator op);
 

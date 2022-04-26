@@ -4,7 +4,7 @@
 
 #include "ConstraintTypes.h"
 #include "IBacktrackingSolverConstraint.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "variable/CommittableVariableDatabase.h"
 
 namespace Vertexy
@@ -14,15 +14,15 @@ namespace Vertexy
 class DisjunctionConstraint : public IBacktrackingSolverConstraint, public ICommittableVariableDatabaseOwner
 {
 public:
-	DisjunctionConstraint(const ConstraintFactoryParams& params, ISolverConstraint* innerConsA, ISolverConstraint* innerConsB);
+	DisjunctionConstraint(const ConstraintFactoryParams& params, IConstraint* innerConsA, IConstraint* innerConsB);
 
 	struct DisjunctionFactory
 	{
-		static DisjunctionConstraint* construct(const ConstraintFactoryParams& params, ISolverConstraint* innerConsA, ISolverConstraint* innerConsB);
+		static DisjunctionConstraint* construct(const ConstraintFactoryParams& params, IConstraint* innerConsA, IConstraint* innerConsB);
 	};
 	using Factory = DisjunctionFactory;
 
-	// ISolverConstraint
+	// IConstraint
 	virtual EConstraintType getConstraintType() const override { return EConstraintType::Disjunction; }
 	virtual vector<VarID> getConstrainingVariables() const override;
 	virtual bool initialize(IVariableDatabase* db) override;
@@ -30,18 +30,18 @@ public:
 	virtual bool propagate(IVariableDatabase* db) override;
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual bool explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
 	virtual void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 
 	// ICommittableVariableDatabaseOwner
-	virtual void committableDatabaseQueueRequest(const CommittableVariableDatabase& db, ISolverConstraint* cons) override;
+	virtual void committableDatabaseQueueRequest(const CommittableVariableDatabase& db, IConstraint* cons) override;
 	virtual WatcherHandle committableDatabaseAddWatchRequest(const CommittableVariableDatabase& db, VarID varID, EVariableWatchType watchType, IVariableWatchSink* sink) override;
 	virtual WatcherHandle committableDatabaseAddValueWatchRequest(const CommittableVariableDatabase& db, VarID varID, const ValueSet& values, IVariableWatchSink* sink) override;
 	virtual void committableDatabaseDisableWatchRequest(const CommittableVariableDatabase& db, WatcherHandle handle, VarID variable, IVariableWatchSink* sink) override;
 	virtual void committableDatabaseRemoveWatchRequest(const CommittableVariableDatabase& db, VarID varID, WatcherHandle handle, IVariableWatchSink* sink) override;
 	virtual ExplainerFunction committableDatabaseWrapExplanation(const CommittableVariableDatabase& db, const ExplainerFunction& innerExpl) override;
-	virtual void committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, ISolverConstraint* source, const ExplainerFunction& explainer) override;
-	virtual void committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, ISolverConstraint* constraint) override;
+	virtual void committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, IConstraint* source, const ExplainerFunction& explainer) override;
+	virtual void committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, IConstraint* constraint) override;
 
 protected:
 	inline CommittableVariableDatabase createCommittableDB(IVariableDatabase* db, int innerConsIndex);
@@ -49,7 +49,7 @@ protected:
 	vector<Literal> explainInner(const NarrowingExplanationParams& params, int innerConsIndex, const ExplainerFunction& innerExpl) const;
 	bool markUnsat(const CommittableVariableDatabase& cdb, int innerConsIndex, VarID contradictingVar=VarID::INVALID, const ExplainerFunction& innerExpl = nullptr);
 
-	ISolverConstraint* m_innerCons[2];
+	IConstraint* m_innerCons[2];
 
 	class SinkWrapper : public IVariableWatchSink
 	{
@@ -66,7 +66,7 @@ protected:
 			return owner->forwardVariableNarrowed(db, wrappedSink, innerConsIndex, var, previousValue, removeHandle);
 		}
 
-		virtual ISolverConstraint* asConstraint() override { return owner; }
+		virtual IConstraint* asConstraint() override { return owner; }
 
 		vector<tuple<WatcherHandle, VarID>> handles;
 	private:

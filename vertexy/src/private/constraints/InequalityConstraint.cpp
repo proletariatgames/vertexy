@@ -13,7 +13,7 @@ InequalityConstraint* InequalityConstraint::InequalityConstraintFactory::constru
 }
 
 InequalityConstraint::InequalityConstraint(const ConstraintFactoryParams& params, VarID leftVar, EConstraintOperator op, VarID rightVar)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_a(leftVar)
 	, m_b(rightVar)
 	, m_operator(op)
@@ -82,7 +82,6 @@ bool InequalityConstraint::onVariableNarrowed(IVariableDatabase* db, VarID varia
 bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOperator op, VarID rhs)
 {
 	VarID lhs = rhs == m_a ? m_b : m_a;
-	auto explanation = [&](const NarrowingExplanationParams& params) { return explainer(params); };
 
 	// constrain Rhs to be within the allowed inequality range.
 	switch (op)
@@ -96,7 +95,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 			else
 			{
 				const int minPossible = db->getMinimumPossibleValue(lhs);
-				if (!db->excludeValuesLessThan(rhs, minPossible + 1, this, explanation))
+				if (!db->excludeValuesLessThan(rhs, minPossible + 1, this))
 				{
 					return false;
 				}
@@ -112,7 +111,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 			else
 			{
 				const int minPossible = db->getMinimumPossibleValue(lhs);
-				if (!db->excludeValuesLessThan(rhs, minPossible, this, explanation))
+				if (!db->excludeValuesLessThan(rhs, minPossible, this))
 				{
 					return false;
 				}
@@ -128,7 +127,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 			else
 			{
 				const int maxPossible = db->getMaximumPossibleValue(lhs);
-				if (!db->excludeValuesGreaterThan(rhs, maxPossible - 1, this, explanation))
+				if (!db->excludeValuesGreaterThan(rhs, maxPossible - 1, this))
 				{
 					return false;
 				}
@@ -144,7 +143,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 			else
 			{
 				const int maxPossible = db->getMaximumPossibleValue(lhs);
-				if (!db->excludeValuesGreaterThan(rhs, maxPossible, this, explanation))
+				if (!db->excludeValuesGreaterThan(rhs, maxPossible, this))
 				{
 					return false;
 				}
@@ -164,7 +163,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 	return true;
 }
 
-vector<Literal> InequalityConstraint::explainer(const NarrowingExplanationParams& params) const
+vector<Literal> InequalityConstraint::explain(const NarrowingExplanationParams& params) const
 {
 	auto db = params.database;
 

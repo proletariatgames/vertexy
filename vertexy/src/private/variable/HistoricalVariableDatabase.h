@@ -30,7 +30,7 @@ public:
 	}
 
 	// Variable modifications not allowed
-	virtual void unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainerFn) override
+	virtual void unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainerFn) override
 	{
 		vxy_fail();
 	}
@@ -74,7 +74,7 @@ public:
 	/** Override to return the current (read-only) potential values for the given variable */
 	virtual const ValueSet& getPotentialValues(VarID varID) const override;
 
-	virtual void queueConstraintPropagation(ISolverConstraint* constraint) override
+	virtual void queueConstraintPropagation(IConstraint* constraint) override
 	{
 		vxy_fail();
 	}

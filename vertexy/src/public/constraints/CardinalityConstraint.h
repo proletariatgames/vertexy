@@ -41,7 +41,7 @@ public:
 	virtual void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 	virtual bool propagate(IVariableDatabase* db) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual bool explainConflict(const IVariableDatabase* db, vector<Literal>& outClauses) const override;
+	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
 
 protected:
 	using Interval = HallIntervalPropagation::Interval;

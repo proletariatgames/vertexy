@@ -2,7 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 
 namespace Vertexy
 {
@@ -10,11 +10,11 @@ namespace Vertexy
 class ConstraintFactoryParams;
 
 /** Interface for constraints that need to be notified whenever the solver backtracks */
-class IBacktrackingSolverConstraint : public ISolverConstraint
+class IBacktrackingSolverConstraint : public IConstraint
 {
 public:
 	IBacktrackingSolverConstraint(const ConstraintFactoryParams& params)
-		: ISolverConstraint(params)
+		: IConstraint(params)
 	{
 	}
 

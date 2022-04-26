@@ -19,7 +19,7 @@
 #include "restart/LBDRestartPolicy.h"
 #include "constraints/ConstraintOperator.h"
 #include "constraints/IBacktrackingSolverConstraint.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
 #include "learning/ConflictAnalyzer.h"
 #include "topology/GraphArgumentTransformer.h"
 #include "topology/TopologyVertexData.h"
@@ -27,6 +27,8 @@
 
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
+
+#include "rules/RuleDatabase.h"
 
 namespace Vertexy
 {
@@ -56,7 +58,7 @@ struct ConstraintHashFuncs
 	/**
 	 * @return True if the keys match.
 	 */
-	bool operator()(ClauseConstraint* consA, ClauseConstraint* consB) const
+	bool operator()(const ClauseConstraint* consA, const ClauseConstraint* consB) const
 	{
 		if (consA->getNumLiterals() != consB->getNumLiterals())
 		{
@@ -86,7 +88,7 @@ struct ConstraintHashFuncs
 	}
 
 	/** Calculates a hash index for a key. */
-	uint32_t operator()(ClauseConstraint* cons) const
+	uint32_t operator()(const ClauseConstraint* cons) const
 	{
 		eastl::hash<VarID> varHasher;
 		eastl::hash<ValueSet> valHasher;
@@ -107,16 +109,20 @@ class ConstraintSolver
 	friend class SolverVariableDatabase;
 	friend class ConstraintFactoryParams;
 	friend class ConflictAnalyzer;
+	friend class UnfoundedSetAnalyzer;
 	friend class SolverDecisionLog;
 
 	using BaseHeuristicType = CoarseLRBHeuristic;
 	using RestartPolicyType = LubyRestartPolicy;
+
+	static ConstraintSolver* s_currentSolver; // for debugging
 
 public:
 	using RandomStreamType = std::mt19937;
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
 	ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
+	~ConstraintSolver();
 
 	//
 	// Solving API
@@ -127,6 +133,11 @@ public:
 	void setOutputLog(const shared_ptr<SolverDecisionLog>& log)
 	{
 		m_outputLog = log;
+	}
+
+	const shared_ptr<SolverDecisionLog>& getOutputLog()
+	{
+		return m_outputLog;
 	}
 
 	const ConstraintSolverStats& getStats() const { return m_stats; }
@@ -166,6 +177,9 @@ public:
 	// Returns the solved value for a single variable. Will assert if variable is not solved.
 	// Note this returns the TRANSLATED value, not the internal (offset) value
 	int getSolvedValue(VarID varID) const;
+
+	// Returns whether a rule atom is currently true.
+	bool isAtomTrue(AtomID atomID) const;
 
 	// Returns the solution. Will assert if current state isn't Solved.
 	hash_map<VarID, SolvedVariableRecord> getSolution() const;
@@ -215,7 +229,7 @@ public:
 	// Maps FVarID to the decision level that was variable was chosen on, or 0.
 	const vector<uint32_t>& getVariableToDecisionLevelMap() const { return m_variableToDecisionLevel; }
 
-	// Gets the level the variable was chosen for deciison, or 0 if not yet chosen.
+	// Gets the level the variable was chosen for decision, or 0 if not yet chosen.
 	SolverDecisionLevel getDecisionLevelForVariable(VarID varID) const
 	{
 		vxy_assert(varID.isValid());
@@ -314,7 +328,7 @@ public:
 	class InequalityConstraint& inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide);
 	class CardinalityConstraint& cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues);
 	class SumConstraint& sum(const VarID sum, const vector<VarID>& vars);
-	class DisjunctionConstraint& disjunction(ISolverConstraint* consA, ISolverConstraint* consB);
+	class DisjunctionConstraint& disjunction(IConstraint* consA, IConstraint* consB);
 
 	//
 	// Create a constraint across an entire graph. All vertices in the graph will share the same constraints.
@@ -342,11 +356,11 @@ public:
 	{
 		bool anyMade = false;
 
-		auto graphConstraintData = make_shared<TTopologyVertexData<ISolverConstraint*>>(graph, nullptr);
+		auto graphConstraintData = make_shared<TTopologyVertexData<IConstraint*>>(graph, nullptr);
 
 		for (int i = 0; i < graph->getNumVertices(); ++i)
 		{
-			ISolverConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, i, forward<ArgsType>(args)...);
+			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, i, forward<ArgsType>(args)...);
 			if (cons != nullptr)
 			{
 				anyMade = true;
@@ -377,8 +391,12 @@ public:
 		return *static_cast<T*>(registerConstraint(T::Factory::construct(ConstraintFactoryParams(*this), forward<ArgsType>(args)...)));
 	}
 
+	// Access the database for creating ASP-style rules
+	RuleDatabase& getRuleDB() { return m_ruleDB; }
+	const RuleDatabase& getRuleDB() const { return m_ruleDB; }
+
 	// Return all the variables that a given constraint refers to
-	const vector<VarID>& getVariablesForConstraint(const ISolverConstraint* constraint) const
+	const vector<VarID>& getVariablesForConstraint(const IConstraint* constraint) const
 	{
 		return m_constraintArcs[constraint->getID()];
 	}
@@ -386,7 +404,7 @@ public:
 	// Called by constraints to mark themselves for propagation in the constraint propagation queue.
 	// This allows constraints to defer their propagation until after all variable propagation has finished,
 	// which can be more efficient if the constraint involves a large number of variables.
-	void queueConstraintPropagation(ISolverConstraint* constraint);
+	void queueConstraintPropagation(const IConstraint* constraint);
 
 	// Used by constraint factories
 	inline int getNextConstraintID() const { return m_constraints.size(); }
@@ -394,14 +412,14 @@ public:
 protected:
 	struct QueuedVariablePropagation
 	{
-		QueuedVariablePropagation(ISolverConstraint* inConstraint, VarID inVariable, SolverTimestamp inTimestamp)
+		QueuedVariablePropagation(IConstraint* inConstraint, VarID inVariable, SolverTimestamp inTimestamp)
 			: constraint(inConstraint)
 			, variable(inVariable)
 			, timestamp(inTimestamp)
 		{
 		}
 
-		ISolverConstraint* constraint;
+		IConstraint* constraint;
 		VarID variable;
 		SolverTimestamp timestamp;
 	};
@@ -416,11 +434,13 @@ protected:
 
 	// Called whenever a potential value is removed from a variable. Triggers propagation of this to any
 	// constraints that involve this variable.
-	void notifyVariableModification(VarID variable, ISolverConstraint* constraint);
+	void notifyVariableModification(VarID variable, IConstraint* constraint);
 
-	ISolverConstraint* registerConstraint(ISolverConstraint* constraint);
+	IConstraint* registerConstraint(IConstraint* constraint);
 
 	bool propagate();
+	bool propagateVariables();
+
 	bool emptyVariableQueue();
 	bool emptyConstraintQueue();
 
@@ -516,7 +536,7 @@ protected:
 	hash_map<VarID, VarID> m_offsetVariableToSource;
 
 	// All constraints in the system
-	vector<unique_ptr<ISolverConstraint>> m_constraints;
+	vector<unique_ptr<IConstraint>> m_constraints;
 	// Whether the constraint at given index is a child constraint (i.e. wrapped by an outer constraint)
 	// Child constraints rely on their parents to initialize.
 	vector<bool> m_constraintIsChild;
@@ -532,7 +552,7 @@ protected:
 	// Graphs that have been registered with the solver
 	vector<shared_ptr<ITopology>> m_graphs;
 	// Constraints created by graphs
-	vector<shared_ptr<TTopologyVertexData<ISolverConstraint*>>> m_graphConstraints;
+	vector<shared_ptr<TTopologyVertexData<IConstraint*>>> m_graphConstraints;
 	// For each variable, indices of graphs that the variable is associated with
 	vector<vector<uint32_t>> m_variableToGraphs;
 
@@ -544,6 +564,7 @@ protected:
 
 	// Decision heuristic stack
 	vector<shared_ptr<ISolverDecisionHeuristic>> m_heuristicStack;
+	bool m_heuristicsInitialized = false;
 
 	// Policy for determining when we restart
 	RestartPolicyType m_restartPolicy;
@@ -577,7 +598,10 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
+	RuleDatabase m_ruleDB;
 	ConflictAnalyzer m_analyzer;
+
+	unique_ptr<class UnfoundedSetAnalyzer> m_unfoundedSetAnalyzer;
 
 	mutable ConstraintSolverStats m_stats;
 	shared_ptr<SolverDecisionLog> m_outputLog;
@@ -638,7 +662,7 @@ protected:
 	template<>
 	auto translateGraphConsArgument(const GraphConstraintID& id, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
-		ISolverConstraint* cons = nullptr;
+		IConstraint* cons = nullptr;
 		if (id == GraphConstraintID::INVALID)
 		{
 			success = false;
@@ -684,11 +708,11 @@ protected:
 	}
 
 	template <typename T, typename... ArgsType>
-	ISolverConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
+	IConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
 	{
 		ConstraintGraphRelationInfo graphRelationInfo(graph, vertexIndex);
 
-		ISolverConstraint* out = nullptr;
+		IConstraint* out = nullptr;
 
 		bool success = true;
 		auto translatedArgsTuple = concatGraphConsArgs(std::tuple<>{}, graphRelationInfo, success, forward<ArgsType>(args)...);

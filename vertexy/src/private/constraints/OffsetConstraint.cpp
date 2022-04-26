@@ -23,7 +23,7 @@ OffsetConstraint* OffsetConstraint::OffsetConstraintFactory::construct(const Con
 }
 
 OffsetConstraint::OffsetConstraint(const ConstraintFactoryParams& params, VarID sum, VarID term, int delta)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_sum(sum)
 	, m_term(term)
 	, m_delta(delta)

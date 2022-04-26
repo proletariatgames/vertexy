@@ -14,7 +14,7 @@ SumConstraint* SumConstraint::SumConstraintFactory::construct(const ConstraintFa
 }
 
 SumConstraint::SumConstraint(const ConstraintFactoryParams& params, VarID inSum, VarID inTerm1, VarID inTerm2)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_sum(inSum)
 	, m_term1(inTerm1)
 	, m_term2(inTerm2)

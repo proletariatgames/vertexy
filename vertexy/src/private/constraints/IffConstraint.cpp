@@ -18,7 +18,7 @@ IffConstraint* IffConstraint::IffConstraintFactory::construct(const ConstraintFa
 }
 
 IffConstraint::IffConstraint(const ConstraintFactoryParams& params, VarID inHead, const ValueSet& inHeadValue, vector<Literal>& InBody)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_head(inHead)
 	, m_headValue(inHeadValue)
 	, m_body(InBody)
@@ -90,7 +90,7 @@ bool IffConstraint::initialize(IVariableDatabase* db)
 	}
 	else if (lastSupport >= 0 && db->getPotentialValues(m_head).isSubsetOf(m_headValue))
 	{
-		if (!db->constrainToValues(m_body[lastSupport].variable, m_body[lastSupport].values, this))
+		if (!db->constrainToValues(m_body[lastSupport], this))
 		{
 			return false;
 		}
@@ -179,7 +179,7 @@ bool IffConstraint::propagate(IVariableDatabase* db)
 			{
 				db->markConstraintFullySatisfied(this);
 			}
-			else if (!db->excludeValues(m_head, m_headValue, this, [&](auto& params) { return explainVariable(params); }))
+			else if (!db->excludeValues(m_head, m_headValue, this))
 			{
 				return false;
 			}
@@ -191,14 +191,14 @@ bool IffConstraint::propagate(IVariableDatabase* db)
 			{
 				db->markConstraintFullySatisfied(this);
 			}
-			else if (!db->constrainToValues(m_head, m_headValue, this, [&](auto& params) { return explainVariable(params); }))
+			else if (!db->constrainToValues(m_head, m_headValue, this))
 			{
 				return false;
 			}
 		}
 		else if (lastSupport >= 0 && curHeadValue.isSubsetOf(m_headValue))
 		{
-			if (!db->constrainToValues(m_body[lastSupport].variable, m_body[lastSupport].values, this, [&](auto& params) { return explainVariable(params); }))
+			if (!db->constrainToValues(m_body[lastSupport], this))
 			{
 				return false;
 			}
@@ -249,7 +249,7 @@ bool IffConstraint::propagateBodyTrue(IVariableDatabase* db, bool& outFullySatis
 			}
 		}
 
-		bool success = db->constrainToValues(m_body[mostRecentIndex].variable, m_body[mostRecentIndex].values, this, [&](auto& params) { return explainVariable(params); });
+		bool success = db->constrainToValues(m_body[mostRecentIndex], this);
 		vxy_assert(!success);
 
 		return false;
@@ -257,7 +257,7 @@ bool IffConstraint::propagateBodyTrue(IVariableDatabase* db, bool& outFullySatis
 	else if (numSupports == 1)
 	{
 		// Last support MUST be true.
-		if (!db->constrainToValues(m_body[lastSupportIndex].variable, m_body[lastSupportIndex].values, this, [&](auto& params) { return explainVariable(params); }))
+		if (!db->constrainToValues(m_body[lastSupportIndex], this))
 		{
 			return false;
 		}
@@ -273,7 +273,7 @@ bool IffConstraint::propagateBodyFalse(IVariableDatabase* db, bool& outFullySati
 	{
 		auto& vals = db->getPotentialValues(m_body[i].variable);
 		outFullySatisfied = outFullySatisfied && !vals.anyPossible(m_body[i].values);
-		if (!db->excludeValues(m_body[i].variable, m_body[i].values, this, [&](auto& params) { return explainVariable(params); }))
+		if (!db->excludeValues(m_body[i], this))
 		{
 			return false;
 		}
@@ -351,7 +351,7 @@ IffConstraint::EBodySatisfaction IffConstraint::getBodySatisfaction(IVariableDat
 	}
 }
 
-vector<Literal> IffConstraint::explainVariable(const NarrowingExplanationParams& params) const
+vector<Literal> IffConstraint::explain(const NarrowingExplanationParams& params) const
 {
 	vector<Literal> output;
 

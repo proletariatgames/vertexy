@@ -30,7 +30,7 @@ ClauseConstraint* ClauseConstraint::ClauseConstraintFactory::construct(const Con
 	vector<Literal> transformedClauses;
 	for_each(clauses.begin(), clauses.end(), [&](auto& clause)
 	{
-		transformedClauses.push_back(clause.invert().translateToLiteral(params));
+		transformedClauses.push_back(clause.inverted().translateToLiteral(params));
 	});
 
 	return construct(params, transformedClauses);
@@ -46,7 +46,7 @@ ClauseConstraint* ClauseConstraint::ClauseConstraintFactory::construct(const Con
 }
 
 ClauseConstraint::ClauseConstraint(const ConstraintFactoryParams& params, const vector<Literal>& literals, bool isLearned)
-	: ISolverConstraint(params)
+	: IConstraint(params)
 	, m_watches{INVALID_WATCHER_HANDLE, INVALID_WATCHER_HANDLE}
 	, m_numLiterals(literals.size())
 {
@@ -91,7 +91,7 @@ vector<VarID> ClauseConstraint::getConstrainingVariables() const
 	return variables;
 }
 
-bool ClauseConstraint::initialize(IVariableDatabase* db, ISolverConstraint* outerConstraint)
+bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConstraint)
 {
 	int numSupports = m_numLiterals;
 	if (!isLearned() || isPromotedFromGraph())
@@ -151,7 +151,7 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, ISolverConstraint* oute
 	else if (numSupports == 1)
 	{
 		// Propagate unit clause
-		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this, nullptr))
+		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this))
 		{
 			return false;
 		}
@@ -167,7 +167,7 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 	// Remove any literals that are impossible
 	for (int i = 0; i < m_numLiterals;)
 	{
-		if (db->anyPossible(m_literals[i].variable, m_literals[i].values))
+		if (db->anyPossible(m_literals[i]))
 		{
 			++i;
 		}
@@ -184,13 +184,13 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 	}
 	else if (m_numLiterals == 1)
 	{
-		return db->constrainToValues(m_literals[0].variable, m_literals[0].values, this, nullptr);
+		return db->constrainToValues(m_literals[0].variable, m_literals[0].values, this);
 	}
 
 	return true;
 }
 
-void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
+bool ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 {
 	vxy_assert(isLearned());
 
@@ -201,11 +201,11 @@ void ClauseConstraint::makeUnit(IVariableDatabase* db, int literalIndex)
 		{
 			continue;
 		}
-		vxy_assert(!db->anyPossible(m_literals[i].variable, m_literals[i].values));
+		vxy_assert(!db->anyPossible(m_literals[i]));
 	}
 	#endif
-	bool success = db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this, nullptr);
-	vxy_assert(success);
+
+	return db->constrainToValues(m_literals[literalIndex].variable, m_literals[literalIndex].values, this);
 }
 
 void ClauseConstraint::reset(IVariableDatabase* db)
@@ -274,7 +274,7 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 	#if SANITY_CHECK
 	for (int i = 0; i < m_numLiterals; ++i)
 	{
-		vxy_assert(i == otherIndex || !db->anyPossible(m_literals[i].variable, m_literals[i].values));
+		vxy_assert(i == otherIndex || !db->anyPossible(m_literals[i]));
 	}
 	#endif
 
@@ -288,7 +288,7 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 		// should only be possible when we are a child constraint
 		return false;
 	}
-	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this, nullptr);
+	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this);
 }
 
 void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)
@@ -313,12 +313,12 @@ void ClauseConstraint::removeLiteralAt(IVariableDatabase* db, int litIndex)
 
 	if (litIndex < 2 && litIndex < m_numLiterals)
 	{
-		if (!db->anyPossible(m_literals[litIndex].variable, m_literals[litIndex].values))
+		if (!db->anyPossible(m_literals[litIndex]))
 		{
 			// attempt to keep both two watched literals positive
 			for (int j = 2; j < m_numLiterals; ++j)
 			{
-				if (db->anyPossible(m_literals[j].variable, m_literals[j].values))
+				if (db->anyPossible(m_literals[j]))
 				{
 					swap(m_literals[litIndex], m_literals[j]);
 					if (m_watches[litIndex] != INVALID_WATCHER_HANDLE)
@@ -368,7 +368,7 @@ bool ClauseConstraint::checkConflicting(IVariableDatabase* db) const
 {
 	for (int i = 0; i < m_numLiterals; ++i)
 	{
-		if (db->anyPossible(m_literals[i].variable, m_literals[i].values))
+		if (db->anyPossible(m_literals[i]))
 		{
 			return false;
 		}
@@ -419,7 +419,9 @@ void ClauseConstraint::computeLbd(const SolverVariableDatabase& db)
 			m_extendedInfo->LBD = uint8_t(numUniqueDecisionLevels);
 		}
 	}
-	vxy_assert(m_extendedInfo->LBD > 0);
+
+	// learned constraints from UnfoundedSetAnalyzer can have a zero LBD
+	// vxy_assert(m_extendedInfo->LBD > 0);
 }
 
 #undef SANITY_CHECK

@@ -22,6 +22,10 @@ public:
 	static int solveClauseBasic(int times, int seed, bool printVerbose = true);
 	static int solveInequalityBasic(int times, int seed, bool printVerbose = true);
 	static int solveSumBasic(int times, int seed, bool printVerbose = true);
+	static int solveRules_basicChoice(int seed, bool printVerbose = true);
+	static int solveRules_basicDisjunction(int seed, bool printVerbose = true);
+	static int solveRules_basicCycle(int seed, bool printVerbose = true);
+	static int solveRules_incompleteCycle(int seed, bool printVerbose = true);
 };
 
 }

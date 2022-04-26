@@ -25,7 +25,7 @@ namespace Vertexy
 using namespace eastl;
 
 class ConstraintSolver;
-class ISolverConstraint;
+class IConstraint;
 class IVariableDatabase;
 
 enum class EConstraintType : uint8_t
@@ -162,7 +162,7 @@ using ValueSet = TValueBitset<>;
 struct Literal
 {
 	Literal()
-		: variable(-1)
+		: variable(VarID::INVALID)
 	{
 	}
 
@@ -202,6 +202,11 @@ struct Literal
 		return variable == rhs.variable && values == rhs.values;
 	}
 
+	Literal inverted() const
+	{
+		return Literal(variable, values.inverted());
+	}
+
 	VarID variable;
 	ValueSet values;
 };
@@ -211,7 +216,7 @@ struct NarrowingExplanationParams
 {
 	NarrowingExplanationParams() = delete;
 
-	NarrowingExplanationParams(const ConstraintSolver* inSolver, const IVariableDatabase* inDB, const ISolverConstraint* inConstraint, VarID inVar, const ValueSet& inValues, SolverTimestamp inTimestamp)
+	NarrowingExplanationParams(const ConstraintSolver* inSolver, const IVariableDatabase* inDB, const IConstraint* inConstraint, VarID inVar, const ValueSet& inValues, SolverTimestamp inTimestamp)
 		: solver(inSolver)
 		, database(inDB)
 		, constraint(inConstraint)
@@ -223,7 +228,7 @@ struct NarrowingExplanationParams
 
 	const ConstraintSolver* solver;
 	const IVariableDatabase* database;
-	const ISolverConstraint* constraint;
+	const IConstraint* constraint;
 	VarID propagatedVariable;
 	const ValueSet& propagatedValues;
 	SolverTimestamp timestamp;
@@ -410,4 +415,16 @@ struct hash<Vertexy::VarID>
 	}
 };
 
-} // namespace eastl
+// Hashing for Literal
+template<>
+struct hash<Vertexy::Literal>
+{
+	inline size_t operator()(const Vertexy::Literal& lit) const
+	{
+		hash<Vertexy::VarID> varHash;
+		hash<Vertexy::ValueSet> valHash;
+		return varHash(lit.variable) | valHash(lit.values);
+	}
+};
+
+} // names

@@ -310,7 +310,7 @@ public:
 class ClauseToLiteralGraphRelation : public IGraphRelation<Literal>
 {
 public:
-	ClauseToLiteralGraphRelation(const ConstraintSolver& solver, shared_ptr<const IGraphRelation<SignedClause>>& clauseRel);
+	ClauseToLiteralGraphRelation(const ConstraintSolver& solver, const shared_ptr<const IGraphRelation<SignedClause>>& clauseRel);
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
 	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
 	virtual wstring toString() const override;
@@ -539,6 +539,9 @@ public:
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
 	virtual wstring toString() const override;
 	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
+
+	const shared_ptr<const IGraphRelation<Literal>>& getInner() const { return m_inner; }
+
 protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
 };

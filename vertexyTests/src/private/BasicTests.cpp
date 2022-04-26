@@ -5,9 +5,13 @@
 
 #include "ConstraintSolver.h"
 #include "EATest/EATest.h"
+#include "util/SolverDecisionLog.h"
 #include "variable/SolverVariableDomain.h"
 
 using namespace VertexyTests;
+
+// Whether to write a decision log as DecisionLog.txt
+static constexpr bool WRITE_BREADCRUMB_LOG = false;
 
 int TestSolvers::solveCardinalityBasic(int times, int seed, bool printVerbose)
 {
@@ -285,12 +289,22 @@ int TestSolvers::solveSumBasic(int times, int seed, bool printVerbose)
 		SolverVariableDomain domain(0, 10);
 		VarID sum = solver.makeVariable(TEXT("Sum"), domain);
 		vector<VarID> vars = {
-			solver.makeVariable(TEXT("X1"), vector{1,7}),
-			solver.makeVariable(TEXT("X2"), vector{2,15}),
+			solver.makeVariable(TEXT("X1"), vector{5, 10}),
+			solver.makeVariable(TEXT("X2"), vector{1, 17}),
 			solver.makeVariable(TEXT("X3"), domain),
-			solver.makeVariable(TEXT("X4"), domain),
-			solver.makeVariable(TEXT("X5"), domain)
+			solver.makeVariable(TEXT("X4"), domain)
 		};
+
+		shared_ptr<SolverDecisionLog> outputLog;
+		if constexpr (WRITE_BREADCRUMB_LOG)
+		{
+			outputLog = make_shared<SolverDecisionLog>();
+		}
+
+		if (outputLog != nullptr)
+		{
+			solver.setOutputLog(outputLog);
+		}
 
 		solver.sum(sum, vars);
 		solver.solve();
@@ -312,7 +326,189 @@ int TestSolvers::solveSumBasic(int times, int seed, bool printVerbose)
 			summedVars += solver.getSolvedValue(var);
 		}
 		EATEST_VERIFY(solver.getSolvedValue(sum) == summedVars);
+
+		if (outputLog != nullptr)
+		{
+			outputLog->writeBreadcrumbs(solver, TEXT("SumDecisionLog.txt"));
+			outputLog->write(TEXT("SumOutput.txt"));
+		}
+
 	}
+
+	return nErrorCount;
+}
+
+int TestSolvers::solveRules_basicChoice(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver(TEXT("Rules:BasicChoice"), seed);
+
+	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+
+	// {b}. {c}. a <- b, c.
+	solver.getRuleDB().addFact(SignedClause{b, {1}}, ERuleHeadType::Choice);
+	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+	solver.getRuleDB().addRule(SignedClause{a, {1}}, vector{SignedClause{b, {1}}, SignedClause{c, {1}}});
+
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+		}
+		EATEST_VERIFY(solver.getSolvedValue(a) == (solver.getSolvedValue(b) && solver.getSolvedValue(c)));
+	}
+
+	// a=0 b=0 c=0
+	// a=0 b=1 c=0
+	// a=0 b=0 c=1
+	// a=1 b=1 c=1
+	EATEST_VERIFY(numResults == 4);
+	EATEST_VERIFY(solver.getRuleDB().isTight());
+
+	return nErrorCount;
+}
+
+int TestSolvers::solveRules_basicDisjunction(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+
+	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+
+	// a | b <- c. {c}.
+	solver.getRuleDB().addRule(
+		TRuleHead{vector{SignedClause{a, {1}}, SignedClause{b, {1}}}, ERuleHeadType::Disjunction},
+		SignedClause{c, {1}}
+	);
+	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) != solver.getSolvedValue(b)));
+		EATEST_VERIFY((solver.getSolvedValue(a) || solver.getSolvedValue(b)) == solver.getSolvedValue(c));
+	}
+
+	// a=0 b=0 c=0
+	// a=1 b=0 c=1
+	// a=0 b=1 c=1
+	EATEST_VERIFY(numResults == 3);
+	EATEST_VERIFY(solver.getRuleDB().isTight());
+
+	return nErrorCount;
+}
+
+int TestSolvers::solveRules_basicCycle(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+
+	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+
+	// a <- b. b <- a. b <- c. {c}.
+	solver.getRuleDB().addRule(SignedClause{a, {1}}, SignedClause{b, {1}});
+	solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{a, {1}});
+	solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{c, {1}});
+	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
+		EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
+	}
+
+	// a=1 b=1 c=1
+	// a=0 b=0 c=0
+	EATEST_VERIFY(numResults == 2);
+	EATEST_VERIFY(!solver.getRuleDB().isTight());
+
+	return nErrorCount;
+}
+
+int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+
+	vector domain = {0,1,2,3};
+	auto a = solver.makeVariable(TEXT("a"), domain);
+	auto b = solver.makeVariable(TEXT("b"), domain);
+	auto c = solver.makeVariable(TEXT("c"), domain);
+
+	vector pos = {1,2,3};
+
+	// a <- b. b <- a. b <- c. {c}.
+	solver.getRuleDB().addRule(SignedClause{a, pos}, SignedClause{b, pos});
+	solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{a, pos});
+	solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{c, pos});
+	solver.getRuleDB().addFact(SignedClause{c, pos}, ERuleHeadType::Choice);
+
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
+		EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
+	}
+
+	// a!=0 b!=0 c!=0
+	// a=0 b=0 c=0
+	EATEST_VERIFY(numResults == 28);
+	EATEST_VERIFY(!solver.getRuleDB().isTight());
 
 	return nErrorCount;
 }

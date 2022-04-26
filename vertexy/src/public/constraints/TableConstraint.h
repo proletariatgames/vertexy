@@ -5,7 +5,7 @@
 #include "ConstraintTypes.h"
 #include "IBacktrackingSolverConstraint.h"
 
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "ds/SparseSet.h"
 #include "variable/SolverVariableDomain.h"
 

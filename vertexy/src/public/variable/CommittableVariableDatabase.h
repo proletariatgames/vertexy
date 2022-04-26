@@ -18,14 +18,14 @@ class ICommittableVariableDatabaseOwner
 public:
 	virtual ~ICommittableVariableDatabaseOwner() {}
 
-	virtual void committableDatabaseQueueRequest(const CommittableVariableDatabase& db, ISolverConstraint* cons) = 0;
+	virtual void committableDatabaseQueueRequest(const CommittableVariableDatabase& db, IConstraint* cons) = 0;
 	virtual WatcherHandle committableDatabaseAddWatchRequest(const CommittableVariableDatabase& db, VarID varID, EVariableWatchType watchType, IVariableWatchSink* sink) = 0;
 	virtual WatcherHandle committableDatabaseAddValueWatchRequest(const CommittableVariableDatabase& db, VarID varID, const ValueSet& values, IVariableWatchSink* sink) = 0;
 	virtual void committableDatabaseDisableWatchRequest(const CommittableVariableDatabase& db, WatcherHandle handle, VarID variable, IVariableWatchSink* sink) = 0;
 	virtual void committableDatabaseRemoveWatchRequest(const CommittableVariableDatabase& db, VarID varID, WatcherHandle handle, IVariableWatchSink* sink) = 0;
 	virtual ExplainerFunction committableDatabaseWrapExplanation(const CommittableVariableDatabase& db, const ExplainerFunction& innerExpl) = 0;
-	virtual void committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, ISolverConstraint* source, const ExplainerFunction& explainer) = 0;
-	virtual void committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, ISolverConstraint* constraint) = 0;
+	virtual void committableDatabaseContradictionFound(const CommittableVariableDatabase& db, VarID varID, IConstraint* source, const ExplainerFunction& explainer) = 0;
+	virtual void committableDatabaseConstraintSatisfied(const CommittableVariableDatabase& db, IConstraint* constraint) = 0;
 };
 
 // Database that stores modifications to variables, which can later be committed to the parent database by calling Commit().
@@ -35,7 +35,7 @@ class CommittableVariableDatabase : public IVariableDatabase
 {
 public:
 	CommittableVariableDatabase() = delete;
-	CommittableVariableDatabase(IVariableDatabase* inParent, ISolverConstraint* outerCons, ICommittableVariableDatabaseOwner* outerSink, int outerSinkID=-1)
+	CommittableVariableDatabase(IVariableDatabase* inParent, IConstraint* outerCons, ICommittableVariableDatabaseOwner* outerSink, int outerSinkID=-1)
 		: m_parent(inParent)
 		, m_outerCons(outerCons)
 		, m_outerSink(outerSink)
@@ -53,12 +53,12 @@ public:
 	int getOuterSinkID() const { return m_outerSinkID; }
 
 	virtual ValueSet& lockVariableImpl(VarID varID) override;
-	virtual void unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainer) override;
-	virtual void onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer) override;
+	virtual void unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainer) override;
+	virtual void onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer) override;
 	virtual SolverDecisionLevel getDecisionLevel() const override { return m_parent->getDecisionLevel(); }
 	virtual SolverTimestamp getTimestamp() const override { return m_parent->getTimestamp() + m_modifications.size(); }
 	virtual const ValueSet& getPotentialValues(VarID varID) const override;
-	virtual void queueConstraintPropagation(ISolverConstraint* constraint) override;
+	virtual void queueConstraintPropagation(IConstraint* constraint) override;
 	virtual WatcherHandle addVariableWatch(VarID varID, EVariableWatchType watchType, IVariableWatchSink* sink) override;
 	virtual WatcherHandle addVariableValueWatch(VarID varID, const ValueSet& values, IVariableWatchSink* sink) override;
 	virtual void disableWatcherUntilBacktrack(WatcherHandle handle, VarID variable, IVariableWatchSink* sink) override;
@@ -71,7 +71,7 @@ public:
 	virtual const ValueSet& getValueAfter(VarID variable, SolverTimestamp timestamp) const override;
 	virtual SolverTimestamp getModificationTimePriorTo(VarID variable, SolverTimestamp timestamp) const override;
 	virtual const ConstraintSolver* getSolver() const override { return m_parent->getSolver(); }
-	virtual void markConstraintFullySatisfied(ISolverConstraint* constraint) override;
+	virtual void markConstraintFullySatisfied(IConstraint* constraint) override;
 
 protected:
 	static vector<Literal> defaultWrapper(const ExplainerFunction& explainerFn, const NarrowingExplanationParams& params)
@@ -80,7 +80,7 @@ protected:
 	}
 
 	IVariableDatabase* m_parent;
-	ISolverConstraint* m_outerCons;
+	IConstraint* m_outerCons;
 	ICommittableVariableDatabaseOwner* m_outerSink;
 	int m_outerSinkID = -1;
 
@@ -88,7 +88,7 @@ protected:
 	{
 		VarID variable;
 		ValueSet value;
-		ISolverConstraint* constraint;
+		IConstraint* constraint;
 		ExplainerFunction explainer;
 	};
 

@@ -53,7 +53,7 @@ ValueSet& CommittableVariableDatabase::lockVariableImpl(VarID varID)
 	return m_lockedValues;
 }
 
-void CommittableVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainer)
+void CommittableVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainer)
 {
 	vxy_assert(m_lockedVar == varID);
 	vxy_assert(!m_hasContradiction);
@@ -71,14 +71,14 @@ void CommittableVariableDatabase::unlockVariableImpl(VarID varID, bool wasChange
 	}
 }
 
-void CommittableVariableDatabase::onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer)
+void CommittableVariableDatabase::onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer)
 {
 	vxy_assert(!m_hasContradiction);
 	m_hasContradiction = true;
 	m_outerSink->committableDatabaseContradictionFound(*this, varID, constraint, explainer);
 }
 
-void CommittableVariableDatabase::queueConstraintPropagation(ISolverConstraint* constraint)
+void CommittableVariableDatabase::queueConstraintPropagation(IConstraint* constraint)
 {
 	m_outerSink->committableDatabaseQueueRequest(*this, constraint);
 }
@@ -102,7 +102,7 @@ SolverTimestamp CommittableVariableDatabase::getLastModificationTimestamp(VarID 
 	}
 }
 
-void CommittableVariableDatabase::markConstraintFullySatisfied(ISolverConstraint* constraint)
+void CommittableVariableDatabase::markConstraintFullySatisfied(IConstraint* constraint)
 {
 	m_outerSink->committableDatabaseConstraintSatisfied(*this, constraint);
 }

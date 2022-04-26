@@ -22,7 +22,7 @@ public:
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID var, const ValueSet& previousValue, bool& removeHandle) = 0;
 
 	// Return true if this sink is a constraint, or acting on behalf of a constraint.
-	virtual class ISolverConstraint* asConstraint() { return nullptr; }
+	virtual class IConstraint* asConstraint() { return nullptr; }
 };
 
 } // namespace Vertexy

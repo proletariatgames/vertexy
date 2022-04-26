@@ -4,7 +4,8 @@
 #include "ConstraintSolver.h"
 #include "SignedClause.h"
 #include "constraints/ClauseConstraint.h"
-#include "constraints/ISolverConstraint.h"
+#include "constraints/IConstraint.h"
+#include "util/SolverDecisionLog.h"
 
 using namespace Vertexy;
 
@@ -77,7 +78,7 @@ void SolverVariableDatabase::onInitialArcConsistency()
 	m_isSolving = true;
 }
 
-void SolverVariableDatabase::onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer)
+void SolverVariableDatabase::onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer)
 {
 	// This is a good spot to set a breakpoint if trying to determine why a variable was narrowed.
 	vxy_assert(!m_lastContradictingVar.isValid());
@@ -151,7 +152,7 @@ SolverTimestamp SolverVariableDatabase::makeDecision(VarID variable, int value)
 	return m_assignmentStack.getMostRecentTimestamp();
 }
 
-void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainer)
+void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainer)
 {
 	vxy_assert(varID.isValid());
 	vxy_assert(m_lockedVar == varID);
@@ -173,9 +174,17 @@ void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IS
 			learned->lock();
 		}
 
-		for (auto& heuristic : m_solver->getDecisionHeuristics())
+		if (m_solver->m_heuristicsInitialized)
 		{
-			heuristic->onVariableAssignment(varID, info.potentialValues, m_lockedValues);
+			for (auto& heuristic : m_solver->getDecisionHeuristics())
+			{
+				heuristic->onVariableAssignment(varID, info.potentialValues, m_lockedValues);
+			}
+		}
+
+		if (m_solver->getOutputLog() != nullptr)
+		{
+			m_solver->getOutputLog()->addSolverRecord(m_solver->getCurrentDecisionLevel(), getVariableName(varID), (constraint ? constraint->getID() : -1), m_lockedValues);
 		}
 
 		info.latestModification = timestamp;
@@ -185,7 +194,7 @@ void SolverVariableDatabase::unlockVariableImpl(VarID varID, bool wasChanged, IS
 	}
 }
 
-void SolverVariableDatabase::queueConstraintPropagation(ISolverConstraint* constraint)
+void SolverVariableDatabase::queueConstraintPropagation(IConstraint* constraint)
 {
 	m_solver->queueConstraintPropagation(constraint);
 }

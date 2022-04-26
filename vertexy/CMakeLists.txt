@@ -18,6 +18,7 @@ file(GLOB VERTEXY_SOURCES
 	"src/private/util/*.cpp"
 	"src/private/topology/*.cpp"
 	"src/private/variable/*.cpp"
+	"src/private/rules/*.cpp"
 	"src/private/*.cpp"
 	"src/*.cpp"
 	"../thirdParty/eastl/doc/EASTL.natvis"  # debugging visualization

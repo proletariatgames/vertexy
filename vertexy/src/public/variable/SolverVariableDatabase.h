@@ -28,8 +28,8 @@ public:
 	virtual bool hasFinishedInitialArcConsistency() const override;
 	virtual SolverDecisionLevel getDecisionLevel() const override;
 	virtual SolverTimestamp getTimestamp() const override { return m_assignmentStack.getMostRecentTimestamp(); }
-	virtual void onContradiction(VarID varID, ISolverConstraint* constraint, const ExplainerFunction& explainer) override;
-	virtual void queueConstraintPropagation(ISolverConstraint* constraint) override;
+	virtual void onContradiction(VarID varID, IConstraint* constraint, const ExplainerFunction& explainer) override;
+	virtual void queueConstraintPropagation(IConstraint* constraint) override;
 	virtual WatcherHandle addVariableWatch(VarID var, EVariableWatchType watchType, IVariableWatchSink* sink) override;
 	virtual WatcherHandle addVariableValueWatch(VarID var, const ValueSet& values, IVariableWatchSink* sink) override;
 	virtual void disableWatcherUntilBacktrack(WatcherHandle handle, VarID variable, IVariableWatchSink* sink) override;
@@ -76,7 +76,7 @@ public:
 protected:
 	virtual VarID addVariableImpl(const wstring& name, int domainSize, const vector<int>& potentialValues) override;
 	virtual ValueSet& lockVariableImpl(VarID varID) override;
-	virtual void unlockVariableImpl(VarID varID, bool wasChanged, ISolverConstraint* constraint, ExplainerFunction explainer) override;
+	virtual void unlockVariableImpl(VarID varID, bool wasChanged, IConstraint* constraint, ExplainerFunction explainer) override;
 
 	VarID m_lockedVar;
 	ValueSet m_lockedValues;

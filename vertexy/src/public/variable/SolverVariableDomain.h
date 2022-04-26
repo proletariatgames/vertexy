@@ -90,6 +90,13 @@ public:
 		out[getIndexForValue(value)] = true;
 	}
 
+	inline TValueBitset<> getBitsetForValue(int value) const
+	{
+		TValueBitset<> out;
+		getBitsetForValue(value, out);
+		return out;
+	}
+
 	template <typename AllocatorType>
 	inline void getBitsetForInverseValue(int value, TValueBitset<AllocatorType>& out) const
 	{

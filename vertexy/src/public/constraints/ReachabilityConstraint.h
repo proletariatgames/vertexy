@@ -3,7 +3,7 @@
 #include "ConstraintTypes.h"
 #include "TopologySearchConstraint.h"
 #include "IBacktrackingSolverConstraint.h"
-#include "ISolverConstraint.h"
+#include "IConstraint.h"
 #include "SignedClause.h"
 #include "ds/ESTree.h"
 #include "ds/RamalReps.h"

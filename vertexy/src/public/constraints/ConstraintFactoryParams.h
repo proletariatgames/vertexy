@@ -35,7 +35,9 @@ public:
 
 	int registerGraph(const shared_ptr<ITopology>& graph) const;
 
-	void markChildConstraint(ISolverConstraint* cons) const;
+	void markChildConstraint(IConstraint* cons) const;
+
+	inline ConstraintSolver& getSolver() { return m_solver; }
 
 private:
 	ConstraintSolver& m_solver;
