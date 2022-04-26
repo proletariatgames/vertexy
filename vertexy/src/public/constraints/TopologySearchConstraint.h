@@ -71,8 +71,11 @@ protected:
 	using ESTreeType = ESTree<BacktrackingDigraphTopology>;
 	using RamalRepsType = RamalReps<BacktrackingDigraphTopology>;
 
+	struct ReachabilitySourceData;
 	//virtual
 	virtual bool isValidDistance(const IVariableDatabase* db, int dist) const = 0;
+	virtual bool isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const = 0;
+	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const = 0;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) = 0;

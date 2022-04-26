@@ -477,7 +477,8 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		VarID lastReachableSource = VarID::INVALID;
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
-			if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
+			if (isReachable(db, it->second, vertex) )
+			//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 			{
 				++numReachableSources; 
 				lastReachableSource = it->first;
@@ -560,7 +561,8 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	bool failure = false;
 	auto checkReachability = [&](int vertex, int parent)
 	{
-		if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
+		if (isReachable(db, sourceData, vertex))
+		//if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
 		{
 			// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
 			VarID vertexVar = m_sourceGraphData->get(vertex);
@@ -585,7 +587,8 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 					int numReachableSources = 0;
 					for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 					{
-						if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
+						if (isReachable(db, it->second, vertex))
+						//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 						{
 							++numReachableSources;
 							lastReachableSource = it->first;
@@ -596,8 +599,15 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 						}
 					}
 
-					vxy_assert(numReachableSources >= 1);
-					if (numReachableSources == 1)
+					//vxy_assert(numReachableSources >= 1);
+					if (numReachableSources == 0)
+					{
+						bool success = db->constrainToValues(source, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); });
+						vxy_assert(!success);
+						failure = true;
+						return ETopologySearchResponse::Abort;
+					}
+					else if (numReachableSources == 1)
 					{
 						if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); }))
 						{
@@ -768,21 +778,26 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 			continue;
 		}
 
-		if (it->second.minReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.minReachability->getDistance(vertexIndex)))
+		auto determination = determineReachabilityHelper(db, it->second, vertexIndex, it->first);
+		if (determination != EReachabilityDetermination::DefinitelyUnreachable)
 		{
-			if (definitelyIsSource(db, it->first))
-			{
-				return EReachabilityDetermination::DefinitelyReachable;
-			}
-			else
-			{
-				return EReachabilityDetermination::PossiblyReachable;
-			}
+			return determination;
 		}
-		else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex)))
-		{
-			return EReachabilityDetermination::PossiblyReachable;
-		}
+		//if (it->second.minReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.minReachability->getDistance(vertexIndex)))
+		//{
+		//	if (definitelyIsSource(db, it->first))
+		//	{
+		//		return EReachabilityDetermination::DefinitelyReachable;
+		//	}
+		//	else
+		//	{
+		//		return EReachabilityDetermination::PossiblyReachable;
+		//	}
+		//}
+		//else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex)))
+		//{
+		//	return EReachabilityDetermination::PossiblyReachable;
+		//}
 	}
 
 	return EReachabilityDetermination::DefinitelyUnreachable;

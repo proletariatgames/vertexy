@@ -87,6 +87,77 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 	return false;
 }
 
+//is possibly reachable
+bool ShortestPathConstraint::isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+{
+	if (!src.maxReachability->isReachable(vertex))
+	{
+		return false;
+	}
+
+	if (m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq)
+	{
+		return isValidDistance(db, src.maxReachability->getDistance(vertex));
+	}
+	else
+	{
+		return isValidDistance(db, src.minReachability->getDistance(vertex));
+	}
+}
+
+ITopologySearchConstraint::EReachabilityDetermination ShortestPathConstraint::determineReachabilityHelper(
+	const IVariableDatabase* db,
+	const ReachabilitySourceData& src,
+	int vertex,
+	VarID srcVertex) const
+{
+	//if (src.minReachability->isReachable(vertex))
+	//{
+	//	if (definitelyIsSource(db, srcVertex))
+	//	{
+	//		return EReachabilityDetermination::DefinitelyReachable;
+	//	}
+	//	else
+	//	{
+	//		return EReachabilityDetermination::PossiblyReachable;
+	//	}
+	//}
+	//else if (src.maxReachability->isReachable(vertex))
+	//{
+	//	return EReachabilityDetermination::PossiblyReachable;
+	//}
+
+	//return EReachabilityDetermination::DefinitelyUnreachable;
+
+	if (src.minReachability->isReachable(vertex))
+	{
+		if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq) && !isValidDistance(db, src.minReachability->getDistance(vertex)))
+		{
+			return EReachabilityDetermination::DefinitelyUnreachable;
+		}
+
+		if (definitelyIsSource(db, srcVertex))
+		{
+			return EReachabilityDetermination::DefinitelyReachable;
+		}
+		else
+		{
+			return EReachabilityDetermination::PossiblyReachable;
+		}
+	}
+	else if (src.maxReachability->isReachable(vertex))
+	{
+		if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq) && !isValidDistance(db, src.maxReachability->getDistance(vertex)))
+		{
+			return EReachabilityDetermination::DefinitelyUnreachable;
+		}
+
+		return EReachabilityDetermination::PossiblyReachable;
+	}
+
+	return EReachabilityDetermination::DefinitelyUnreachable;
+}
+
 shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const
 {
 	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, false, true);
@@ -94,22 +165,48 @@ shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeT
 
 EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
 {
-	return minReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
+	return minReachable.onDistanceChanged.add([&](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && isValidDistance(db, distance))
+		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			onReachabilityChanged(changedVertex, source, true);
+			if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq))
+			{
+				if (isValidDistance(m_edgeChangeDb, distance))
+				{
+					onReachabilityChanged(changedVertex, source, true);
+				}
+			}
+			else
+			{
+				if (minReachable.isReachable(changedVertex)) //TODO: could be an assert
+				{
+					onReachabilityChanged(changedVertex, source, true);
+				}
+			}
 		}
 	});
 }
 
 EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
 {
-	return maxReachable.onDistanceChanged.add([this, db, source](int changedVertex, int distance)
+	return maxReachable.onDistanceChanged.add([&](int changedVertex, int distance)
 	{
-		if (!m_backtracking && !m_explainingSourceRequirement && !isValidDistance(db, distance))
+		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			onReachabilityChanged(changedVertex, source, false);
+			if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq))
+			{
+				if (!isValidDistance(m_edgeChangeDb, distance))
+				{
+					onReachabilityChanged(changedVertex, source, false);
+				}
+			}
+			else
+			{
+				if (!maxReachable.isReachable(changedVertex))
+				{
+					onReachabilityChanged(changedVertex, source, false);
+				}
+			}
 		}
 	});
 }

@@ -68,6 +68,36 @@ bool ReachabilityConstraint::isValidDistance(const IVariableDatabase* db, int di
 	return dist < INT_MAX;
 }
 
+bool ReachabilityConstraint::isReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+{
+	return src.maxReachability->isReachable(vertex);
+}
+
+ITopologySearchConstraint::EReachabilityDetermination ReachabilityConstraint::determineReachabilityHelper(
+	const IVariableDatabase* db, 
+	const ReachabilitySourceData& src, 
+	int vertex, 
+	VarID srcVertex) const
+{
+	if (src.minReachability->isReachable(vertex))
+	{
+		if (definitelyIsSource(db, srcVertex))
+		{
+			return EReachabilityDetermination::DefinitelyReachable;
+		}
+		else
+		{
+			return EReachabilityDetermination::PossiblyReachable;
+		}
+	}
+	else if (src.maxReachability->isReachable(vertex))
+	{
+		return EReachabilityDetermination::PossiblyReachable;
+	}
+
+	return EReachabilityDetermination::DefinitelyUnreachable;
+}
+
 shared_ptr<RamalReps<BacktrackingDigraphTopology>> ReachabilityConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const
 {
 	return make_shared<RamalRepsType>(graph, USE_RAMAL_REPS_BATCHING, true, false);
