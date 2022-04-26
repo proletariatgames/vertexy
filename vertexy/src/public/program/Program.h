@@ -4,64 +4,140 @@
 
 #include "ConstraintTypes.h"
 #include "Terms.h"
-
 // for non-eastl std::function
 #include <functional>
 
-namespace  Vertexy
+#define VXY_PARAMETER(name) ProgramParameter name(L#name)
+#define VXY_FORMULA(name, arity) Formula<arity> name(L#name)
+
+namespace Vertexy
 {
 
+// note: we use std::function here, because eastl::function doesn't provide C++17 deduction guides, which makes
+// it so we can't pass in lambdas directly.
+template<typename R, typename... ARGS>
+using ProgramDefinitionFunctor = std::function<R(ARGS...)>;
+
+// Returns a function type that returns R and takes N ARG arguments
+template<size_t N, typename R, typename ARG, typename... ARGS>
+struct ArgumentRepeater { using type = typename ArgumentRepeater<N-1,R,ARG,ARG,ARGS...>::type; };
+template<typename R, typename ARG, typename... ARGS>
+struct ArgumentRepeater<0, R, ARG, ARGS...> { using type = R(ARGS...); };
+
 template<int ARITY> class Formula;
+template<int ARITY> class FormulaResult;
+
 class ProgramFunctionTerm;
 class ProgramHeadTerm;
 class ProgramBodyTerm;
 class ProgramBodyTerms;
-class ProgramInstance;
 
-class ProgramInstance
+template<size_t SIZE>
+struct FormulaBinder {
+    using type =  std::function<typename ArgumentRepeater<SIZE, void, const ProgramSymbol&>::type>;
+};
+
+class BindCaller
 {
 public:
+    virtual ~BindCaller() {}
+    virtual void call(const vector<ProgramSymbol>& syms) = 0;
+};
+
+template<size_t ARITY>
+class TBindCaller : public BindCaller
+{
+public:
+    TBindCaller(typename FormulaBinder<ARITY>::type&& bindFun)
+        : m_bindFun(eastl::move(bindFun))
+    {
+    }
+
+    virtual void call(const vector<ProgramSymbol>& syms) override
+    {
+        vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
+        std::apply(m_bindFun, zip(syms));
+    }
+
+    static auto zip(const vector<ProgramSymbol>& syms)
+    {
+        return zipper<0>(std::tuple<>(), syms);
+    }
+
+    template<size_t I, typename... Ts>
+    static auto zipper(std::tuple<Ts...>&& t, const vector<ProgramSymbol>& syms)
+    {
+        if constexpr (I == ARITY)
+        {
+            return t;
+        }
+        else
+        {
+            return zipper<I+1>(std::tuple_cat(t, std::tuple(syms[I])), syms);
+        }
+    }
+
+    typename FormulaBinder<ARITY>::type m_bindFun;
+};
+
+class ProgramInstanceBase
+{
+public:
+    virtual ~ProgramInstanceBase() {}
+
     void addRule(URuleStatement&& rule)
     {
         m_ruleStatements.push_back(move(rule));
     }
 
+    void addBinder(int formulaUID, unique_ptr<BindCaller>&& binder)
+    {
+        vxy_assert(m_binders.find(formulaUID) == m_binders.end());
+        m_binders[formulaUID] = move(binder);
+    }
+
 protected:
+    hash_map<int, unique_ptr<BindCaller>> m_binders;
     vector<URuleStatement> m_ruleStatements;
 };
 
-template<typename... ARGS> class ProgramDefinition;
+template<typename RESULT>
+class ProgramInstance : public ProgramInstanceBase
+{
+public:
+    ProgramInstance() {}
 
-// note: we use std::function here, because eastl::function doesn't provide C++17 deduction guides
-template<typename... ARGS>
-using ProgramDefinitionFunctor = std::function<void(ARGS...)>;
+    RESULT result;
+};
+
+template<typename R, typename... ARGS> class ProgramDefinition;
 
 class Program
 {
 protected:
-    static ProgramInstance* s_currentInstance;
+    static ProgramInstanceBase* s_currentInstance;
     static int s_nextFormulaUID;
     static int s_nextParameterUID;
 public:
-    static ProgramInstance* getCurrentInstance() { return s_currentInstance; }
+    static ProgramInstanceBase* getCurrentInstance() { return s_currentInstance; }
 
-    template<typename... ARGS>
-    static unique_ptr<ProgramInstance> runDefinition(const ProgramDefinitionFunctor<ARGS...>& fn, ARGS&&... args)
+    template<typename R, typename... ARGS>
+    static unique_ptr<ProgramInstance<R>> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
     {
-        auto inst = make_unique<ProgramInstance>();
+        auto inst = make_unique<ProgramInstance<R>>();
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
         s_currentInstance = inst.get();
 
-        fn(forward<ARGS>(args)...);
+        inst->result = fn(forward<ARGS>(args)...);
 
         s_currentInstance = nullptr;
         return inst;
     }
 
-    template<typename... ARGS>
-    static ProgramDefinition<ARGS...> defineFunctor(const ProgramDefinitionFunctor<ARGS...>& definition)
+    template<typename R, typename... ARGS>
+    static ProgramDefinition<R, ARGS...> defineFunctor(const ProgramDefinitionFunctor<R, ARGS...>& definition)
     {
-        return ProgramDefinition<ARGS...>(definition);
+        return ProgramDefinition<R, ARGS...>(definition);
     }
 
     template<typename T>
@@ -109,8 +185,9 @@ public:
 class ProgramFunctionTerm
 {
 public:
-    explicit ProgramFunctionTerm(int uid, vector<ProgramBodyTerm>&& args) : uid(uid), args(move(args)) {}
+    explicit ProgramFunctionTerm(int uid, const wchar_t* name, vector<ProgramBodyTerm>&& args) : uid(uid), name(name), args(move(args)) {}
     int uid;
+    const wchar_t* name;
     vector<ProgramBodyTerm> args;
 };
 
@@ -141,7 +218,7 @@ public:
         {
             argTerms.push_back(move(arg.term));
         }
-        term = make_unique<FunctionTerm>(f.uid, move(argTerms));
+        term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms));
     }
     ProgramBodyTerm(ProgramBinaryOpArgument&& h)
     {
@@ -261,7 +338,7 @@ public:
         {
             argTerms.push_back(move(arg.term));
         }
-        term = make_unique<FunctionTerm>(f.uid, move(argTerms));
+        term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms));
     }
 
     explicit ProgramHeadTerm(UTerm&& term) : term(move(term))
@@ -312,8 +389,11 @@ inline void operator<<=(ProgramHeadTerm&& head, ProgramBodyTerm&& body)
 template<int ARITY>
 class Formula
 {
+    friend FormulaResult;
+
 public:
-    Formula()
+    Formula(const wchar_t* name=nullptr)
+        : m_name(name)
     {
         vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot create a Formula outside of a Program::define block!");
         m_uid = Program::allocateFormulaUID();
@@ -327,7 +407,7 @@ public:
         fargs.reserve(ARITY);
 
         foldArgs(fargs, args...);
-        return ProgramFunctionTerm(m_uid, move(fargs));
+        return ProgramFunctionTerm(m_uid, m_name, move(fargs));
     }
 
 private:
@@ -339,26 +419,56 @@ private:
     }
     void foldArgs(vector<ProgramBodyTerm>& outArgs) {}
 
+    const wchar_t* m_name;
     int m_uid;
 };
 
+template<int ARITY>
+class FormulaResult
+{
+public:
+    FormulaResult()
+    {
+        m_instance = nullptr;
+        m_formulaUID = -1;
+        m_formulaName = nullptr;
+    }
 
-template<typename... ARGS>
+    FormulaResult(const Formula<ARITY>& formula)
+    {
+        vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot construct a FormulaResult outside of a Program::define block!");
+        m_instance = Program::getCurrentInstance();
+        m_formulaName = formula.m_name;
+        m_formulaUID = formula.m_uid;
+    }
+
+    void bind(typename FormulaBinder<ARITY>::type&& binder)
+    {
+        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    ProgramInstanceBase* m_instance;
+    const wchar_t* m_formulaName;
+    int m_formulaUID;
+};
+
+template<typename R, typename... ARGS>
 class ProgramDefinition
 {
 public:
-    ProgramDefinition(const ProgramDefinitionFunctor<ARGS...>& definition)
+    ProgramDefinition(const ProgramDefinitionFunctor<R, ARGS...>& definition)
         : m_definition(definition)
     {
     }
 
-    unique_ptr<ProgramInstance> operator()(ARGS&&... args) const
+    unique_ptr<ProgramInstance<R>> operator()(ARGS&&... args) const
     {
-        return Program::runDefinition<ARGS...>(m_definition, forward<ARGS>(args)...);
+        return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
     }
 
 protected:
-    ProgramDefinitionFunctor<ARGS...> m_definition;
+    ProgramDefinitionFunctor<R, ARGS...> m_definition;
 };
 
 inline void Program::disallow(ProgramBodyTerm&& body)
@@ -376,7 +486,7 @@ inline void Program::disallow(ProgramBodyTerms&& body)
 
 inline Formula<1> Program::range(int min, int max)
 {
-    return Formula<1>();
+    return Formula<1>(L"range");
 }
 
 

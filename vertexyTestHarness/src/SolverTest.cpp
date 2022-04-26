@@ -268,43 +268,54 @@ int main(int argc, char* argv[])
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
 
+	struct MazeResult
+	{
+		FormulaResult<2> wall;
+		FormulaResult<2> empty;
+	};
+
 	// Rule formulas can only be defined within a Program::define() block
 	auto simpleMaze = Program::define([](int width, int height, int entranceX, int entranceY, int exitX, int exitY)
 	{
 		// Floating variables. These don't mean anything outside the context of a rule statement.
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
-		ProgramParameter X, Y, X1, Y1;
+		VXY_PARAMETER(X);
+		VXY_PARAMETER(Y);
+		VXY_PARAMETER(X1);
+		VXY_PARAMETER(Y1);
 
 		// define col(1), col(2), ... col(width) as atoms.
-		Formula<1> col = Program::range(1, width);
+		auto col = Program::range(1, width);
 		// define row(1), row(2), ... row(height) as atoms.
-		Formula<1> row = Program::range(1, height);
+		auto row = Program::range(1, height);
 
 		// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
-		Formula<2> grid;
+		VXY_FORMULA(grid, 2);
 		grid(X,Y) <<= col(X) && row(Y);
 
 		// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
-		Formula<4> adjacent;
+		VXY_FORMULA(adjacent, 4);
 		adjacent(X,Y,X,Y1) <<= grid(X,Y) && Y1 == Y + 1 && row(Y1);
 		adjacent(X,Y,X,Y1) <<= grid(X,Y) && Y1 == Y - 1 && row(Y1);
 		adjacent(X,Y,X1,Y) <<= grid(X,Y) && X1 == X + 1 && col(X1);
 		adjacent(X,Y,X1,Y) <<= grid(X,Y) && X1 == X - 1 && col(X1);
 
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
-		Formula<2> border;
+		VXY_FORMULA(border, 2);
 		border(1,Y) <<= row(Y);
 		border(X,1) <<= col(X);
 		border(X,Y) <<= row(Y) && X == width;
 		border(X,Y) <<= col(X) && Y == height;
 
 		// define the entrance/exit positions, based on the program inputs.
-		Formula<2> entrance, exit;
+		VXY_FORMULA(entrance, 2);
+		VXY_FORMULA(exit, 2);
 		entrance(X,Y) <<= X == entranceX && Y == entranceY;
 		exit(X,Y) <<= X == exitX && Y == exitY;
 
-		Formula<2> wall, empty;
+		VXY_FORMULA(wall, 2);
+		VXY_FORMULA(empty, 2);
 		// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
 		(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
 		// border is a wall as long as it's not the entrance or exit.
@@ -324,20 +335,31 @@ int main(int argc, char* argv[])
 		Program::disallow(wall(X+1,Y) && wall(X,Y+1) && empty(X, Y) && empty(X+1, Y1+1));
 
 		// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
-		Formula<2> wallWithAdjacentWall;
+		VXY_FORMULA(wallWithAdjacentWall, 2);
 		wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
 
 		// disallow walls that don't have any adjacent walls
 		Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
 
 		// encode reachability (faster to do this with a reachability constraint)
-		Formula<2> reach;
+		VXY_FORMULA(reach, 2);
 		reach(X,Y) <<= entrance(X,Y);
 		reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
 		Program::disallow(empty(X,Y) && ~reach(X,Y));
+
+		return MazeResult {wall, empty};
 	});
 
 	auto inst = simpleMaze(10,10,1,5,5,10);
+
+	// Map output
+	TTopologyVertexData<VarID> tileVars;
+	inst->result.empty.bind([&](const ProgramSymbol& X, const ProgramSymbol& Y){
+		return SignedClause(tileVars.get(get<int>(X)+get<int>(Y)*10), {0});
+	});
+	inst->result.wall.bind([&](const ProgramSymbol& X, const ProgramSymbol& Y){
+		return SignedClause(tileVars.get(get<int>(X)+get<int>(Y)*10), {1});
+	});
 
 	// give an instantiated version of the program to the solver.
 	// this is an addition to whatever other constraints you want to add!

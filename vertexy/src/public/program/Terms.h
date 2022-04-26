@@ -11,8 +11,9 @@ namespace Vertexy
 class ProgramParameter
 {
 public:
-    ProgramParameter();
+    ProgramParameter(const wchar_t* name=nullptr);
 private:
+    const wchar_t* m_name;
     int32_t m_uid = 0;
 };
 
@@ -80,13 +81,15 @@ public:
 class FunctionTerm : public Term
 {
 public:
-    FunctionTerm(int functionUID, vector<UTerm>&& arguments)
+    FunctionTerm(int functionUID, const wchar_t* functionName, vector<UTerm>&& arguments)
         : functionUID(functionUID)
+        , functionName(functionName)
         , arguments(move(arguments))
     {
     }
 
     int functionUID;
+    const wchar_t* functionName;
     vector<UTerm> arguments;
 };
 
