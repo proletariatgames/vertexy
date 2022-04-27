@@ -8,9 +8,6 @@
 // for non-eastl std::function
 #include <functional>
 
-#define VXY_PARAMETER(name) ProgramParameter name(L#name)
-#define VXY_FORMULA(name, arity) Formula<arity> name(L#name)
-
 namespace Vertexy
 {
 
@@ -86,10 +83,10 @@ public:
 };
 
 // Base class for instantiated programs (once they have been given their arguments)
-class ProgramInstanceBase
+class ProgramInstance
 {
 public:
-    virtual ~ProgramInstanceBase() {}
+    virtual ~ProgramInstance() {}
 
     void addRule(URuleStatement&& rule)
     {
@@ -102,94 +99,11 @@ public:
         m_binders[formulaUID] = move(binder);
     }
 
+    const vector<URuleStatement>& getRuleStatements() const { return m_ruleStatements; }
+
 protected:
     hash_map<int, unique_ptr<BindCaller>> m_binders;
     vector<URuleStatement> m_ruleStatements;
-};
-
-// ProgramInstance returned from applying a ProgramDefinition (via the () operator)
-template<typename RESULT>
-class ProgramInstance : public ProgramInstanceBase
-{
-public:
-    ProgramInstance() {}
-
-    // The typed result returned from the definition
-    RESULT result;
-};
-
-// Static functions for defining rule programs
-class Program
-{
-protected:
-    static ProgramInstanceBase* s_currentInstance;
-    static int s_nextFormulaUID;
-    static int s_nextParameterUID;
-public:
-    Program() = delete;
-    ~Program() = delete;
-
-    static ProgramInstanceBase* getCurrentInstance() { return s_currentInstance; }
-
-    template<typename R, typename... ARGS>
-    static unique_ptr<ProgramInstance<R>> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
-    {
-        auto inst = make_unique<ProgramInstance<R>>();
-        vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
-        s_currentInstance = inst.get();
-
-        inst->result = fn(forward<ARGS>(args)...);
-
-        s_currentInstance = nullptr;
-        return inst;
-    }
-
-    template<typename R, typename... ARGS>
-    static ProgramDefinition<R, ARGS...> defineFunctor(const ProgramDefinitionFunctor<R, ARGS...>& definition)
-    {
-        return ProgramDefinition<R, ARGS...>(definition);
-    }
-
-    template<typename T>
-    static auto define(T&& definition)
-    {
-        std::function func {definition};
-        return defineFunctor(func);
-    }
-
-    static void disallow(ProgramBodyTerm&& body);
-    static void disallow(ProgramBodyTerms&& body);
-
-    static Formula<1> range(int min, int max);
-
-    static int allocateFormulaUID() { return s_nextFormulaUID++; }
-    static int allocateParameterUID() { return s_nextParameterUID++; }
-};
-
-// ProgramDefinition is return from Program::define(). Contains the "code"
-// for the program, which can be turned into a ProgramInstance by specifying the program's arguments.
-template<typename R, typename... ARGS>
-class ProgramDefinition
-{
-public:
-    ProgramDefinition(const ProgramDefinitionFunctor<R, ARGS...>& definition)
-        : m_definition(definition)
-    {
-    }
-
-    // "parse" the definition, returning the ProgramInstance.
-    inline unique_ptr<ProgramInstance<R>> apply(ARGS&&... args)
-    {
-        return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
-    }
-
-    unique_ptr<ProgramInstance<R>> operator()(ARGS&&... args)
-    {
-        return apply(eastl::move(args)...);
-    }
-
-protected:
-    ProgramDefinitionFunctor<R, ARGS...> m_definition;
 };
 
 }
