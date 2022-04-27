@@ -17,6 +17,7 @@ file(GLOB VERTEXY_SOURCES
 	"src/private/restart/*.cpp"
 	"src/private/util/*.cpp"
 	"src/private/topology/*.cpp"
+	"src/private/program/*.cpp"
 	"src/private/variable/*.cpp"
 	"src/private/rules/*.cpp"
 	"src/private/*.cpp"
