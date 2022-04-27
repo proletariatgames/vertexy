@@ -83,8 +83,8 @@ public:
 	inline OnTopologyEdgeChangeDispatcher& getEdgeChangeListener() { return static_cast<Impl*>(this)->getEdgeChangeListener(); }
 
 	/** Get a display-friendly string for the vertex */
-	inline wstring vertexIndexToString(VertexID vertex) const { return static_cast<Impl*>(this)->vertexIndexToString(vertex); }
-	inline wstring edgeIndexToString(int edgeIndex) const { return static_cast<Impl*>(this)->edgeIndexToString(edgeIndex); }
+	inline wstring vertexIndexToString(VertexID vertex) const { return static_cast<const Impl*>(this)->vertexIndexToString(vertex); }
+	inline wstring edgeIndexToString(int edgeIndex) const { return static_cast<const Impl*>(this)->edgeIndexToString(edgeIndex); }
 
 	//////////////////////////////// End required implementation ////////////////////////////////
 
