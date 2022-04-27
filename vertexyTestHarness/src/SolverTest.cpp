@@ -273,16 +273,35 @@ int main(int argc, char* argv[])
 		FormulaResult<2> empty;
 	};
 
+	auto test = Program::define([]()
+	{
+		VXY_FORMULA(x, 1);
+		x(0).choice();
+
+		VXY_FORMULA(f, 1);
+		f(1);
+		f(2);
+		f(3) <<= x(0);
+
+		VXY_FORMULA(g, 1);
+		VXY_VARIABLE(X);
+		g(X).choice() <<= f(X) && x(X);
+
+		(x(0) | f(0)) <<= g(1);
+		(x(2) | f(2));
+	});
+	auto testInst = test.apply();
+
 	// Rule formulas can only be defined within a Program::define() block
-	auto simpleMaze = Program::define([](int width, int height, int entranceX, int entranceY, int exitX, int exitY)
+	auto simpleMaze = Program::define([](ProgramSymbol width, ProgramSymbol height, ProgramSymbol entranceX, ProgramSymbol entranceY, ProgramSymbol exitX, ProgramSymbol exitY)
 	{
 		// Floating variables. These don't mean anything outside the context of a rule statement.
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
-		VXY_PARAMETER(X);
-		VXY_PARAMETER(Y);
-		VXY_PARAMETER(X1);
-		VXY_PARAMETER(Y1);
+		VXY_VARIABLE(X);
+		VXY_VARIABLE(Y);
+		VXY_VARIABLE(X1);
+		VXY_VARIABLE(Y1);
 
 		// define col(1), col(2), ... col(width) as atoms.
 		auto col = Program::range(1, width);

@@ -5,15 +5,15 @@
 
 using namespace Vertexy;
 
-ProgramInstanceBase* Program::s_currentInstance = nullptr;
+ProgramInstance* Program::s_currentInstance = nullptr;
 int Program::s_nextFormulaUID = 1;
-int Program::s_nextParameterUID = 1;
+int Program::s_nextVarUID = 1;
 
-ProgramParameter::ProgramParameter(const wchar_t* name)
+ProgramVariable::ProgramVariable(const wchar_t* name)
     : m_name(name)
 {
-    vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot define a ProgramParameter outside of a Program::define block!");
-    m_uid = Program::allocateParameterUID();
+    vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot define a ProgramVariable outside of a Program::define block!");
+    m_uid = Program::allocateVariableUID();
 }
 
 void Program::disallow(ProgramBodyTerm&& body)
@@ -29,7 +29,7 @@ void Program::disallow(ProgramBodyTerms&& body)
     s_currentInstance->addRule(move(rule));
 }
 
-Formula<1> Program::range(int min, int max)
+Formula<1> Program::range(ProgramSymbol min, ProgramSymbol max)
 {
     return Formula<1>(L"range");
 }
