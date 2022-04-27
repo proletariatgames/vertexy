@@ -5,6 +5,7 @@
 #include "ConstraintTypes.h"
 #include "algo/ShortestPath.h"
 #include "topology/Topology.h"
+#include "topology/TopologyLink.h"
 
 namespace Vertexy
 {
@@ -114,6 +115,7 @@ public:
 	}
 
 	wstring vertexIndexToString(int vertexIndex) const { return {wstring::CtorSprintf(), TEXT("%d"), vertexIndex}; }
+	wstring edgeIndexToString(int edgeIndex) const { return {wstring::CtorSprintf(), TEXT("%d"), edgeIndex}; }
 
 	int addVertex()
 	{
@@ -123,11 +125,8 @@ public:
 
 	void reset(int numVertices)
 	{
+		m_vertices.clear();
 		m_vertices.resize(numVertices);
-		for (int i = 0; i < numVertices; ++i)
-		{
-			m_vertices[i].clear();
-		}
 	}
 
 	void addEdge(int vertexFrom, int vertexTo)
