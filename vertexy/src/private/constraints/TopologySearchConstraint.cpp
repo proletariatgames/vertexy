@@ -477,7 +477,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		VarID lastReachableSource = VarID::INVALID;
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
-			if (isReachable(db, it->second, vertex) )
+			if (isPossiblyReachable(db, it->second, vertex) )
 			//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 			{
 				++numReachableSources; 
@@ -561,7 +561,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	bool failure = false;
 	auto checkReachability = [&](int vertex, int parent)
 	{
-		if (isReachable(db, sourceData, vertex))
+		if (isPossiblyReachable(db, sourceData, vertex))
 		//if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
 		{
 			// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
@@ -587,7 +587,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 					int numReachableSources = 0;
 					for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 					{
-						if (isReachable(db, it->second, vertex))
+						if (isPossiblyReachable(db, it->second, vertex))
 						//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
 						{
 							++numReachableSources;

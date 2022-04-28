@@ -20,7 +20,7 @@ static constexpr int MAZE_REFRESH_RATE = 0;
 // The number of keys/doors that should exist in the maze.
 static constexpr int NUM_KEYS = 1;
 // Test Shortest Path constraint (slow), recommend 1 key.
-static constexpr bool TEST_SHORTEST_PATH = true;
+static constexpr bool TEST_SHORTEST_PATH = false;
 // True to print edge variables in FMaze::Print
 static constexpr bool PRINT_EDGES = false;
 // Whether to write a decision log as DecisionLog.txt
@@ -59,6 +59,103 @@ protected:
 	shared_ptr<TTopologyVertexData<VarID>> m_edges;
 	ConstraintSolver& m_solver;
 };
+
+int MazeSolver::solveSimple(int times, int numCols, int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver(TEXT("Maze"), seed);
+	VERTEXY_LOG("TestMaze(%d)", solver.getSeed());
+
+	constexpr int BLANK_IDX = 0;
+	constexpr int ENTRANCE_IDX = 1;
+	constexpr int EXIT_IDX = 2;
+
+	// Predefined combinations of values for cells
+	const vector<int> cell_Blank{ BLANK_IDX };
+	const vector<int> cell_Entrance{ ENTRANCE_IDX };
+	const vector<int> cell_Exit{ EXIT_IDX };
+
+	// The domain determines the range of values that each tile takes on
+	SolverVariableDomain tileDomain(0, 2);
+
+	// Create the topology for the maze.
+	shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, 1);
+
+	// Create a variable for each tile in the maze.
+	auto tileData = solver.makeVariableGraph(TEXT("TileVars"), ITopology::adapt(grid), tileDomain, TEXT("Cell"));
+
+	for (int x = 0; x < numCols; ++x)
+	{
+		uint32_t node = grid->coordinateToIndex(x, 0);
+		solver.setInitialValues(tileData->get(node), vector<int>{0, 1, 2});
+	}
+
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5/*numRows * numCols*/ });
+
+	//
+//
+// CONSTRAINT: Exactly one entrance, one exit,
+//
+	hash_map<int, tuple<int, int>> globalCardinalities;
+	globalCardinalities[ENTRANCE_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
+	globalCardinalities[EXIT_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
+	solver.cardinality(tileData->getData(), globalCardinalities);
+
+	//
+// Define a domain for edges between tiles. Each edge is either solid or empty.
+//
+
+// Edge graphs per step: 0 = passable, 1 = impassable
+	SolverVariableDomain edgeDomain(0, 1);
+	const vector<int> edge_Empty{ 0 };
+	const vector<int> edge_Solid{ 1 };
+
+	// Create the edge topology for the maze. This creates a parallel graph where each node in Edges corresponds
+	// to an edge in Grid.
+	auto edges = make_shared<EdgeTopology>(ITopology::adapt(grid), true, false);
+
+	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(tileData);
+
+	auto stepEdgeData = solver.makeVariableGraph(TEXT("EdgeVars"), ITopology::adapt(edges), edgeDomain, TEXT("Edge"));
+
+	auto edgeNodeToEdgeVarRel = make_shared<TVertexToDataGraphRelation<VarID>>(stepEdgeData);
+
+	solver.makeConstraint<ShortestPathConstraint>(tileData, cell_Entrance, cell_Exit, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+
+
+	//
+	// Solve!
+	//
+	for (int i = 0; i < times; ++i)
+	{
+		EConstraintSolverResult result = solver.startSolving();
+		while (result == EConstraintSolverResult::Unsolved)
+		{
+			if (ATTEMPT_SOLUTION_AT >= 0 && solver.getStats().stepCount >= ATTEMPT_SOLUTION_AT)
+			{
+				solver.debugAttemptSolution(TEXT("MazeSolution.txt"));
+			}
+
+			result = solver.step();
+			// print out the maze every MAZE_REFRESH_RATE steps
+			if (printVerbose && MAZE_REFRESH_RATE > 0 && (solver.getStats().stepCount % MAZE_REFRESH_RATE) == 0)
+			{
+				//print(stepDatas[0], stepEdgeDatas[0], solver);
+			}
+		}
+
+		// Print out the final maze!
+		if (printVerbose)
+		{
+			print(tileData, stepEdgeData, solver);
+		}
+		solver.dumpStats(printVerbose);
+		EATEST_VERIFY(result == EConstraintSolverResult::Solved);
+	}
+
+	return nErrorCount;
+}
 
 int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printVerbose)
 {
