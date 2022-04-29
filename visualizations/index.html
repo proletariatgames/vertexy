@@ -14,8 +14,15 @@
         <label for="fileUpload">Upload Solver Log</label>
         <input type="file" id="fileUpload">
     </form>
-    <div class="breadcrumb-container"></div>
-    <div class="icicle-container"></div>
+    <table style="width:100%">
+        <td style="vertical-align:top">
+            <div class="breadcrumb-container"></div>
+            <div class="icicle-container"></div>
+        </td>
+        <td style="vertical-align:top">
+            <div class="propagations-container"></div>
+        </td>
+    </table>
     <script>
         document.getElementById("fileUpload").addEventListener("change", onFileUpload, false);
     </script>

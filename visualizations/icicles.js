@@ -6,11 +6,15 @@ const segmentWidth = d => (d.x1 - d.x0);
 const segmentHeight = d => (d.y1 - d.y0);
 const breadcrumbWidth = 100;
 const breadcrumbHeight = 30;
+const propagationWidth = 50;
+const propagationHeight = 15;
 
 var csv;
 var data;
-var icicle = { sequence: [], percentage: 0.0, varValue: "" };
+var initialPropagations = [];
+var icicle = { sequence: [], percentage: 0.0, varValue: "", propagations: [] };
 var deepestLevel;
+var maxPropagations = 0;
 
 // Runs when a file is uploaded via the button
 function onFileUpload()
@@ -29,6 +33,7 @@ function initializeData(text)
     data = buildHierarchy(csv);
 
     drawBreadcrumbs(".breadcrumb-container");
+    drawPropagations(".propagations-container")
     drawIcicles(".icicle-container");
 }
 
@@ -56,7 +61,10 @@ function buildHierarchy(csv)
     let currentHierarchy = [];
     currentHierarchy.push(root);
     deepestLevel = 0;
-    
+    var prevChild;
+    maxPropagations = 0;
+    initialPropagations = []
+
     for (let i = 0; i < csv.length; i++) {
       // Extract csv vars
       const decisionLevel = csv[i][0];
@@ -67,12 +75,27 @@ function buildHierarchy(csv)
       // If this is a propagated row, we're ignoring it for now
       if (constraintID != "-1" || decisionLevel <= 0)
       {
+        var propagationsToPush;
+        if (decisionLevel > 0)
+        {
+            propagationsToPush = prevChild.propagations;
+        }
+        else
+        {
+            propagationsToPush = initialPropagations;
+        } 
+
+        propagationsToPush.push({ name: varName, varValue: varValue, constraint: constraintID });
+        if (propagationsToPush.length > maxPropagations)
+        {
+            maxPropagations = propagationsToPush.length;
+        }
         continue;
       }
   
       // Create a node to fit into the hierarchical format
-      let childNode = { name: varName, level: decisionLevel, constraint: constraintID, varValue: varValue, value: 0, children: [] };
-  
+      let childNode = { name: varName, level: decisionLevel, constraint: constraintID, varValue: varValue, value: 0, children: [], propagations: [] };
+      prevChild = childNode
       // Parent this based on its level
       let parentNode = currentHierarchy[childNode.level-1];
       parentNode.children.push(childNode);
@@ -104,8 +127,7 @@ function buildHierarchy(csv)
     height = deepestLevel * 5;
     
     return root;
-  }
-
+}
   
 // Generate a string that describes the points of a breadcrumb SVG polygon.
 function breadcrumbPoints(d, i)
@@ -134,6 +156,57 @@ partition = data =>
       .hierarchy(data)
       .sum(d => d.value)
   );
+
+function drawPropagations(container) {
+    d3.select(container).selectAll("*").remove();
+    const numPerRow = 10;
+    const propagationWindowHeight = propagationHeight * (1 + maxPropagations / numPerRow) + 20;
+
+    const svg = d3
+        .select(container).append("svg")
+        .attr("viewBox", `0 0 ${propagationWidth * numPerRow} ${propagationWindowHeight}`)
+        .style("font", "5px sans-serif")
+        .style("margin", "5px");
+
+    svg
+        .append("rect")
+        .attr("width", width)
+        .attr("height", propagationWindowHeight)
+        .attr("fill", "none");
+
+    var propagationsToDraw;
+    if (icicle.propagations && icicle.propagations.length > 0)
+    {
+        propagationsToDraw = icicle.propagations;
+    }
+    else
+    {
+        propagationsToDraw = initialPropagations;
+    }
+
+    const g = svg
+        .selectAll("g")
+        .data(propagationsToDraw)
+        .join("g")
+        .attr("transform", (d, i) => `translate(${(i * propagationWidth) % (numPerRow * propagationWidth)}, ${parseInt(i / numPerRow) * propagationHeight})`);
+
+    g.append("rect")
+        .attr("width", propagationWidth)
+        .attr("height", propagationHeight)
+        .attr("fill", d => getColor(d.name))
+        .attr("stroke", "white");
+
+    g.append("text")
+        .attr("x", propagationWidth / 2)
+        .attr("y", 8)
+        .attr("dy", "0.35em")
+        .attr("text-anchor", "middle")
+        .attr("fill", "white")
+        .text(d => d.constraint + ": " + d.name + " " + d.varValue);
+    
+
+    return svg.node();
+}
 
 // Fills the breadcrumb container with the currently-viewed icicle
 function drawBreadcrumbs(container)
@@ -238,11 +311,13 @@ function drawIcicles(container)
         );
         const percentage = ((100 * d.value) / root.value).toPrecision(3);
         const varValue = d.data.varValue;
+        const propagations = d.data.propagations;
         // Update the value of this view with the currently hovered sequence and percentage
-        element.value = { sequence, percentage, varValue };
+        element.value = { sequence, percentage, varValue, propagations };
         icicle = element.value;
         element.dispatchEvent(new CustomEvent("input"));
         drawBreadcrumbs(".breadcrumb-container");
+        drawPropagations(".propagations-container")
       });
   
     svg.on("mouseleave", () => {
@@ -252,5 +327,6 @@ function drawIcicles(container)
       icicle = element.value;
       element.dispatchEvent(new CustomEvent("input"));
       drawBreadcrumbs(".breadcrumb-container");
+      drawPropagations(".propagations-container")
     });
 }
