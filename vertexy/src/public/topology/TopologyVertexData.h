@@ -15,24 +15,9 @@ public:
 	TTopologyVertexData()
 	{
 	}
-
-	template <typename Impl>
-	explicit TTopologyVertexData(const shared_ptr<TTopology<Impl>>& topology, const DataType& defaultValue = {}, const wstring& inName = TEXT("Data"))
-	{
-		initialize(topology, defaultValue, inName);
-	}
-
 	explicit TTopologyVertexData(const shared_ptr<ITopology>& topology, const DataType& defaultValue = {}, const wstring& inName = TEXT("Data"))
 	{
 		initialize(topology, defaultValue, inName);
-	}
-
-	template <typename Impl>
-	void initialize(const shared_ptr<TTopology<Impl>>& topology, const DataType& defaultValue = {}, const wstring& inName = TEXT("Data"))
-	{
-		m_sourceTopology = ITopology::adapt(topology);
-		m_data.resize(topology->getNumVertices(), defaultValue);
-		m_name = inName;
 	}
 
 	void initialize(const shared_ptr<ITopology>& topology, const DataType& defaultValue = {}, const wstring& inName = TEXT("Data"))

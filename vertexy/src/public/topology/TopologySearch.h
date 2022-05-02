@@ -51,16 +51,34 @@ public:
 	 * The output is a list where each element corresponds to the input vertex at the same index,
 	 * and the value identifies the representative vertex of the SCC the vertex belongs to.
 	 */
-	template <typename Topo>
-	static void findStronglyConnectedComponents(const Topo& topology, vector<int>& output)
+	template <typename T>
+	static void findStronglyConnectedComponents(const TTopology<T>& topology, vector<int>& output)
 	{
-		auto getNeighborsFn = [&](int vertex)
+		auto writeSCCs = [&](int level, auto& it)
 		{
-			return topology.getNeighbors(vertex);
+			for (; it; ++it)
+			{
+				int sccMember = *it;
+				output[sccMember] = it.representative();
+			}
+		};
+		findStronglyConnectedComponents(topology, writeSCCs);
+	}
+
+	template<typename T, typename S>
+	static void findStronglyConnectedComponents(const TTopology<T>& topology, S&& callback)
+	{
+		auto getNeighborsFn = [&](int vertex, auto&& visitor)
+		{
+			auto neighbors = topology.getNeighbors(vertex);
+			for (auto it = neighbors.begin(); it != neighbors.end(); ++it)
+			{
+				visitor(*it);
+			}
 		};
 
 		TarjanAlgorithm tarjanAlgorithm;
-		tarjanAlgorithm.findStronglyConnectedComponents(topology.getNumVertices(), getNeighborsFn, output);
+		tarjanAlgorithm.findStronglyConnectedComponents(topology.getNumVertices(), getNeighborsFn, callback);
 	}
 
 	/** Call Callback for each edge discovered in the given graph */
