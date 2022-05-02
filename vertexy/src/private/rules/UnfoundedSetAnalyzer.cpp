@@ -691,8 +691,11 @@ void UnfoundedSetAnalyzer::initializeBodySupports(BodyData* body)
         AtomData* head = *it;
         if (head->scc != body->scc && db->anyPossible(*head->lit))
         {
-            setSource(head, body);
-            m_sourcePropagationQueue.push_back(head);
+            if (!head->sourceIsValid)
+            {
+                setSource(head, body);
+                m_sourcePropagationQueue.push_back(head);
+            }
         }
     }
 }
