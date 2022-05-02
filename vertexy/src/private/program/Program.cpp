@@ -12,16 +12,15 @@ int Program::s_nextVarUID = 1;
 ProgramVariable::ProgramVariable(const wchar_t* name)
     : m_name(name)
 {
-    vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot define a ProgramVariable outside of a Program::define block!");
     m_uid = Program::allocateVariableUID();
 }
 
-void Program::disallow(ProgramBodyTerm&& body)
+void Program::disallow(detail::ProgramBodyTerm&& body)
 {
-    return disallow(ProgramBodyTerms(forward<ProgramBodyTerm>(body)));
+    return disallow(detail::ProgramBodyTerms(forward<detail::ProgramBodyTerm>(body)));
 }
 
-void Program::disallow(ProgramBodyTerms&& body)
+void Program::disallow(detail::ProgramBodyTerms&& body)
 {
     vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot specify rules outside of a Program::define block!");
     vector<UTerm> terms;
@@ -29,7 +28,10 @@ void Program::disallow(ProgramBodyTerms&& body)
     s_currentInstance->addRule(move(rule));
 }
 
-Formula<1> Program::range(ProgramSymbol min, ProgramSymbol max)
+Vertexy::detail::ProgramRangeTerm Program::range(ProgramSymbol min, ProgramSymbol max)
 {
-    return Formula<1>(L"range");
+    int minV = min.getInt();
+    int maxV = max.getInt();
+    vxy_assert_msg(maxV >= minV, "invalid range");
+    return detail::ProgramRangeTerm(minV, maxV);
 }

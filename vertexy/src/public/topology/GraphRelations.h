@@ -36,6 +36,8 @@ public:
 	virtual wstring toString() const { return TEXT("Custom"); }
 };
 
+template<typename T>
+using IGraphRelationPtr = shared_ptr<const IGraphRelation<T>>;
 
 /** Combines a Vertex->Int relation and an Int->Value relation into a Vertex->Value relation */
 template <typename T>
@@ -545,6 +547,111 @@ public:
 protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
 };
+
+
+class NegateGraphRelation : public IGraphRelation<int>
+{
+public:
+    NegateGraphRelation(const IGraphRelationPtr<int>& child)
+        : m_child(child)
+    {
+    }
+
+    virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+    {
+        if (auto typed = dynamic_cast<const NegateGraphRelation*>(&rhs))
+        {
+            return typed->m_child->equals(topology, *m_child.get());
+        }
+        return false;
+    }
+
+    virtual bool getRelation(int sourceVertex, int& out) const override
+    {
+        if (m_child->getRelation(sourceVertex, out))
+        {
+            out *= -1;
+            return true;
+        }
+        return false;
+    }
+
+protected:
+    IGraphRelationPtr<int> m_child;
+};
+
+class BinOpGraphRelation : public IGraphRelation<int>
+{
+public:
+    BinOpGraphRelation(const IGraphRelationPtr<int>& lhs, const IGraphRelationPtr<int>& rhs, EBinaryOperatorType op)
+        : m_lhs(lhs)
+        , m_rhs(rhs)
+        , m_op(op)
+    {
+    }
+
+    virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+    {
+        if (auto typed = dynamic_cast<const BinOpGraphRelation*>(&rhs))
+        {
+            return
+                typed->m_op == m_op &&
+                typed->m_lhs->equals(topology, *m_lhs.get()) &&
+                typed->m_rhs->equals(topology, *m_rhs.get());
+        }
+        return false;
+    }
+
+    virtual bool getRelation(int sourceVertex, int& out) const override
+    {
+        int left, right;
+        if (m_lhs->getRelation(sourceVertex, left) && m_rhs->getRelation(sourceVertex, right))
+        {
+            switch (m_op)
+            {
+            case EBinaryOperatorType::Add:
+                out = left+right;
+                break;
+            case EBinaryOperatorType::Subtract:
+                out = left-right;
+                break;
+            case EBinaryOperatorType::Divide:
+                out = left/right;
+                break;
+            case EBinaryOperatorType::Multiply:
+                out = left*right;
+                break;
+            case EBinaryOperatorType::Equality:
+                out = (left == right) ? 1 : 0;
+                break;
+            case EBinaryOperatorType::Inequality:
+                out = (left != right) ? 1 : 0;
+                break;
+            case EBinaryOperatorType::LessThan:
+                out = (left < right) ? 1 : 0;
+                break;
+            case EBinaryOperatorType::LessThanEq:
+                out = (left <= right) ? 1 : 0;
+                break;
+            case EBinaryOperatorType::GreaterThan:
+                out = (left > right) ? 1 : 0;
+                break;
+            case EBinaryOperatorType::GreaterThanEq:
+                out = (left >= right) ? 1 : 0;
+            default:
+                vxy_fail_msg("unexpected binary operator");
+            }
+            return true;
+        }
+        return false;
+    }
+
+protected:
+    IGraphRelationPtr<int> m_lhs;
+    IGraphRelationPtr<int> m_rhs;
+    EBinaryOperatorType m_op;
+};
+
 
 template <>
 template <typename U>
