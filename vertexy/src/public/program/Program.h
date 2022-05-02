@@ -3,7 +3,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "Terms.h"
+#include "ProgramTypes.h"
 
 // for non-eastl std::function
 #include <functional>
@@ -11,8 +11,6 @@
 namespace Vertexy
 {
 
-class ProgramBodyTerms;
-class ProgramBodyTerm;
 template<int ARITY> class Formula;
 template<int ARITY> class FormulaResult;
 
@@ -33,7 +31,7 @@ struct ArgumentRepeater<0, R, ARG, ARGS...> { using type = R(ARGS...); };
 template<size_t SIZE>
 struct FormulaBinder
 {
-    using type = std::function<typename ArgumentRepeater<SIZE, void, const ProgramSymbol&>::type>;
+    using type = std::function<typename ArgumentRepeater<SIZE, SignedClause, const ProgramSymbol&>::type>;
 };
 
 // Abstract base to call a function passed into FormulaResult::bind with a vector of arguments.

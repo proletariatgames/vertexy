@@ -10,7 +10,7 @@ static const SolverVariableDomain booleanVariableDomain(0, 1);
 static const ValueSet FALSE_VALUE = booleanVariableDomain.getBitsetForValue(0);
 static const ValueSet TRUE_VALUE = booleanVariableDomain.getBitsetForValue(1);
 
-#define VERTEXY_RULE_NAME_ATOMS 0
+#define VERTEXY_RULE_NAME_ATOMS 1
 
 RuleDatabase::RuleDatabase(ConstraintSolver& solver)
     : m_solver(solver)

@@ -71,24 +71,24 @@
     <!-- AtomID -->
     <Type Name="Vertexy::TBoolID&lt;0&gt;">
         <DisplayString Condition="value == 0">Invalid</DisplayString>
-        <DisplayString Condition="value != 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst->name}</DisplayString>
+        <DisplayString Condition="value != 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->name}</DisplayString>
         <Expand>
-            <Item Name="Value">Vertexy::ConstraintSolver::s_currentSolver->m_variableDB.m_variableInfo[Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst->equivalence.variable.m_value].potentialValues</Item>
-            <Item Name="AtomInfo">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst</Item>
+            <Item Name="Value">Vertexy::ConstraintSolver::s_currentSolver->m_variableDB.m_variableInfo[Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->equivalence.variable.m_value].potentialValues</Item>
+            <Item Name="AtomInfo">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst</Item>
             <Item Name="AtomData">Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst->m_atomData[value]</Item>
         </Expand>
     </Type>
     <!-- AtomLiteral -->
     <Type Name="Vertexy::TBoolLiteral&lt;0&gt;">
         <DisplayString Condition="value == 0">Invalid</DisplayString>
-        <DisplayString Condition="value &lt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[-value].mPair.mFirst->name}=0</DisplayString>
-        <DisplayString Condition="value &gt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst->name}=1</DisplayString>
+        <DisplayString Condition="value &lt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[-value].mPair.mFirst->name}=0</DisplayString>
+        <DisplayString Condition="value &gt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->name}=1</DisplayString>
         <Expand>
-            <Item Name="AtomInfo" Condition="value &gt; 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst</Item>
-            <Item Name="AtomInfo" Condition="value &lt; 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[-value].mPair.mFirst</Item>
+            <Item Name="AtomInfo" Condition="value &gt; 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst</Item>
+            <Item Name="AtomInfo" Condition="value &lt; 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[-value].mPair.mFirst</Item>
             <Item Name="AtomData" Condition="value &gt; 0 &amp;&amp; Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst">Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst->m_atomData[value]</Item>
             <Item Name="AtomData" Condition="value &lt; 0 &amp;&amp; Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst">Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst->m_atomData[-value]</Item>
-            <Item Name="Literal">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_atoms[value].mPair.mFirst->equivalence</Item>
+            <Item Name="Literal">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->equivalence</Item>
         </Expand>
     </Type>
     <!-- AtomData -->
@@ -96,8 +96,18 @@
         <Expand>
             <Item Name="SourceIsValid">sourceIsValid</Item>
             <Item Name="Source ID">source</Item>
-            <Item Name="Source Info" Condition="source &gt;= 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB.m_bodies[source]</Item>
+            <Item Name="Source Info" Condition="source &gt;= 0">Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_bodies[source]</Item>
             <Item Name="Source Unfounded Data" Condition="source &gt;= 0">Vertexy::ConstraintSolver::s_currentSolver->m_unfoundedSetAnalyzer.mPair.mFirst->m_bodyData[source]</Item>
+        </Expand>
+    </Type>
+    <!-- ProgramSymbol -->
+    <Type Name="Vertexy::ProgramSymbol">
+        <DisplayString Condition="getType() == 0">{m_packed}</DisplayString>
+        <DisplayString Condition="getType() == 1">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
+        <DisplayString Condition="getType() == 2">Formula</DisplayString>
+        <DisplayString Condition="getType() == 3">Invalid</DisplayString>
+        <Expand>
+            <Item Name="Formula" Condition="getType()==2">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
         </Expand>
     </Type>
 </AutoVisualizer>
