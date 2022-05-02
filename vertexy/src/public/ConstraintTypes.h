@@ -42,6 +42,26 @@ enum class EConstraintType : uint8_t
 	Sum
 };
 
+
+enum class EUnaryOperatorType
+{
+	Negate
+};
+
+enum class EBinaryOperatorType
+{
+	LessThan,
+	LessThanEq,
+	GreaterThan,
+	GreaterThanEq,
+	Equality,
+	Inequality,
+	Multiply,
+	Divide,
+	Add,
+	Subtract
+};
+
 // If set, VariableDBs will cache the state of each variable (solved/unsolved/contradiction), only updating when
 // the variable changes. Otherwise it will be recalculated each query.
 #define CONSTRAINT_USE_CACHED_STATES 1

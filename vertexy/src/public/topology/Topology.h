@@ -154,7 +154,7 @@ public:
 	 * Returns a class that supports C++ ranged iteration over the valid neighbors of the given vertex.
 	 * e.g. for (int neighborVertex : getNeighbors(myVertex)) { ... }
 	 */
-	inline NeighborIteratorContainer getNeighbors(VertexID vertex)
+	inline NeighborIteratorContainer getNeighbors(VertexID vertex) const
 	{
 		vxy_assert(isValidVertex(vertex));
 		return NeighborIteratorContainer(*this, vertex);
