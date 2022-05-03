@@ -340,55 +340,56 @@ int main(int argc, char* argv[])
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
 
-	struct HamiltonianOutput
 	{
-		FormulaResult<2> path;
-	};
+		struct HamiltonianOutput
+		{
+			FormulaResult<2> path;
+		};
 
-	auto hamiltonian = Program::define([]()
-	{
-		VXY_FORMULA(node, 1);
-		node(0);
-		node(1);
-		node(2);
-		node(3);
+		auto hamiltonian = Program::define([]()
+		{
+			VXY_FORMULA(node, 1);
+			node(0);
+			node(1);
+			node(2);
+			node(3);
 
-		VXY_FORMULA(edge, 2);
-		edge(0, 1); edge(0, 2);
-		edge(1, 2); edge(1, 3);
-		edge(2, 0); edge(2, 3);
-		edge(3, 0);
+			VXY_FORMULA(edge, 2);
+			edge(0, 1); edge(0, 2);
+			edge(1, 2); edge(1, 3);
+			edge(2, 0); edge(2, 3);
+			edge(3, 0);
 
-		VXY_FORMULA(start, 1);
-		start(0);
+			VXY_FORMULA(start, 1);
+			start(0);
 
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
-		VXY_VARIABLE(Z);
+			VXY_VARIABLE(X);
+			VXY_VARIABLE(Y);
+			VXY_VARIABLE(Z);
 
-		VXY_FORMULA(path, 2);
-		VXY_FORMULA(omit, 2);
-		path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
-		omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
+			VXY_FORMULA(path, 2);
+			VXY_FORMULA(omit, 2);
+			path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
+			omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
 
-		VXY_VARIABLE(X1);
-		VXY_VARIABLE(Y1);
-		Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
-		Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
+			VXY_VARIABLE(X1);
+			VXY_VARIABLE(Y1);
+			Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
+			Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
 
-		VXY_FORMULA(on_path, 1);
-		on_path(X) <<= path(X, Y) && path(Y, Z);
-		Program::disallow(node(X) && ~on_path(X));
+			VXY_FORMULA(on_path, 1);
+			on_path(X) <<= path(X, Y) && path(Y, Z);
+			Program::disallow(node(X) && ~on_path(X));
 
-		VXY_FORMULA(reach, 1);
-		reach(X) <<= start(X);
-		reach(Y) <<= reach(X) && path(X, Y);
-		Program::disallow(node(X) && ~reach(X));
+			VXY_FORMULA(reach, 1);
+			reach(X) <<= start(X);
+			reach(Y) <<= reach(X) && path(X, Y);
+			Program::disallow(node(X) && ~reach(X));
 
-		return HamiltonianOutput{path};
-	});
+			return HamiltonianOutput{path};
+		});
 
-	{
+
 		vector<VarID> pathVars;
 
 		ConstraintSolver solver;
@@ -415,123 +416,9 @@ int main(int argc, char* argv[])
 		solver.dumpStats(true);
 	}
 
-	// struct MazeResult
-	// {
-	// 	FormulaResult<2> wall;
-	// 	FormulaResult<2> empty;
-	// };
-	//
-	// // Rule formulas can only be defined within a Program::define() block
-	// auto simpleMaze = Program::define([](ProgramSymbol width, ProgramSymbol height, ProgramSymbol entranceX, ProgramSymbol entranceY, ProgramSymbol exitX, ProgramSymbol exitY)
-	// {
-	// 	// Floating variables. These don't mean anything outside the context of a rule statement.
-	// 	// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
-	// 	// it means that those Xs are the same. See below.
-	// 	VXY_VARIABLE(X);
-	// 	VXY_VARIABLE(Y);
-	// 	VXY_VARIABLE(X1);
-	// 	VXY_VARIABLE(Y1);
-	//
-	// 	// define the entrance/exit positions, based on the program inputs.
-	// 	VXY_FORMULA(entrance, 2);
-	// 	VXY_FORMULA(exit, 2);
-	// 	entrance(entranceX, entranceY);
-	// 	exit(exitX, exitY);
-	//
-	// 	// define col(1), col(2), ... col(width) as atoms.
-	// 	VXY_FORMULA(row, 1);
-	// 	VXY_FORMULA(col, 1);
-	// 	col = Program::range(1, width);
-	// 	// define row(1), row(2), ... row(height) as atoms.
-	// 	row = Program::range(1, height);
-	//
-	// 	// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
-	// 	VXY_FORMULA(grid, 2);
-	// 	grid(X,Y) <<= col(X) && row(Y);
-	//
-	// 	// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
-	// 	VXY_FORMULA(adjacent, 4);
-	// 	adjacent(X,Y,X+1,Y) <<= grid(X,Y) && col(X+1);
-	// 	// == adjacent(X,Y,Z,Y) <<= grid(X,Y) && col(Z), Z == X+1;
-	// 	adjacent(X,Y,X-1,Y) <<= grid(X,Y) && col(X-1);
-	// 	adjacent(X,Y,X,Y+1) <<= grid(X,Y) && row(Y+1);
-	// 	adjacent(X,Y,X,Y-1) <<= grid(X,Y) && row(Y-1);
-	//
-	// 	// Define a rule formula border(x,y), which is only true at the edges of the map.
-	// 	VXY_FORMULA(border, 2);
-	// 	border(1,Y) <<= row(Y);
-	// 	border(X,1) <<= col(X);
-	// 	border(X,Y) <<= row(Y) && X == width;
-	// 	border(X,Y) <<= col(X) && Y == height;
-	//
-	// 	VXY_FORMULA(wall, 2);
-	// 	VXY_FORMULA(empty, 2);
-	// 	// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
-	// 	(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
-	// 	// border is a wall as long as it's not the entrance or exit.
-	// 	wall(X,Y) <<= border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
-	//
-	// 	// entrance/exit are always empty.
-	// 	empty(X,Y) <<= entrance(X,Y);
-	// 	empty(X,Y) <<= exit(X,Y);
-	//
-	// 	// disallow a 2x2 block of walls
-	// 	// Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-	// 	// disallow a 2x2 block of empty
-	// 	// Program::disallow(empty(X,Y) && empty(X1, Y) && empty(X, Y1) && empty(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-	//
-	// 	// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
-	// 	// Program::disallow(wall(X,Y) && wall(X+1,Y+1) && empty(X+1,Y) && empty(X, Y+1));
-	// 	// Program::disallow(wall(X+1,Y) && wall(X,Y+1) && empty(X, Y) && empty(X+1, Y+1));
-	//
-	// 	// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
-	// 	// VXY_FORMULA(wallWithAdjacentWall, 2);
-	// 	// wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
-	//
-	// 	// disallow walls that don't have any adjacent walls
-	// 	// Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
-	//
-	// 	// encode reachability (faster to do this with a reachability constraint)
-	// 	VXY_FORMULA(reach, 2);
-	// 	reach(X,Y) <<= entrance(X,Y);
-	// 	reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
-	// 	Program::disallow(empty(X,Y) && ~reach(X,Y));
-	//
-	// 	return MazeResult {wall, empty};
-	// });
-	//
-	// {
-	// 	auto inst = simpleMaze(10,10,1,3,10,3);
-	//
-	// 	ConstraintSolver mazeSolver;
-	// 	ProgramCompiler compiler(mazeSolver.getRuleDB());
-	// 	compiler.compile(inst.get());
-	//
-	// 	mazeSolver.solve();
-	// 	for (auto& val : mazeSolver.getSolution())
-	// 	{
-	// 		VERTEXY_LOG("%s = %d", val.second.name.c_str(), val.second.value);
-	// 	}
-	// }
-
-	//
-	// // Map output
-	// TTopologyVertexData<VarID> tileVars;
-	// inst->result.empty.bind([&](ProgramSymbol X, ProgramSymbol Y){
-	// 	return SignedClause(tileVars.get(X.getInt()+Y.getInt()*10), {0});
-	// });
-	// inst->result.wall.bind([&](ProgramSymbol X, ProgramSymbol Y){
-	// 	return SignedClause(tileVars.get(X.getInt()+Y.getInt()*10), {1});
-	// });
-
-	// give an instantiated version of the program to the solver.
-	// this is an addition to whatever other constraints you want to add!
-	// solver.addProgram(simpleMaze(10, 10, /*entrance:*/1,5, /*exit:*/5,10));
-	// solver.solve();
-
+	MazeSolver::solveProgram(1, 10, 10, FORCE_SEED, true);
 
 	TestApplication Suite("Solver Tests", argc, argv);
-	
 	Suite.AddTest("ValueBitset", test_ValueBitset);
 	Suite.AddTest("Digraph", test_Digraph);
 	Suite.AddTest("RuleSCCs", test_ruleSCCs);
@@ -556,6 +443,6 @@ int main(int argc, char* argv[])
 	Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	//Suite.AddTest("PrefabTest-Basic", []() { return PrefabTestSolver::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Maze", []() { return MazeSolver::solve(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	return Suite.Run();
 }

@@ -21,7 +21,7 @@ void AllTests::runAllTests(int seed, int numTimes)
 	NQueensSolvers::solveUsingGraph(numTimes, 25, seed, false);
 	NQueensSolvers::solveUsingTable(numTimes, 25, seed, false);
 	NQueensSolvers::solveUsingAllDifferent(numTimes, 25, seed, false);
-	MazeSolver::solve(numTimes, 9, 9, seed, false);
+	MazeSolver::solveKeyDoor(numTimes, 9, 9, seed, false);
 	SudokuSolver::solve(numTimes, 0, seed, false);
 	TowersOfHanoiSolver::solveTowersGrid(numTimes, 3, seed, false);
 }
