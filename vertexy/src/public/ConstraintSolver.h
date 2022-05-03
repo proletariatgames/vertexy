@@ -46,6 +46,17 @@ enum class EConstraintSolverResult : uint8_t
 	Unsatisfiable
 };
 
+// Behavior for makeGraphConstraint when one of the arguments fails to resolve.
+enum class EOutOfBoundsMode
+{
+	// Default behavior: skip making the constraint for a given vertex if one of the arguments fails to resolve.
+	SkipConstraint,
+	// Instead of skipping the constraint, just drop the argument. This is mostly only useful for clause constraints,
+	// where you want to skip including a clause if it's referencing an out-of-bounds vertex but still make
+	// the constraint.
+	DropArrayArgument
+};
+
 struct SolvedVariableRecord
 {
 	wstring name;
@@ -351,7 +362,7 @@ public:
 	//			OtherVar
 	//		);
 	//
-	template <typename ConstraintType, typename... ArgsType>
+	template <typename ConstraintType, EOutOfBoundsMode Mode=EOutOfBoundsMode::SkipConstraint, typename... ArgsType>
 	GraphConstraintID makeGraphConstraint(const shared_ptr<ITopology>& graph, ArgsType&&... args)
 	{
 		bool anyMade = false;
@@ -360,7 +371,7 @@ public:
 
 		for (int i = 0; i < graph->getNumVertices(); ++i)
 		{
-			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, i, forward<ArgsType>(args)...);
+			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType, Mode>(graph, i, forward<ArgsType>(args)...);
 			if (cons != nullptr)
 			{
 				anyMade = true;
@@ -377,10 +388,10 @@ public:
 		return GraphConstraintID(m_graphConstraints.size());
 	}
 
-	template <typename ConstraintType, typename Topo, typename... ArgsType>
+	template <typename ConstraintType, EOutOfBoundsMode Mode=EOutOfBoundsMode::SkipConstraint, typename Topo, typename... ArgsType>
 	GraphConstraintID makeGraphConstraint(const shared_ptr<Topo>& graph, ArgsType&&... args)
 	{
-		return makeGraphConstraint<ConstraintType>(ITopology::adapt(graph), forward<ArgsType>(args)...);
+		return makeGraphConstraint<ConstraintType, Mode>(ITopology::adapt(graph), forward<ArgsType>(args)...);
 	}
 
 	// Generic method for constructing a constraint.
@@ -645,7 +656,7 @@ protected:
 	}
 
 	// translate an argument
-	template <typename T>
+	template<EOutOfBoundsMode Mode, typename T>
 	auto translateGraphConsArgument(const T& arg, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
 		auto translatedArg = GraphArgumentTransformer::transformGraphArgument(relationInfo.sourceGraphVertex, arg);
@@ -660,8 +671,8 @@ protected:
 		return translatedArg.value;
 	}
 
-	template<>
-	auto translateGraphConsArgument(const GraphConstraintID& id, ConstraintGraphRelationInfo& relationInfo, bool& success)
+	template<EOutOfBoundsMode Mode>
+	auto translateGraphConsArgument(const GraphConstraintID& id, ConstraintGraphRelationInfo& relationInfo, EOutOfBoundsMode, bool& success)
 	{
 		IConstraint* cons = nullptr;
 		if (id == GraphConstraintID::INVALID)
@@ -681,34 +692,44 @@ protected:
 	}
 
 	// specialization for arrays
-	template <typename T>
+	template <EOutOfBoundsMode Mode, typename T>
 	auto translateGraphConsArgument(const vector<T>& argArray, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
-		using ElementType = decltype(translateGraphConsArgument(argArray[0], relationInfo, success));
+		using ElementType = decltype(translateGraphConsArgument<Mode>(argArray[0], relationInfo, success));
 		vector<ElementType> translatedArray;
 		translatedArray.reserve(argArray.size());
 		for (auto& arg : argArray)
 		{
-			auto translatedArg = translateGraphConsArgument(arg, relationInfo, success);
-			translatedArray.push_back(translatedArg);
+			bool hadSuccess = success;
+			auto translatedArg = translateGraphConsArgument<Mode>(arg, relationInfo, success);
+			if (success)
+			{
+				translatedArray.push_back(move(translatedArg));
+			}
+			else if constexpr (Mode == EOutOfBoundsMode::DropArrayArgument)
+			{
+				// reset for next array element
+				success = hadSuccess;
+			}
 		}
+
 		return translatedArray;
 	}
 
 	// Concatenate arguments passed into a tuple<>, so that the constructor can be invoked via apply().
-	template <typename... TranslatedParams>
-	auto concatGraphConsArgs(const std::tuple<TranslatedParams...>& params, ConstraintGraphRelationInfo& relationInfo, bool& success) { return params; }
+	template <EOutOfBoundsMode Mode, typename... TranslatedParams>
+	auto concatGraphConsArgs(const std::tuple<TranslatedParams...>& params, ConstraintGraphRelationInfo&, bool&) { return params; }
 
-	template <typename TranslatedParams, typename NextArg, typename... RemArgs>
+	template <EOutOfBoundsMode Mode, typename TranslatedParams, typename NextArg, typename... RemArgs>
 	auto concatGraphConsArgs(const TranslatedParams& params, ConstraintGraphRelationInfo& relationInfo, bool& success, const NextArg& arg, RemArgs&&... remArgs)
 	{
-		return concatGraphConsArgs(
-			std::tuple_cat(std::move(params), std::make_tuple(std::move(translateGraphConsArgument(arg, relationInfo, success)))),
+		return concatGraphConsArgs<Mode>(
+			std::tuple_cat(std::move(params), std::make_tuple(std::move(translateGraphConsArgument<Mode>(arg, relationInfo, success)))),
 			relationInfo, success, std::forward<RemArgs>(remArgs)...
 		);
 	}
 
-	template <typename T, typename... ArgsType>
+	template <typename T, EOutOfBoundsMode Mode, typename... ArgsType>
 	IConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
 	{
 		ConstraintGraphRelationInfo graphRelationInfo(graph, vertexIndex);
@@ -716,7 +737,7 @@ protected:
 		IConstraint* out = nullptr;
 
 		bool success = true;
-		auto translatedArgsTuple = concatGraphConsArgs(std::tuple<>{}, graphRelationInfo, success, forward<ArgsType>(args)...);
+		auto translatedArgsTuple = concatGraphConsArgs<Mode>(std::tuple<>{}, graphRelationInfo, success, forward<ArgsType>(args)...);
 		if (success)
 		{
 			std::apply([&](auto&&... unpackedParams) { out = &makeConstraintForGraph<T>(graphRelationInfo, unpackedParams...); }, translatedArgsTuple);
