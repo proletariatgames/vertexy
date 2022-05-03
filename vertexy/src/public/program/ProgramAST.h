@@ -217,7 +217,7 @@ using UFunctionTerm = unique_ptr<FunctionTerm>;
 class HeadTerm : public Term
 {
 public:
-    virtual TRuleHead<AtomID> createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap) = 0;
+    virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) = 0;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) = 0;
 };
 
@@ -232,12 +232,12 @@ public:
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
     virtual UTerm clone() const override;
 
-    virtual TRuleHead<AtomID> createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap) override;
+    virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 
     ProgramSymbol evalSingle();
-    AtomID getOrCreateAtom(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap);
+    AtomID getOrCreateAtom(ProgramCompiler& compiler);
 
     FormulaUID functionUID;
     const wchar_t* functionName;
@@ -255,7 +255,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
     virtual UTerm clone() const override;
 
-    virtual TRuleHead<AtomID> createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap) override;
+    virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 
@@ -270,7 +270,7 @@ public:
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
     virtual UTerm clone() const override;
-    virtual TRuleHead<AtomID> createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap) override;
+    virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 

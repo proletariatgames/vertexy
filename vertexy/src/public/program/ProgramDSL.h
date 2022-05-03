@@ -271,21 +271,6 @@ namespace detail
 
 } // namespace Detail
 
-// TProgramInstance returned from applying a ProgramDefinition (via the () operator)
-template<typename RESULT>
-class TProgramInstance : public ProgramInstance
-{
-public:
-    TProgramInstance() {}
-
-    // The typed result returned from the definition
-    RESULT result;
-};
-
-// Specialization for ProgramDefinitions with no return values
-template<>
-class TProgramInstance<void> : public ProgramInstance {};
-
 // Static functions for defining rule programs
 class Program
 {
@@ -300,23 +285,26 @@ public:
     static ProgramInstance* getCurrentInstance() { return s_currentInstance; }
 
     template<typename R, typename... ARGS>
-    static unique_ptr<TProgramInstance<R>> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
+    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
     {
-        auto inst = make_unique<TProgramInstance<R>>();
+        auto inst = make_unique<ProgramInstance>();
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
         s_currentInstance = inst.get();
 
+        tuple<UProgramInstance, R> out;
         if constexpr (is_same_v<R, void>)
         {
             fn(forward<ARGS>(args)...);
+            out = make_tuple(move(inst), (void)0);
         }
         else
         {
-            inst->result = fn(forward<ARGS>(args)...);
+            R result = fn(forward<ARGS>(args)...);
+            out = make_tuple(move(inst), move(result));
         }
 
         s_currentInstance = nullptr;
-        return inst;
+        return out;
     }
 
     template<typename R, typename... ARGS>
@@ -362,13 +350,13 @@ public:
     {
     }
 
-    // "parse" the definition, returning the TProgramInstance.
-    inline unique_ptr<TProgramInstance<R>> apply(ARGS&&... args)
+    // "parse" the definition, returning the ProgramInstance.
+    inline tuple<UProgramInstance, R> apply(ARGS&&... args)
     {
         return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
     }
 
-    unique_ptr<TProgramInstance<R>> operator()(ARGS&&... args)
+    inline tuple<UProgramInstance, R> operator()(ARGS&&... args)
     {
         return apply(eastl::move(args)...);
     }
@@ -462,10 +450,42 @@ public:
         m_formulaUID = formula.m_uid;
     }
 
-    void bind(typename FormulaBinder<ARITY>::type&& binder)
+    // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
+    // the solver variable + value that should be linked with the truth of this formula.
+    void bind(typename FormulaBinder<SignedClause, ARITY>::type&& binder)
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
-        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindCaller<ARITY>>(eastl::move(binder)));
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
+    // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
+    void bind(typename FormulaBinder<VarID, ARITY>::type&& binder)
+    {
+        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    template<typename... ARGS>
+    wstring toString(ARGS&&... args)
+    {
+        static_assert(sizeof...(args) == ARITY, "Wrong number of toString arguments");
+        vector<ProgramSymbol> argVec;
+        argVec.reserve(ARITY);
+        return toStringHelper(move(argVec), args...);
+    }
+
+private:
+    template<typename... ARGS>
+    wstring toStringHelper(vector<ProgramSymbol>&& args, const ProgramSymbol& sym, ARGS&&... rem)
+    {
+        args.push_back(sym);
+        return toStringHelper(move(args), rem...);
+    }
+    wstring toStringHelper(vector<ProgramSymbol>&& args)
+    {
+        ProgramSymbol formulaSym(m_formulaUID, m_formulaName, args, false);
+        return formulaSym.toString();
     }
 
     ProgramInstance* m_instance;

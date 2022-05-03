@@ -638,7 +638,7 @@ AtomID RuleDatabase::getFactAtom()
     return m_factAtom;
 }
 
-AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
+AtomID RuleDatabase::createHeadAtom(const Literal& equivalence, const wchar_t* name)
 {
     auto found = m_atomMap.find(equivalence);
     if (found != m_atomMap.end())
@@ -691,11 +691,15 @@ AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
         return foundID;
     }
 
-    wstring name;
+    wstring nameStr;
     #if VERTEXY_RULE_NAME_ATOMS
-        name.append_sprintf(TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
+    if (name == nullptr)
+    {
+        nameStr.append_sprintf(TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
+        name = nameStr.c_str();
+    }
     #endif
-    AtomID newAtom = createAtom(name.c_str());
+    AtomID newAtom = createAtom(name);
 
     m_atomMap[equivalence] = newAtom;
     m_atoms[newAtom.value]->equivalence = equivalence;
@@ -1202,3 +1206,9 @@ GraphLiteralRelationPtr RuleDatabase::normalizeGraphRelation(const RuleGraphRela
         }
     }, relation);
 }
+
+const SolverVariableDomain& RuleDatabase::getDomain(VarID varID) const
+{
+    return m_solver.getDomain(varID);
+}
+

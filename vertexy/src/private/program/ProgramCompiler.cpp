@@ -22,15 +22,22 @@ struct VariableNameAllocator
 hash_set<ConstantFormula*, ConstantFormula::Hash, ConstantFormula::Hash> ConstantFormula::s_lookup;
 vector<unique_ptr<ConstantFormula>> ConstantFormula::s_formulas;
 
-void ProgramCompiler::compile(ProgramInstance* instance)
+bool ProgramCompiler::compile(RuleDatabase& rdb, const vector<RuleStatement*>& statements, const BindMap& binders)
 {
-    m_instance = instance;
-    rewriteMath();
+    ProgramCompiler compiler(rdb, binders);
+    compiler.rewriteMath(statements);
 
-    createDependencyGraph(m_instance->getRuleStatements());
-    m_components = createComponents(m_instance->getRuleStatements());
+    compiler.createDependencyGraph(statements);
+    compiler.createComponents(statements);
 
-    ground();
+    compiler.ground();
+    return !compiler.hasFailure();
+}
+
+ProgramCompiler::ProgramCompiler(RuleDatabase& rdb, const BindMap& binders)
+    : m_rdb(rdb)
+    , m_binders(binders)
+{
 }
 
 //
@@ -43,7 +50,7 @@ void ProgramCompiler::compile(ProgramInstance* instance)
 // A(Y) <<= B(X) && C(X+1==Y-1)
 //  --> A(Y) <<= B(X) && C(Z==W) && Z == X+1 && W == Y-1
 //
-void ProgramCompiler::rewriteMath()
+void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
 {
     enum class BinOpType
     {
@@ -89,7 +96,7 @@ void ProgramCompiler::rewriteMath()
         }
     };
 
-    for (auto& stmt : m_instance->getRuleStatements())
+    for (auto& stmt : statements)
     {
         VariableNameAllocator::reset();
 
@@ -148,7 +155,7 @@ void ProgramCompiler::rewriteMath()
 
 // Create the dependency graph, where each graph edge points from a formula head to a formula body that contains that
 // head. The strongly connected components are cyclical dependencies between rules, which need to be handled specially.
-void ProgramCompiler::createDependencyGraph(const vector<URuleStatement>& stmts)
+void ProgramCompiler::createDependencyGraph(const vector<RuleStatement*>& stmts)
 {
     m_depGraph = make_shared<DigraphTopology>();
     m_depGraph->reset(stmts.size());
@@ -165,7 +172,7 @@ void ProgramCompiler::createDependencyGraph(const vector<URuleStatement>& stmts)
         auto& stmt = stmts[vertex];
         // vxy_assert(!stmt->body.empty());
 
-        m_depGraphData.get(vertex).statement = stmt.get();
+        m_depGraphData.get(vertex).statement = stmt;
         m_depGraphData.get(vertex).vertex = vertex;
 
         // mark any rules that contain facts in the body as groundable
@@ -207,9 +214,9 @@ void ProgramCompiler::createDependencyGraph(const vector<URuleStatement>& stmts)
 //
 // OUTPUT: an array of components (set or rules), ordered by inverse topological sort. I.e., all statements in
 // each component can be reified entirely by components later in the list.
-vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vector<URuleStatement>& stmts)
+void ProgramCompiler::createComponents(const vector<RuleStatement*>& stmts)
 {
-    vector<Component> output;
+    m_components.clear();
 
     // Grab all the outer SCCs. They will be in reverse topographical order.
     vector<vector<int>> outerSCCs;
@@ -309,7 +316,7 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
 
             for (int vertex : posSCC)
             {
-                vxy_sanity(m_depGraphData.get(vertex).statement == stmts[vertex].get());
+                vxy_sanity(m_depGraphData.get(vertex).statement == stmts[vertex]);
                 componentNodes.push_back(&m_depGraphData.get(vertex));
 
                 // If any literals in the head of this statement appear in earlier components,
@@ -329,11 +336,9 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
                 }
             }
 
-            output.emplace_back(move(componentNodes), outerSCCIndex, innerSCCIndex);
+            m_components.emplace_back(move(componentNodes), outerSCCIndex, innerSCCIndex);
         }
     }
-
-    return output;
 }
 
 void ProgramCompiler::ground()
@@ -469,7 +474,7 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
 {
     if (cur == nodes.size())
     {
-        emit(stmtNode, varBindings);
+        exportStatement(stmtNode, varBindings);
     }
     else
     {
@@ -481,7 +486,7 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
     }
 }
 
-void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBindings)
+void ProgramCompiler::exportStatement(DepGraphNodeData* stmtNode, const VariableMap& varBindings)
 {
     vector<ProgramSymbol> bodyTerms;
     RuleStatement* stmt = stmtNode->statement;
@@ -555,7 +560,7 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
     bool areFacts = isNormalRule && bodyTerms.empty();
     for (const ProgramSymbol& headSym : headSymbols)
     {
-        if (addAtom(CompilerAtom{headSym, areFacts}))
+        if (addGroundedAtom(CompilerAtom{headSym, areFacts}))
         {
             int numEdges = m_depGraph->getNumOutgoing(stmtNode->vertex);
             for (int edgeIdx = 0; edgeIdx < numEdges; ++edgeIdx)
@@ -607,28 +612,24 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
 
     if (!areFacts)
     {
+        TRuleHead<AtomID> ruleHead(ERuleHeadType::Normal);
+        if (stmt->head != nullptr)
+        {
+            ruleHead = stmt->head->createHead(*this);
+        }
+
         vector<AtomLiteral> ruleBodyLits;
         for (const ProgramSymbol& bodySym : bodyTerms)
         {
-            ProgramSymbol absSym = bodySym.absolute();
-
-            auto found = m_createdAtomVars.find(absSym);
-            if (found == m_createdAtomVars.end())
+            AtomLiteral lit = exportAtom(bodySym.absolute());
+            if (bodySym.isNegated())
             {
-                found = m_createdAtomVars.insert({absSym, m_rdb.createAtom(absSym.toString().c_str())}).first;
+                lit = lit.inverted();
             }
-            ruleBodyLits.emplace_back(found->second, !bodySym.isNegated());
+            ruleBodyLits.emplace_back(lit);
         }
 
-        if (stmt->head != nullptr)
-        {
-            TRuleHead<AtomID> ruleHead = stmt->head->createHead(m_rdb, m_createdAtomVars);
-            m_rdb.addRule(ruleHead, ruleBodyLits);
-        }
-        else
-        {
-            m_rdb.disallow(ruleBodyLits);
-        }
+        m_rdb.addRule(ruleHead, ruleBodyLits);
         VERTEXY_LOG("Added rule %s", toString().c_str());
     }
     else
@@ -637,7 +638,63 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
     }
 }
 
-bool ProgramCompiler::addAtom(const CompilerAtom& atom)
+AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& sym, bool forHead)
+{
+    vxy_assert(!sym.isNegated());
+    auto found = m_createdAtomVars.find(sym);
+    if (found != m_createdAtomVars.end())
+    {
+        if (!forHead || found->second.sign())
+        {
+            return found->second;
+        }
+        else
+        {
+            // RDB needs to invert this AtomLiteral, so we need to update to reflect the inversion.
+            auto foundBinder = m_binders.find(sym.getFormula()->uid);
+            vxy_assert(foundBinder != m_binders.end());
+
+            SignedClause clause = foundBinder->second->call(m_rdb, sym.getFormula()->args);
+            vxy_assert(clause.variable.isValid());
+
+            Literal lit = clause.translateToLiteral(m_rdb);
+
+            // create the ID and invert previously exported literals with that ID.
+            AtomID newID = m_rdb.createHeadAtom(lit,sym.toString().c_str());
+            found->second = AtomLiteral(newID, true);
+            return found->second;
+        }
+    }
+
+    //
+    // See if there is a binder for this formula. If so, we want to call it to create the RDB atom with
+    // a solver Literal assigned to it.
+    //
+
+    auto foundBinder = m_binders.find(sym.getFormula()->uid);
+    if (foundBinder != m_binders.end() && foundBinder->second != nullptr)
+    {
+        SignedClause clause = foundBinder->second->call(m_rdb, sym.getFormula()->args);
+        if (clause.variable.isValid())
+        {
+            Literal lit = clause.translateToLiteral(m_rdb);
+            AtomLiteral atomLiteral = m_rdb.createAtom(lit, sym.toString().c_str());
+
+            m_createdAtomVars.insert({sym, atomLiteral});
+            return atomLiteral;
+        }
+    }
+
+    //
+    // Create a normal anonymous RDB atom (may or may not be exported to the solver)
+    //
+
+    AtomLiteral atomLiteral = AtomLiteral(m_rdb.createAtom(sym.toString().c_str()), true);
+    m_createdAtomVars.insert({sym, atomLiteral});
+    return atomLiteral;
+}
+
+bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom)
 {
     vxy_assert(atom.symbol.getType() == ESymbolType::Formula);
     auto domainIt = m_groundedAtoms.find(atom.symbol.getFormula()->uid);

@@ -77,14 +77,14 @@ public:
 		return translated;
 	}
 
-	inline ValueSet translateToInternal(const ConstraintFactoryParams& params, bool allowOutsideDomainValues = true) const
+	inline ValueSet translateToInternal(const IVariableDomainProvider& provider, bool allowOutsideDomainValues = true) const
 	{
-		return translateToDomain(params.getDomain(variable), allowOutsideDomainValues);
+		return translateToDomain(provider.getDomain(variable), allowOutsideDomainValues);
 	}
 
-	inline Literal translateToLiteral(const ConstraintFactoryParams& params, bool allowOutsideDomainValues = true) const
+	inline Literal translateToLiteral(const IVariableDomainProvider& provider, bool allowOutsideDomainValues = true) const
 	{
-		return Literal(variable, translateToInternal(params, allowOutsideDomainValues));
+		return Literal(variable, translateToInternal(provider, allowOutsideDomainValues));
 	}
 
 	bool operator==(const TSignedClause& rhs) const

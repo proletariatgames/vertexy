@@ -25,12 +25,14 @@
 #include "util/SolverDecisionLog.h"
 #include "ds/FastLookupSet.h"
 #include "rules/UnfoundedSetAnalyzer.h"
+#include "program/ProgramCompiler.h"
 #include "util/TimeUtils.h"
 
 #include <EASTL/algorithm.h>
 #include <EASTL/sort.h>
 #include <EASTL/variant.h>
 #include <EASTL/stack.h>
+
 
 using namespace Vertexy;
 
@@ -397,6 +399,11 @@ RuleDatabase& ConstraintSolver::getRuleDB()
 		m_ruleDB = make_unique<RuleDatabase>(*this);
 	}
 	return *m_ruleDB.get();
+}
+
+void ConstraintSolver::addProgram(UProgramInstance&& instance)
+{
+	m_programInsts.push_back(move(instance));
 }
 
 bool ConstraintSolver::simplify()
@@ -830,34 +837,12 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 	{
 		vxy_assert(m_currentStatus == EConstraintSolverResult::Uninitialized);
 
-		// create constraints for rules
-		if (m_ruleDB != nullptr)
+		// compile added ProgramInstances and create constraints for rules
+		if (!finalizeRules())
 		{
-			if (!m_ruleDB->finalize())
-			{
-				m_stats.endTime = TimeUtils::getSeconds();
-				m_currentStatus = EConstraintSolverResult::Unsatisfiable;
-				return m_currentStatus;
-			}
-
-			// do we have any strongly-connected components in the rule dependency graph?
-			m_stats.nonTightRules = !m_ruleDB->isTight();
-
-			// store away atom lookups
-			m_atomValues.resize(m_ruleDB->getNumAtoms());
-			for (int i = 1; i < m_ruleDB->getNumAtoms(); ++i)
-			{
-				auto atomInfo = m_ruleDB->getAtom(AtomID(i));
-				if (atomInfo->isVariable())
-				{
-					m_atomValues[i] = atomInfo->equivalence;
-				}
-				else
-				{
-					vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
-					m_atomValues[i] = atomInfo->status == RuleDatabase::ETruthStatus::True;
-				}
-			}
+			m_stats.endTime = TimeUtils::getSeconds();
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return m_currentStatus;
 		}
 
 		m_stats.numInitialConstraints = m_constraints.size();
@@ -974,6 +959,67 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 
 	return m_currentStatus;
 }
+
+bool ConstraintSolver::finalizeRules()
+{
+	vector<RuleStatement*> ruleStatements;
+	ProgramCompiler::BindMap binders;
+
+	for (auto& prgInst : m_programInsts)
+	{
+		for (auto& stmt : prgInst->getRuleStatements())
+		{
+			ruleStatements.push_back(stmt.get());
+		}
+		for (auto& entry : prgInst->getBinders())
+		{
+			if (binders[entry.first] != nullptr)
+			{
+				vxy_fail_msg("Formula bound twice");
+				return false;
+			}
+			binders[entry.first] = entry.second.get();
+		}
+	}
+
+	if (!ruleStatements.empty())
+	{
+		if (!ProgramCompiler::compile(getRuleDB(), ruleStatements, binders))
+		{
+			return false;
+		}
+	}
+
+	if (m_ruleDB != nullptr)
+	{
+		if (!m_ruleDB->finalize())
+		{
+			return false;
+		}
+
+		// do we have any strongly-connected components in the rule dependency graph?
+		m_stats.nonTightRules = !m_ruleDB->isTight();
+
+		// store away atom lookups
+		m_atomValues.resize(m_ruleDB->getNumAtoms());
+		for (int i = 1; i < m_ruleDB->getNumAtoms(); ++i)
+		{
+			auto atomInfo = m_ruleDB->getAtom(AtomID(i));
+			if (atomInfo->isVariable())
+			{
+				m_atomValues[i] = atomInfo->equivalence;
+			}
+			else
+			{
+				vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
+				m_atomValues[i] = atomInfo->status == RuleDatabase::ETruthStatus::True;
+			}
+		}
+	}
+
+	return true;
+}
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //

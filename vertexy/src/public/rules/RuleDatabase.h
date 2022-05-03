@@ -10,7 +10,7 @@ namespace Vertexy
 {
 
 // API for adding ASP-style rules to a constraint solver.
-class RuleDatabase
+class RuleDatabase : public IVariableDomainProvider
 {
 public:
     using RuleHead = TRuleHead<AtomID>;
@@ -82,10 +82,13 @@ public:
     RuleDatabase(RuleDatabase&&) = delete;
 
     AtomID createAtom(const wchar_t* name=nullptr);
+    AtomID createHeadAtom(const Literal& equivalence, const wchar_t* name=nullptr);
     AtomLiteral createAtom(const Literal& equivalence, const wchar_t* name=nullptr);
 
     GraphAtomID createGraphAtom(const shared_ptr<ITopology>& topology, const wchar_t* name=nullptr);
     GraphAtomLiteral createGraphAtom(const shared_ptr<ITopology>& topology, const RuleGraphRelation& equivalence, const wchar_t* name=nullptr);
+
+    const ConstraintSolver& getSolver() const { return m_solver; }
 
     template<typename H, typename B>
     void addRule(const H& head, const vector<B>& body)
@@ -200,6 +203,9 @@ public:
 protected:
     using NormalizedRule = TRule<AtomID, TRuleBodyElement<AtomLiteral>>;
 
+    // IVariableDomainProvider
+    virtual const SolverVariableDomain& getDomain(VarID varID) const override;
+
     struct GraphAtomInfo
     {
         GraphAtomInfo() {}
@@ -243,7 +249,6 @@ protected:
     using GraphRelationList = vector<tuple<GraphLiteralRelationPtr, GraphAtomID>>;
     using GraphAtomSet = hash_map<int32_t, unique_ptr<GraphAtomInfo>>;
 
-    AtomID createHeadAtom(const Literal& equivalence);
     AtomID getFactAtom();
     void transformRule(const RuleHead& head, const RuleBody& body);
     void transformSum(AtomID head, const RuleBody& sumBody);
