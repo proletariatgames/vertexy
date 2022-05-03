@@ -22,6 +22,13 @@ class ProgramVariable
 public:
     ProgramVariable(const wchar_t* name=nullptr);
     VariableUID getID() const { return m_uid; }
+    const wchar_t* getName() const { return m_name; }
+
+    bool operator==(const ProgramVariable& rhs) const
+    {
+        return m_uid == rhs.m_uid;
+    }
+
 private:
     const wchar_t* m_name;
     VariableUID m_uid = VariableUID(0);
@@ -298,31 +305,28 @@ public:
     virtual bool hitEnd() const = 0;
 };
 
-struct ProgramVariableHasher
-{
-    uint32_t operator()(const ProgramVariable& var) const
-    {
-        return hash<int>()(var.m_uid);
-    }
-
-    bool operator()(const ProgramVariable& lhs, const ProgramVariable& rhs) const
-    {
-        return lhs.m_uid == rhs.m_uid;
-    }
-};
-
 struct CompilerAtom
 {
     ProgramSymbol symbol;
     bool isFact;
 };
 
-using VariableMap = hash_map<ProgramVariable, shared_ptr<ProgramSymbol>, ProgramVariableHasher, ProgramVariableHasher>;
+using VariableMap = hash_map<ProgramVariable, shared_ptr<ProgramSymbol>>;
 
 } // namespace Vertexy
 
 namespace eastl
 {
+
+// Hashing for ProgramVariable
+template<>
+struct hash<Vertexy::ProgramVariable>
+{
+    uint32_t operator()(const Vertexy::ProgramVariable& var) const
+    {
+        return hash<int>()(var.getID());
+    }
+};
 
 // Hashing for ProgramSymbol
 template<>

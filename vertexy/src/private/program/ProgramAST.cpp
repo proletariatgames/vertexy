@@ -92,6 +92,27 @@ VariableTerm::VariableTerm(ProgramVariable param)
 {
 }
 
+wstring VariableTerm::toString() const
+{
+    if (sharedBoundRef != nullptr)
+    {
+        return sharedBoundRef->toString();
+    }
+    else
+    {
+        return var.getName();
+    }
+}
+
+bool VariableTerm::operator==(const LiteralTerm& rhs) const
+{
+    if (auto vrhs = dynamic_cast<const VariableTerm*>(&rhs))
+    {
+        return vrhs->var == var;
+    }
+    return false;
+}
+
 bool VariableTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -130,6 +151,20 @@ bool VariableTerm::match(const ProgramSymbol& sym, bool isFact)
     }
 }
 
+SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
+    : sym(sym)
+{
+}
+
+bool SymbolTerm::operator==(const LiteralTerm& rhs) const
+{
+    if (auto srhs = dynamic_cast<const SymbolTerm*>(&rhs))
+    {
+        return srhs->sym == sym;
+    }
+    return false;
+}
+
 bool SymbolTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -138,43 +173,6 @@ bool SymbolTerm::visit(const function<EVisitResponse(const Term*)>& visitor) con
 UTerm SymbolTerm::clone() const
 {
     return make_unique<SymbolTerm>(sym);
-}
-
-UnaryOpTerm::UnaryOpTerm(EUnaryOperatorType op, ULiteralTerm&& child)
-    : op(op)
-    , child(move(child))
-{
-}
-
-bool UnaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
-{
-    auto resp = visitor(this);
-    if (resp == EVisitResponse::Abort)
-    {
-        return false;
-    }
-    else if (resp == EVisitResponse::Skip)
-    {
-        return true;
-    }
-    else
-    {
-        return child->visit(visitor);
-    }
-}
-
-void UnaryOpTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
-{
-    if (!maybeReplaceChild(child, visitor))
-    {
-        child->replace(visitor);
-    }
-}
-
-UTerm UnaryOpTerm::clone() const
-{
-    auto clonedChild = static_cast<LiteralTerm*>(child->clone().detach());
-    return make_unique<UnaryOpTerm>(op, ULiteralTerm(move(clonedChild)));
 }
 
 FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated)
@@ -237,45 +235,6 @@ ProgramSymbol FunctionTerm::eval() const
     return ProgramSymbol(functionUID, functionName, resolvedArgs, negated);
 }
 
-UTerm FunctionTerm::clone() const
-{
-    vector<ULiteralTerm> clonedArgs;
-    clonedArgs.reserve(arguments.size());
-    for (auto& arg : arguments)
-    {
-        auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
-        clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
-    }
-    return make_unique<FunctionTerm>(functionUID, functionName, move(clonedArgs), negated);
-}
-
-wstring FunctionTerm::toString() const
-{
-    wstring out = LiteralTerm::toString();
-    if (negated)
-    {
-        out = TEXT("~") + out;
-    }
-    return out;
-}
-
-ExternalFunctionTerm::ExternalFunctionTerm(const shared_ptr<IExternalFormulaProvider>& provider, vector<ULiteralTerm>&& arguments, bool negated)
-    : FunctionTerm(FormulaUID(-1), nullptr, move(arguments), negated)
-    , provider(provider)
-{
-}
-
-UTerm ExternalFunctionTerm::clone() const
-{
-    vector<ULiteralTerm> clonedArgs;
-    clonedArgs.reserve(arguments.size());
-    for (auto& arg : arguments)
-    {
-        auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
-        clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
-    }
-    return make_unique<ExternalFunctionTerm>(provider, move(clonedArgs), negated);
-}
 
 UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler)
 {
@@ -302,6 +261,130 @@ bool FunctionTerm::match(const ProgramSymbol& sym, bool isFact)
 
     assignedAtom = {sym, isFact};
     return true;
+}
+
+UTerm FunctionTerm::clone() const
+{
+    vector<ULiteralTerm> clonedArgs;
+    clonedArgs.reserve(arguments.size());
+    for (auto& arg : arguments)
+    {
+        auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
+        clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
+    }
+    return make_unique<FunctionTerm>(functionUID, functionName, move(clonedArgs), negated);
+}
+
+wstring FunctionTerm::toString() const
+{
+    wstring out;
+    if (negated)
+    {
+        out += TEXT("~");
+    }
+
+    out += functionName;
+    out += TEXT("(");
+
+    bool first = true;
+    for (auto& arg : arguments)
+    {
+        if (!first)
+        {
+            out += TEXT(", ");
+        }
+        first = false;
+        out.append(arg->toString());
+    }
+
+    out += TEXT(")");
+    return out;
+}
+
+size_t FunctionTerm::hash() const
+{
+    size_t hash = eastl::hash<FormulaUID>()(functionUID);
+    for (auto& arg : arguments)
+    {
+        hash = combineHashes(hash, arg->hash());
+    }
+    return hash;
+}
+
+bool FunctionTerm::operator==(const LiteralTerm& rhs) const
+{
+    if (auto frhs = dynamic_cast<const FunctionTerm*>(&rhs))
+    {
+        if (frhs->functionUID != functionUID)
+        {
+            return false;
+        }
+        vxy_sanity(frhs->arguments.size() == arguments.size());
+        for (int i = 0; i < arguments.size(); ++i)
+        {
+            if ((*arguments[i]) != (*frhs->arguments[i]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
+ExternalFunctionTerm::ExternalFunctionTerm(const shared_ptr<IExternalFormulaProvider>& provider, vector<ULiteralTerm>&& arguments, bool negated)
+    : FunctionTerm(FormulaUID(-1), nullptr, move(arguments), negated)
+    , provider(provider)
+{
+}
+
+UTerm ExternalFunctionTerm::clone() const
+{
+    vector<ULiteralTerm> clonedArgs;
+    clonedArgs.reserve(arguments.size());
+    for (auto& arg : arguments)
+    {
+        auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
+        clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
+    }
+    return make_unique<ExternalFunctionTerm>(provider, move(clonedArgs), negated);
+}
+
+UnaryOpTerm::UnaryOpTerm(EUnaryOperatorType op, ULiteralTerm&& child)
+    : op(op)
+    , child(move(child))
+{
+}
+
+bool UnaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    auto resp = visitor(this);
+    if (resp == EVisitResponse::Abort)
+    {
+        return false;
+    }
+    else if (resp == EVisitResponse::Skip)
+    {
+        return true;
+    }
+    else
+    {
+        return child->visit(visitor);
+    }
+}
+
+void UnaryOpTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+{
+    if (!maybeReplaceChild(child, visitor))
+    {
+        child->replace(visitor);
+    }
+}
+
+UTerm UnaryOpTerm::clone() const
+{
+    auto clonedChild = static_cast<LiteralTerm*>(child->clone().detach());
+    return make_unique<UnaryOpTerm>(op, ULiteralTerm(move(clonedChild)));
 }
 
 ProgramSymbol UnaryOpTerm::eval() const
@@ -336,6 +419,24 @@ wstring UnaryOpTerm::toString() const
         vxy_fail_msg("unexpected operator type");
         return inner;
     }
+}
+
+size_t UnaryOpTerm::hash() const
+{
+    size_t hash = eastl::hash<EUnaryOperatorType>()(op);
+    return combineHashes(hash, child->hash());
+}
+
+bool UnaryOpTerm::operator==(const LiteralTerm& rhs) const
+{
+    if (auto urhs = dynamic_cast<const UnaryOpTerm*>(&rhs))
+    {
+        if (urhs->op == op && (*child) == (*urhs->child))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 BinaryOpTerm::BinaryOpTerm(EBinaryOperatorType op, ULiteralTerm&& lhs, ULiteralTerm&& rhs): op(op)
@@ -436,7 +537,7 @@ ProgramSymbol BinaryOpTerm::eval() const
 UTerm BinaryOpTerm::clone() const
 {
     auto clonedLHS = static_cast<LiteralTerm*>(lhs->clone().detach());
-    auto clonedRHS = static_cast<LiteralTerm*>(lhs->clone().detach());
+    auto clonedRHS = static_cast<LiteralTerm*>(rhs->clone().detach());
     return make_unique<BinaryOpTerm>(op, ULiteralTerm(move(clonedLHS)), ULiteralTerm(move(clonedRHS)));
 }
 
@@ -485,6 +586,30 @@ UInstantiator BinaryOpTerm::instantiate(ProgramCompiler& compiler)
     }
 }
 
+size_t BinaryOpTerm::hash() const
+{
+    size_t hash = eastl::hash<EBinaryOperatorType>()(op);
+    hash = combineHashes(hash, lhs->hash());
+    hash = combineHashes(hash, rhs->hash());
+    return hash;
+}
+
+bool BinaryOpTerm::operator==(const LiteralTerm& term) const
+{
+    if (auto brhs = dynamic_cast<const BinaryOpTerm*>(&term))
+    {
+        return brhs->op == op && (*brhs->lhs) == *lhs && (*brhs->rhs) == *rhs;
+    }
+    return false;
+}
+
+FunctionHeadTerm::FunctionHeadTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments)
+    : functionUID(functionUID)
+    , functionName(functionName)
+    , arguments(move(arguments))
+{
+}
+
 ProgramSymbol FunctionHeadTerm::evalSingle()
 {
     vector<ProgramSymbol> resolvedArgs;
@@ -523,13 +648,6 @@ AtomID FunctionHeadTerm::getOrCreateAtom(RuleDatabase& rdb, hash_map<ProgramSymb
         found = atomMap.insert({symbol, rdb.createAtom(symbol.toString().c_str())}).first;
     }
     return found->second;
-}
-
-FunctionHeadTerm::FunctionHeadTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments)
-    : functionUID(functionUID)
-    , functionName(functionName)
-    , arguments(move(arguments))
-{
 }
 
 bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
@@ -582,8 +700,21 @@ TRuleHead<AtomID> FunctionHeadTerm::createHead(RuleDatabase& rdb, hash_map<Progr
 
 wstring FunctionHeadTerm::toString() const
 {
-    ProgramSymbol sym = const_cast<FunctionHeadTerm*>(this)->evalSingle();
-    return sym.toString();
+    wstring out = functionName;
+    out += TEXT("(");
+
+    bool first = true;
+    for (auto& arg : arguments)
+    {
+        if (!first)
+        {
+            out.append(TEXT(", "));
+        }
+        first = false;
+        out.append(arg->toString());
+    }
+    out += TEXT(")");
+    return out;
 }
 
 DisjunctionTerm::DisjunctionTerm(vector<UFunctionHeadTerm>&& children)

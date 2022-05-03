@@ -73,6 +73,9 @@ public:
     virtual ProgramSymbol eval() const = 0;
     virtual UInstantiator instantiate(ProgramCompiler& compiler);
     virtual bool match(const ProgramSymbol& sym, bool isFact);
+    virtual size_t hash() const = 0;
+    virtual bool operator==(const LiteralTerm& rhs) const = 0;
+    bool operator !=(const LiteralTerm& rhs) const { return !operator==(rhs); }
 
     bool createVariableReps(VariableMap& bound);
 
@@ -93,25 +96,38 @@ public:
     virtual UTerm clone() const override;
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
     virtual bool match(const ProgramSymbol& sym, bool isFact) override;
+    virtual size_t hash() const override
+    {
+        return eastl::hash<ProgramVariable>()(var);
+    }
     virtual ProgramSymbol eval() const override
     {
         return *sharedBoundRef;
     }
+    virtual wstring toString() const override;
+    virtual bool operator==(const LiteralTerm& rhs) const override;
 
     ProgramVariable var;
     bool isBinder = false;
     shared_ptr<ProgramSymbol> sharedBoundRef;
 };
 
+using UVariableTerm = unique_ptr<VariableTerm>;
+
 class SymbolTerm : public LiteralTerm
 {
 public:
-    SymbolTerm(const ProgramSymbol& sym) : sym(sym) {}
+    SymbolTerm(const ProgramSymbol& sym);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval() const override  { return sym; }
+    virtual bool operator==(const LiteralTerm& rhs) const override;
+    virtual size_t hash() const override
+    {
+        return eastl::hash<ProgramSymbol>()(sym);
+    }
 
     ProgramSymbol sym;
 };
@@ -126,6 +142,8 @@ public:
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval() const override;
     virtual wstring toString() const override;
+    virtual size_t hash() const override;
+    virtual bool operator==(const LiteralTerm& rhs) const override;
 
     EUnaryOperatorType op;
     ULiteralTerm child;
@@ -143,11 +161,15 @@ public:
     virtual UTerm clone() const override;
     virtual wstring toString() const override;
     virtual UInstantiator instantiate(ProgramCompiler& compiler) override;
+    virtual size_t hash() const override;
+    virtual bool operator==(const LiteralTerm& rhs) const override;
 
     EBinaryOperatorType op;
     ULiteralTerm lhs;
     ULiteralTerm rhs;
 };
+
+using UBinaryOpTerm = unique_ptr<BinaryOpTerm>;
 
 class FunctionTerm : public LiteralTerm
 {
@@ -162,11 +184,14 @@ public:
     virtual UInstantiator instantiate(ProgramCompiler& compiler) override;
     virtual bool match(const ProgramSymbol& sym, bool isFact) override;
     virtual wstring toString() const override;
+    virtual size_t hash() const override;
+    virtual bool operator==(const LiteralTerm& rhs) const override;
 
     FormulaUID functionUID;
     const wchar_t* functionName;
     vector<ULiteralTerm> arguments;
     bool negated;
+    bool recursive = false;
 };
 
 using UFunctionTerm = unique_ptr<FunctionTerm>;
@@ -277,7 +302,7 @@ public:
             auto newHead = visitor(ht);
             if (newHead != nullptr)
             {
-                head = move(newHead);
+                head = UHeadTerm(move(static_cast<HeadTerm*>(newHead.detach())));
                 return;
             }
         }
@@ -302,7 +327,7 @@ public:
                 auto newBodyTerm = visitor(bt);
                 if (newBodyTerm != nullptr)
                 {
-                   bodyTerm = move(newBodyTerm);
+                   bodyTerm = ULiteralTerm(move(static_cast<LiteralTerm*>(newBodyTerm.detach())));
                    continue;
                 }
             }

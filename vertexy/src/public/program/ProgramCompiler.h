@@ -21,8 +21,8 @@ protected:
         RuleStatement* statement;
         bool marked = false;
         int vertex = 0;
-        int outerSCCIndex = 0;
-        int innerSCCIndex = 0;
+        int outerSCCIndex = -1;
+        int innerSCCIndex = -1;
     };
 
     struct Component
@@ -83,22 +83,34 @@ public:
         return empty;
     }
 
+    bool hasAtom(const ProgramSymbol& sym) const
+    {
+        vxy_assert(!sym.isNegated());
+        auto found = m_groundedAtoms.find(sym.getFormula()->uid);
+        if (found != m_groundedAtoms.end())
+        {
+            return found->second->map.find(sym) != found->second->map.end();
+        }
+        return false;
+    }
+
 protected:
-    vector<RuleStatement*> extractFacts();
-    vector<Component> createComponents(const vector<RuleStatement*>& stmts);
+    void rewriteMath();
+    void createDependencyGraph(const vector<URuleStatement>& stmts);
+    vector<Component> createComponents(const vector<URuleStatement>& stmts);
     void ground();
-    void groundComponent(const Component& comp);
     void groundRule(DepGraphNodeData* statementNode);
     void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur=0);
 
     void emit(DepGraphNodeData* stmtNode, const VariableMap& varBindings);
-    void addAtom(const CompilerAtom& atom);
+    bool addAtom(const CompilerAtom& atom);
 
     RuleDatabase& m_rdb;
     ProgramInstance* m_instance = nullptr;
     shared_ptr<DigraphTopology> m_depGraph;
     TTopologyVertexData<DepGraphNodeData> m_depGraphData;
 
+    vector<vector<FunctionTerm*>> m_edges;
     vector<Component> m_components;
 
     hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;

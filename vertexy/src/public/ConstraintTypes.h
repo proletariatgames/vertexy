@@ -344,18 +344,6 @@ inline int indexOfPredicate(InputIterator first, InputIterator last, Predicate p
 	return it == last ? -1 : idx;
 }
 
-} // namespace Vertexy
-
-
-///
-///
-/// Add support for hashing tuple<> to EASTL
-///
-///
-
-namespace eastl
-{
-
 inline uint32_t combineHashes(uint32_t a, uint32_t c)
 {
 	uint32_t b = 0x9e3779b9;
@@ -390,6 +378,37 @@ inline uint32_t combineHashes(uint32_t a, uint32_t c)
 	return c;
 }
 
+template<typename T>
+struct pointer_value_hash
+{
+	bool operator()(T* val) const
+	{
+		return eastl::hash<T>()(*val);
+	}
+};
+
+template<typename T>
+struct pointer_value_equality
+{
+	template<typename PTR_TYPE_1, typename PTR_TYPE_2>
+	bool operator()(const PTR_TYPE_1& a, const PTR_TYPE_2& b) const
+	{
+		return *a == *b;
+	}
+};
+
+} // namespace Vertexy
+
+
+///
+///
+/// Add support for hashing tuple<> to EASTL
+///
+///
+
+namespace eastl
+{
+
 template <size_t ARG, size_t COUNT>
 struct _tuple_hash_helper
 {
@@ -397,7 +416,7 @@ struct _tuple_hash_helper
 	inline static size_t fold(size_t hash, const T& t)
 	{
 		eastl::hash<remove_cvref<decltype(get<ARG>(t))>::type> hasher;
-		return _tuple_hash_helper<ARG + 1, COUNT>::fold(combineHashes(hash, hasher(get<ARG>(t))), t);
+		return _tuple_hash_helper<ARG + 1, COUNT>::fold(Vertexy::combineHashes(hash, hasher(get<ARG>(t))), t);
 	}
 };
 

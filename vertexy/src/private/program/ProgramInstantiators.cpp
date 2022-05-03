@@ -26,7 +26,8 @@ void FunctionInstantiator::match()
 
     if (m_term.negated)
     {
-        // all variables should be fully bound at this point.
+        // all variables should be fully bound at this point, because positive literals are always earlier in
+        // the dependency list. Therefore, we can eval safely.
         ProgramSymbol matched = m_term.eval();
         if (matched.isInvalid())
         {
@@ -35,16 +36,16 @@ void FunctionInstantiator::match()
         }
 
         vxy_assert(matched.getFormula()->uid == m_term.functionUID);
-        auto found = m_domain.map.find(matched);
+        auto found = m_domain.map.find(matched.negatedFormula());
         bool hasFact = found != m_domain.map.end() && m_domain.list[found->second].isFact;
-        if (hasFact && !m_domain.list[found->second].symbol.isNegated())
+
+        // if this has definitely been established as true, we can't match.
+        if (hasFact)
         {
             m_hitEnd = true;
         }
-        else
-        {
-            m_term.assignedAtom = CompilerAtom{matched, hasFact};
-        }
+
+        m_term.assignedAtom = CompilerAtom{matched, hasFact};
     }
     else
     {
