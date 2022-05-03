@@ -263,7 +263,7 @@ static constexpr int SUDOKU_STARTING_HINTS = 0;
 static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
 static constexpr bool PRINT_VERBOSE = false;
-//
+
 // class PrefabDef;
 //
 // #define VXY_BIND_FORMULA(name, binder) Formula name(L#name); name = binder
@@ -283,16 +283,21 @@ static constexpr bool PRINT_VERBOSE = false;
 // 	VXY_BIND_CONST(neighbor, Program::index(def.allNeighbors.begin(), def.allNeighbors.end()));
 // 	VXY_BIND_CONST(direction, Program::fromEnum<EDirections>());
 //
-// 	auto prog = Program::define([&](int vertex)
+// 	auto prog = Program::define([&](ProgramSymbol vertex)
 // 	{
 // 		using EDirections = PlanarGridTopology::EDirections;
 //
 // 		VXY_VARIABLE(V);
-//		// Define that there must be exactly one atom of signature tileType(V,*).
-//		// Internally can use this to encode tileType(V,Domain(N)) as a bitfield var
-//		Program::singleton(tileType(V,N), N);
-//		Program::singleton(prefabID(V,I), I);
-//		Program::singleton(prefabPos(V,I), I);
+// 		VXY_VARIABLE(I);
+// 		VXY_VARIABLE(J);
+// 		VXY_VARIABLE(T);
+// 		VXY_VARIABLE(DIR);
+//
+// 		// Define that there must be exactly one atom of signature tileType(V,*).
+// 		// Internally can use this to encode tileType(V,Domain(N)) as a bitfield var
+// 		Program::singleton(tileType(V,T), T);
+// 		Program::singleton(prefabID(V,I), I);
+// 		Program::singleton(prefabPos(V,I), I);
 //
 // 		auto left = Program::graphLink(PlanarGridTopology::moveLeft());
 // 		auto right = Program::graphLink(PlanarGridTopology::moveRight());
@@ -310,18 +315,13 @@ static constexpr bool PRINT_VERBOSE = false;
 // 		// option of assigning this ID.
 // 		prefabID(vertex, id).choice();
 //
-// 		VXY_VARIABLE(I);
-// 		VXY_VARIABLE(J);
 // 		// option of assigning a position.
 // 		prefabPos(vertex, I).choice() <<= prefabID(vertex, id) && position(I);
 // 		// position must be valid
 // 		Program::disallow(prefabID(vertex, id) && prefabPos(vertex, I) && ~position(I));
 //
-// 		VXY_VARIABLE(T);
 // 		// if this vertex is a prefabID at position index I, tileType should be the tile at position index I.
 // 		tileType(vertex, T) <<= prefabID(vertex, id) && prefabPos(vertex, I) && tiles(I, T);
-//
-// 		VXY_VARIABLE(DIR);
 // 		// if this vertex is a prefabID at position index I, for any adjacent position index J, the vertex in
 // 		// the corresponding direction should be same prefab ID.
 // 		prefabID(V, id) <<= prefabID(vertex, id) && prefabPos(vertex, I) && neighbor(I, J, DIR) && adjacent(DIR, V);
@@ -339,158 +339,179 @@ int main(int argc, char* argv[])
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
 
-	// auto hamiltonian = Program::define([]()
+	struct HamiltonianOutput
+	{
+		FormulaResult<2> path;
+	};
+
+	auto hamiltonian = Program::define([]()
+	{
+		VXY_FORMULA(node, 1);
+		node(0);
+		node(1);
+		node(2);
+		node(3);
+
+		VXY_FORMULA(edge, 2);
+		edge(0, 1); edge(0, 2);
+		edge(1, 2); edge(1, 3);
+		edge(2, 0); edge(2, 3);
+		edge(3, 0);
+
+		VXY_FORMULA(start, 1);
+		start(0);
+
+		VXY_VARIABLE(X);
+		VXY_VARIABLE(Y);
+		VXY_VARIABLE(Z);
+
+		VXY_FORMULA(path, 2);
+		VXY_FORMULA(omit, 2);
+		path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
+		omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
+
+		VXY_VARIABLE(X1);
+		VXY_VARIABLE(Y1);
+		Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
+		Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
+
+		VXY_FORMULA(on_path, 1);
+		on_path(X) <<= path(X, Y) && path(Y, Z);
+		Program::disallow(node(X) && ~on_path(X));
+
+		VXY_FORMULA(reach, 1);
+		reach(X) <<= start(X);
+		reach(Y) <<= reach(X) && path(X, Y);
+		Program::disallow(node(X) && ~reach(X));
+
+		return HamiltonianOutput{path};
+	});
+
+	{
+		vector<VarID> pathVars;
+
+		ConstraintSolver solver;
+		auto inst = hamiltonian();
+
+		get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+		{
+			wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
+			pathVars.push_back(solver.makeBoolean(varName));
+			return pathVars.back();
+		});
+
+		solver.addProgram<HamiltonianOutput>(move(inst));
+		solver.solve();
+
+		for (VarID var : pathVars)
+		{
+			if (solver.getSolvedValue(var) != 0)
+			{
+				VERTEXY_LOG("%s", solver.getVariableName(var).c_str());
+			}
+		}
+
+		solver.dumpStats(true);
+	}
+
+	// struct MazeResult
 	// {
-	// 	VXY_FORMULA(node, 1);
-	// 	node(0);
-	// 	node(1);
-	// 	node(2);
-	// 	node(3);
+	// 	FormulaResult<2> wall;
+	// 	FormulaResult<2> empty;
+	// };
 	//
-	// 	VXY_FORMULA(edge, 2);
-	// 	edge(0, 1); edge(0, 2);
-	// 	edge(1, 2); edge(1, 3);
-	// 	edge(2, 0); edge(2, 3);
-	// 	edge(3, 0);
-	//
-	// 	VXY_FORMULA(start, 1);
-	// 	start(0);
-	//
+	// // Rule formulas can only be defined within a Program::define() block
+	// auto simpleMaze = Program::define([](ProgramSymbol width, ProgramSymbol height, ProgramSymbol entranceX, ProgramSymbol entranceY, ProgramSymbol exitX, ProgramSymbol exitY)
+	// {
+	// 	// Floating variables. These don't mean anything outside the context of a rule statement.
+	// 	// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
+	// 	// it means that those Xs are the same. See below.
 	// 	VXY_VARIABLE(X);
 	// 	VXY_VARIABLE(Y);
-	// 	VXY_VARIABLE(Z);
-	//
-	// 	VXY_FORMULA(path, 2);
-	// 	VXY_FORMULA(omit, 2);
-	// 	path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
-	// 	omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
-	//
 	// 	VXY_VARIABLE(X1);
 	// 	VXY_VARIABLE(Y1);
-	// 	Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
-	// 	Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
 	//
-	// 	VXY_FORMULA(on_path, 1);
-	// 	on_path(X) <<= path(X, Y) && path(Y, Z);
-	// 	Program::disallow(node(X) && ~on_path(X));
+	// 	// define the entrance/exit positions, based on the program inputs.
+	// 	VXY_FORMULA(entrance, 2);
+	// 	VXY_FORMULA(exit, 2);
+	// 	entrance(entranceX, entranceY);
+	// 	exit(exitX, exitY);
 	//
-	// 	VXY_FORMULA(reach, 1);
-	// 	reach(X) <<= start(X);
-	// 	reach(Y) <<= reach(X) && path(X, Y);
-	// 	Program::disallow(node(X) && ~reach(X));
+	// 	// define col(1), col(2), ... col(width) as atoms.
+	// 	VXY_FORMULA(row, 1);
+	// 	VXY_FORMULA(col, 1);
+	// 	col = Program::range(1, width);
+	// 	// define row(1), row(2), ... row(height) as atoms.
+	// 	row = Program::range(1, height);
+	//
+	// 	// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
+	// 	VXY_FORMULA(grid, 2);
+	// 	grid(X,Y) <<= col(X) && row(Y);
+	//
+	// 	// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
+	// 	VXY_FORMULA(adjacent, 4);
+	// 	adjacent(X,Y,X+1,Y) <<= grid(X,Y) && col(X+1);
+	// 	// == adjacent(X,Y,Z,Y) <<= grid(X,Y) && col(Z), Z == X+1;
+	// 	adjacent(X,Y,X-1,Y) <<= grid(X,Y) && col(X-1);
+	// 	adjacent(X,Y,X,Y+1) <<= grid(X,Y) && row(Y+1);
+	// 	adjacent(X,Y,X,Y-1) <<= grid(X,Y) && row(Y-1);
+	//
+	// 	// Define a rule formula border(x,y), which is only true at the edges of the map.
+	// 	VXY_FORMULA(border, 2);
+	// 	border(1,Y) <<= row(Y);
+	// 	border(X,1) <<= col(X);
+	// 	border(X,Y) <<= row(Y) && X == width;
+	// 	border(X,Y) <<= col(X) && Y == height;
+	//
+	// 	VXY_FORMULA(wall, 2);
+	// 	VXY_FORMULA(empty, 2);
+	// 	// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
+	// 	(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
+	// 	// border is a wall as long as it's not the entrance or exit.
+	// 	wall(X,Y) <<= border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
+	//
+	// 	// entrance/exit are always empty.
+	// 	empty(X,Y) <<= entrance(X,Y);
+	// 	empty(X,Y) <<= exit(X,Y);
+	//
+	// 	// disallow a 2x2 block of walls
+	// 	// Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+	// 	// disallow a 2x2 block of empty
+	// 	// Program::disallow(empty(X,Y) && empty(X1, Y) && empty(X, Y1) && empty(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+	//
+	// 	// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
+	// 	// Program::disallow(wall(X,Y) && wall(X+1,Y+1) && empty(X+1,Y) && empty(X, Y+1));
+	// 	// Program::disallow(wall(X+1,Y) && wall(X,Y+1) && empty(X, Y) && empty(X+1, Y+1));
+	//
+	// 	// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
+	// 	// VXY_FORMULA(wallWithAdjacentWall, 2);
+	// 	// wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
+	//
+	// 	// disallow walls that don't have any adjacent walls
+	// 	// Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
+	//
+	// 	// encode reachability (faster to do this with a reachability constraint)
+	// 	VXY_FORMULA(reach, 2);
+	// 	reach(X,Y) <<= entrance(X,Y);
+	// 	reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
+	// 	Program::disallow(empty(X,Y) && ~reach(X,Y));
+	//
+	// 	return MazeResult {wall, empty};
 	// });
 	//
 	// {
-	// 	ConstraintSolver hamilSolver;
-	// 	auto hamiltonianInst = hamiltonian();
-	// 	ProgramCompiler chamil(hamilSolver.getRuleDB());
-	// 	chamil.compile(hamiltonianInst.get());
+	// 	auto inst = simpleMaze(10,10,1,3,10,3);
 	//
-	// 	hamilSolver.solve();
-	// 	for (auto& val : hamilSolver.getSolution())
+	// 	ConstraintSolver mazeSolver;
+	// 	ProgramCompiler compiler(mazeSolver.getRuleDB());
+	// 	compiler.compile(inst.get());
+	//
+	// 	mazeSolver.solve();
+	// 	for (auto& val : mazeSolver.getSolution())
 	// 	{
 	// 		VERTEXY_LOG("%s = %d", val.second.name.c_str(), val.second.value);
 	// 	}
 	// }
-
-	struct MazeResult
-	{
-		FormulaResult<2> wall;
-		FormulaResult<2> empty;
-	};
-
-	// Rule formulas can only be defined within a Program::define() block
-	auto simpleMaze = Program::define([](ProgramSymbol width, ProgramSymbol height, ProgramSymbol entranceX, ProgramSymbol entranceY, ProgramSymbol exitX, ProgramSymbol exitY)
-	{
-		// Floating variables. These don't mean anything outside the context of a rule statement.
-		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
-		// it means that those Xs are the same. See below.
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
-		VXY_VARIABLE(X1);
-		VXY_VARIABLE(Y1);
-
-		// define the entrance/exit positions, based on the program inputs.
-		VXY_FORMULA(entrance, 2);
-		VXY_FORMULA(exit, 2);
-		entrance(entranceX, entranceY);
-		exit(exitX, exitY);
-
-		// define col(1), col(2), ... col(width) as atoms.
-		VXY_FORMULA(row, 1);
-		VXY_FORMULA(col, 1);
-		col = Program::range(1, width);
-		// define row(1), row(2), ... row(height) as atoms.
-		row = Program::range(1, height);
-
-		// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
-		VXY_FORMULA(grid, 2);
-		grid(X,Y) <<= col(X) && row(Y);
-
-		// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
-		VXY_FORMULA(adjacent, 4);
-		adjacent(X,Y,X+1,Y) <<= grid(X,Y) && col(X+1);
-		// == adjacent(X,Y,Z,Y) <<= grid(X,Y) && col(Z), Z == X+1;
-		adjacent(X,Y,X-1,Y) <<= grid(X,Y) && col(X-1);
-		adjacent(X,Y,X,Y+1) <<= grid(X,Y) && row(Y+1);
-		adjacent(X,Y,X,Y-1) <<= grid(X,Y) && row(Y-1);
-
-		// Define a rule formula border(x,y), which is only true at the edges of the map.
-		VXY_FORMULA(border, 2);
-		border(1,Y) <<= row(Y);
-		border(X,1) <<= col(X);
-		border(X,Y) <<= row(Y) && X == width;
-		border(X,Y) <<= col(X) && Y == height;
-
-		VXY_FORMULA(wall, 2);
-		VXY_FORMULA(empty, 2);
-		// wall OR empty may be true if this is a grid tile that is not on the border and not the entrance or exit.
-		(wall(X,Y) | empty(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
-		// border is a wall as long as it's not the entrance or exit.
-		wall(X,Y) <<= border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
-
-		// entrance/exit are always empty.
-		empty(X,Y) <<= entrance(X,Y);
-		empty(X,Y) <<= exit(X,Y);
-
-		// disallow a 2x2 block of walls
-		// Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-		// disallow a 2x2 block of empty
-		// Program::disallow(empty(X,Y) && empty(X1, Y) && empty(X, Y1) && empty(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-
-		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
-		// Program::disallow(wall(X,Y) && wall(X+1,Y+1) && empty(X+1,Y) && empty(X, Y+1));
-		// Program::disallow(wall(X+1,Y) && wall(X,Y+1) && empty(X, Y) && empty(X+1, Y+1));
-
-		// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
-		// VXY_FORMULA(wallWithAdjacentWall, 2);
-		// wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
-
-		// disallow walls that don't have any adjacent walls
-		// Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
-
-		// encode reachability (faster to do this with a reachability constraint)
-		VXY_FORMULA(reach, 2);
-		reach(X,Y) <<= entrance(X,Y);
-		reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && empty(X1,Y1);
-		Program::disallow(empty(X,Y) && ~reach(X,Y));
-
-		return MazeResult {wall, empty};
-	});
-
-	{
-		auto inst = simpleMaze(10,10,1,3,10,3);
-
-		ConstraintSolver mazeSolver;
-		ProgramCompiler compiler(mazeSolver.getRuleDB());
-		compiler.compile(inst.get());
-
-		mazeSolver.solve();
-		for (auto& val : mazeSolver.getSolution())
-		{
-			VERTEXY_LOG("%s = %d", val.second.name.c_str(), val.second.value);
-		}
-	}
 
 	//
 	// // Map output

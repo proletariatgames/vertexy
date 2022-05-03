@@ -633,7 +633,7 @@ vector<ProgramSymbol> FunctionHeadTerm::eval(bool& isNormalRule)
     return {evalSingle()};
 }
 
-AtomID FunctionHeadTerm::getOrCreateAtom(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap)
+AtomID FunctionHeadTerm::getOrCreateAtom(ProgramCompiler& compiler)
 {
     ProgramSymbol symbol = evalSingle();
     if (!symbol.isValid())
@@ -642,12 +642,10 @@ AtomID FunctionHeadTerm::getOrCreateAtom(RuleDatabase& rdb, hash_map<ProgramSymb
     }
 
     vxy_assert(!symbol.isNegated());
-    auto found = atomMap.find(symbol);
-    if (found == atomMap.end())
-    {
-        found = atomMap.insert({symbol, rdb.createAtom(symbol.toString().c_str())}).first;
-    }
-    return found->second;
+    auto atomLit = compiler.exportAtom(symbol, true);
+
+    vxy_assert(atomLit.sign());
+    return atomLit.id();
 }
 
 bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
@@ -693,9 +691,9 @@ UTerm FunctionHeadTerm::clone() const
     return make_unique<FunctionHeadTerm>(functionUID, functionName, move(clonedArgs));
 }
 
-TRuleHead<AtomID> FunctionHeadTerm::createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap)
+TRuleHead<AtomID> FunctionHeadTerm::createHead(ProgramCompiler& compiler)
 {
-    return TRuleHead(getOrCreateAtom(rdb, atomMap));
+    return TRuleHead(getOrCreateAtom(compiler));
 }
 
 wstring FunctionHeadTerm::toString() const
@@ -806,13 +804,13 @@ wstring DisjunctionTerm::toString() const
     return out;
 }
 
-TRuleHead<AtomID> DisjunctionTerm::createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap)
+TRuleHead<AtomID> DisjunctionTerm::createHead(ProgramCompiler& compiler)
 {
     vector<AtomID> headAtoms;
     headAtoms.reserve(children.size());
     for (auto& child : children)
     {
-        headAtoms.push_back(child->getOrCreateAtom(rdb, atomMap));
+        headAtoms.push_back(child->getOrCreateAtom(compiler));
     }
     return TRuleHead(headAtoms, ERuleHeadType::Disjunction);
 }
@@ -866,9 +864,9 @@ wstring ChoiceTerm::toString() const
     return out;
 }
 
-TRuleHead<AtomID> ChoiceTerm::createHead(RuleDatabase& rdb, hash_map<ProgramSymbol, AtomID>& atomMap)
+TRuleHead<AtomID> ChoiceTerm::createHead(ProgramCompiler& compiler)
 {
-    return TRuleHead(subTerm->getOrCreateAtom(rdb, atomMap), ERuleHeadType::Choice);
+    return TRuleHead(subTerm->getOrCreateAtom(compiler), ERuleHeadType::Choice);
 }
 
 RuleStatement::RuleStatement(UHeadTerm&& head, vector<ULiteralTerm>&& body)

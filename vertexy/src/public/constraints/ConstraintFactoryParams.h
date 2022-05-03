@@ -12,7 +12,7 @@ class SolverVariableDomain;
 class ITopology;
 
 /** Wraps data passed into constructor for constraints */
-class ConstraintFactoryParams
+class ConstraintFactoryParams : public IVariableDomainProvider
 {
 public:
 	ConstraintFactoryParams(ConstraintSolver& solver);
@@ -31,7 +31,7 @@ public:
 
 	const ConstraintGraphRelationInfo& getGraphRelationInfo() const { return m_graphRelationInfo; }
 
-	const SolverVariableDomain& getDomain(VarID varID) const;
+	virtual const SolverVariableDomain& getDomain(VarID varID) const override;
 
 	int registerGraph(const shared_ptr<ITopology>& graph) const;
 

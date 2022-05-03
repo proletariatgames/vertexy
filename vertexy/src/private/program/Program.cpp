@@ -35,3 +35,22 @@ Vertexy::detail::ProgramRangeTerm Program::range(ProgramSymbol min, ProgramSymbo
     vxy_assert_msg(maxV >= minV, "invalid range");
     return detail::ProgramRangeTerm(minV, maxV);
 }
+
+ProgramInstance::ProgramInstance()
+{
+}
+
+ProgramInstance::~ProgramInstance()
+{
+}
+
+void ProgramInstance::addRule(URuleStatement&& rule)
+{
+    m_ruleStatements.push_back(move(rule));
+}
+
+void ProgramInstance::addBinder(FormulaUID formulaUID, unique_ptr<BindCaller>&& binder)
+{
+    vxy_assert(m_binders.find(formulaUID) == m_binders.end());
+    m_binders[formulaUID] = move(binder);
+}

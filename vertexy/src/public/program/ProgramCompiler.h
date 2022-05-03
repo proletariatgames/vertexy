@@ -65,12 +65,11 @@ public:
     };
     using UAtomDomain = unique_ptr<AtomDomain>;
 
-    ProgramCompiler(RuleDatabase& rdb)
-        : m_rdb(rdb)
-    {
-    }
+    using BindMap = hash_map<FormulaUID, BindCaller*>;
 
-    void compile(ProgramInstance* instance);
+    ProgramCompiler(RuleDatabase& rdb, const BindMap& binders);
+
+    static bool compile(RuleDatabase& rdb, const vector<RuleStatement*>& statements, const BindMap& binders);
 
     const AtomDomain& getDomain(FormulaUID formula) const
     {
@@ -94,19 +93,25 @@ public:
         return false;
     }
 
+    AtomLiteral exportAtom(const ProgramSymbol& sym, bool forHead=false);
+
+    bool hasFailure() const { return m_failure; }
+
 protected:
-    void rewriteMath();
-    void createDependencyGraph(const vector<URuleStatement>& stmts);
-    vector<Component> createComponents(const vector<URuleStatement>& stmts);
+    void rewriteMath(const vector<RuleStatement*>& stmts);
+    void createDependencyGraph(const vector<RuleStatement*>& stmts);
+    void createComponents(const vector<RuleStatement*>& stmts);
+
     void ground();
     void groundRule(DepGraphNodeData* statementNode);
     void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur=0);
 
-    void emit(DepGraphNodeData* stmtNode, const VariableMap& varBindings);
-    bool addAtom(const CompilerAtom& atom);
+    void exportStatement(DepGraphNodeData* stmtNode, const VariableMap& varBindings);
+    bool addGroundedAtom(const CompilerAtom& atom);
 
     RuleDatabase& m_rdb;
-    ProgramInstance* m_instance = nullptr;
+    const BindMap& m_binders;
+
     shared_ptr<DigraphTopology> m_depGraph;
     TTopologyVertexData<DepGraphNodeData> m_depGraphData;
 
@@ -116,7 +121,7 @@ protected:
     hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
 
     hash_map<FormulaUID, IExternalFormulaProviderPtr> m_externals;
-    hash_map<ProgramSymbol, AtomID> m_createdAtomVars;
+    hash_map<ProgramSymbol, AtomLiteral> m_createdAtomVars;
     bool m_failure = false;
     bool m_foundRecursion = false;
 };

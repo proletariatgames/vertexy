@@ -28,6 +28,7 @@
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
 
+#include "program/Program.h"
 #include "rules/RuleDatabase.h"
 
 namespace Vertexy
@@ -104,7 +105,7 @@ struct ConstraintHashFuncs
 };
 
 /** Constraint solver implementation */
-class ConstraintSolver
+class ConstraintSolver : public IVariableDomainProvider
 {
 	friend class SolverVariableDatabase;
 	friend class ConstraintFactoryParams;
@@ -122,7 +123,7 @@ public:
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
 	ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
-	~ConstraintSolver();
+	virtual ~ConstraintSolver();
 
 	//
 	// Solving API
@@ -170,6 +171,13 @@ public:
 
 	// Returns the current status (last return value of Step)
 	EConstraintSolverResult getCurrentStatus() const { return m_currentStatus; }
+
+	template<typename T>
+	void addProgram(tuple<UProgramInstance, T>&& instance)
+	{
+		return addProgram(move(get<UProgramInstance>(instance)));
+	}
+	void addProgram(UProgramInstance&& instance);
 
 	// Returns whether or not the given variable is solved.
 	bool isSolved(VarID varID) const;
@@ -254,6 +262,12 @@ public:
 	// If the potential values are not specified, then the variable's potential values will initially be the entire domain.
 	VarID makeVariable(const wstring& varName, const SolverVariableDomain& domain, const vector<int>& potentialValues = {});
 
+	// Utility function to make a boolean variable
+	VarID makeBoolean(const wstring& varName)
+	{
+		return makeVariable(varName, SolverVariableDomain(0,1));
+	}
+
 	// Create a graph of variables for the associated topology
 	// Returned reference can be upcast to shared_ptr<ITopologyInstance<FVarID>>
 	shared_ptr<TTopologyVertexData<VarID>> makeVariableGraph(const wstring& dataName, const shared_ptr<ITopology>& topology, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
@@ -296,7 +310,7 @@ public:
 	const wstring& getVariableName(VarID varID) const;
 
 	// Get the external (TRANSLATED) domain for the variable
-	const SolverVariableDomain& getDomain(VarID varID) const
+	virtual const SolverVariableDomain& getDomain(VarID varID) const override
 	{
 		vxy_assert(varID.isValid());
 		return m_variableDomains[varID.raw()];
@@ -422,6 +436,8 @@ protected:
 		VarID variable;
 		SolverTimestamp timestamp;
 	};
+
+	bool finalizeRules();
 
 	bool simplify();
 
@@ -597,6 +613,7 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
+	vector<UProgramInstance> m_programInsts;
 	unique_ptr<RuleDatabase> m_ruleDB;
 	vector<variant<bool, Literal>> m_atomValues;
 

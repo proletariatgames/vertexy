@@ -28,10 +28,10 @@ template<typename R, typename ARG, typename... ARGS>
 struct ArgumentRepeater<0, R, ARG, ARGS...> { using type = R(ARGS...); };
 
 // Synthesizes the FormulaResult::bind() callback function's signature.
-template<size_t SIZE>
+template<typename RETVAL, size_t SIZE>
 struct FormulaBinder
 {
-    using type = std::function<typename ArgumentRepeater<SIZE, SignedClause, const ProgramSymbol&>::type>;
+    using type = std::function<typename ArgumentRepeater<SIZE, RETVAL, const ProgramSymbol&>::type>;
 };
 
 // Abstract base to call a function passed into FormulaResult::bind with a vector of arguments.
@@ -39,23 +39,23 @@ class BindCaller
 {
 public:
     virtual ~BindCaller() {}
-    virtual void call(const vector<ProgramSymbol>& syms) = 0;
+    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
 };
 
 // Implementation of BindCaller for a given arity
 template<size_t ARITY>
-class TBindCaller : public BindCaller
+class TBindClauseCaller : public BindCaller
 {
 public:
-    TBindCaller(typename FormulaBinder<ARITY>::type&& bindFun)
+    TBindClauseCaller(typename FormulaBinder<SignedClause, ARITY>::type&& bindFun)
         : m_bindFun(eastl::move(bindFun))
     {
     }
 
-    virtual void call(const vector<ProgramSymbol>& syms) override
+    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        std::apply(m_bindFun, zip(syms));
+        return std::apply(m_bindFun, zip(syms));
     }
 
     // zip up ARITY elements from the vector into a tuple
@@ -77,31 +77,74 @@ public:
         }
     }
 
-    typename FormulaBinder<ARITY>::type m_bindFun;
+    typename FormulaBinder<SignedClause, ARITY>::type m_bindFun;
+};
+
+template<size_t ARITY>
+class TBindVarCaller : public BindCaller
+{
+public:
+    TBindVarCaller(typename FormulaBinder<VarID, ARITY>::type&& bindFun)
+        : m_bindFun(eastl::move(bindFun))
+    {
+    }
+
+    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
+    {
+        vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
+        VarID var = std::apply(m_bindFun, zip(syms));
+        if (!var.isValid())
+        {
+            return {};
+        }
+
+        auto domain = provider.getDomain(var);
+        vxy_assert_msg(domain.getDomainSize() == 2, "Your binder must return either a SignedClause, or a VarID with a domain size of 2");
+        return SignedClause(var, vector{domain.getMax()});
+    }
+
+    // zip up ARITY elements from the vector into a tuple
+    static auto zip(const vector<ProgramSymbol>& syms)
+    {
+        return zipper<0>(std::tuple<>(), syms);
+    }
+
+    template<size_t I, typename... Ts>
+    static auto zipper(std::tuple<Ts...>&& t, const vector<ProgramSymbol>& syms)
+    {
+        if constexpr (I == ARITY)
+        {
+            return t;
+        }
+        else
+        {
+            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::tuple(syms[I])), syms);
+        }
+    }
+
+    typename FormulaBinder<VarID, ARITY>::type m_bindFun;
 };
 
 // Base class for instantiated programs (once they have been given their arguments)
 class ProgramInstance
 {
 public:
-    virtual ~ProgramInstance() {}
+    using BinderMap = hash_map<FormulaUID, unique_ptr<BindCaller>>;
 
-    void addRule(URuleStatement&& rule)
-    {
-        m_ruleStatements.push_back(move(rule));
-    }
+    ProgramInstance();
+    virtual ~ProgramInstance();
 
-    void addBinder(int formulaUID, unique_ptr<BindCaller>&& binder)
-    {
-        vxy_assert(m_binders.find(formulaUID) == m_binders.end());
-        m_binders[formulaUID] = move(binder);
-    }
+    void addRule(URuleStatement&& rule);
+    void addBinder(FormulaUID formulaUID, unique_ptr<BindCaller>&& binder);
 
     const vector<URuleStatement>& getRuleStatements() const { return m_ruleStatements; }
+    const BinderMap& getBinders() const { return m_binders; }
 
 protected:
-    hash_map<int, unique_ptr<BindCaller>> m_binders;
+    BinderMap m_binders;
     vector<URuleStatement> m_ruleStatements;
 };
+
+using UProgramInstance = unique_ptr<ProgramInstance>;
 
 }

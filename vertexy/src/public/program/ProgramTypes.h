@@ -60,11 +60,13 @@ public:
         m_packed = encode(ESymbolType::Integer, constant);
     }
     ProgramSymbol(const wchar_t* name)
+        : m_relation(nullptr)
     {
         m_packed = encode(ESymbolType::ID, reinterpret_cast<intptr_t>(name));
     }
 
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IGraphRelationPtr<int>& relation=nullptr);
+    explicit ProgramSymbol(const ConstantFormula* formula, bool negated, const IGraphRelationPtr<int>& relation=nullptr);
 
     ESymbolType getType() const
     {
@@ -250,17 +252,24 @@ private:
     static vector<unique_ptr<ConstantFormula>> s_formulas;
 };
 
-inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, bool negated)
+inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, bool negated, const IGraphRelationPtr<int>& relation)
+    : m_relation(relation)
 {
     ConstantFormula* f = ConstantFormula::get(formula, formulaName, args);
     m_packed = encode(ESymbolType::Formula, reinterpret_cast<intptr_t>(f)) | (negated ? 0 : 1);
     vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
 }
 
+inline ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const IGraphRelationPtr<int>& relation)
+    : m_relation(relation)
+{
+    m_packed = encode(ESymbolType::Formula, reinterpret_cast<intptr_t>(formula)) | (negated ? 0 : 1);
+    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == formula);
+}
+
 inline ProgramSymbol ProgramSymbol::negatedFormula() const
 {
-    const ConstantFormula* f = getFormula();
-    return ProgramSymbol(f->uid, f->name, f->args, !isNegated());
+    return ProgramSymbol(getFormula(), !isNegated(), m_relation);
 }
 
 inline wstring ProgramSymbol::toString() const
@@ -286,7 +295,7 @@ class IExternalFormulaProvider
 public:
     virtual ~IExternalFormulaProvider() {}
     // create the positive instantiations of this formula, given the supplied arguments.
-    // at least one argument will be invalid: this should be treated as a wildcard.
+    // some arguments may be invalid (ProgramSymbol::isInvalid()) : these should be treated as a wildcards.
     virtual vector<ProgramSymbol> instantiate(const vector<ProgramSymbol>& args) const = 0;
 };
 

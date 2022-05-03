@@ -267,6 +267,13 @@ enum class EVariableWatchType : uint8_t
 	NUM_WATCH_TYPES
 };
 
+// Interface for various classes that can provide the domain for a variable.
+class IVariableDomainProvider
+{
+public:
+	virtual ~IVariableDomainProvider() {}
+	virtual const class SolverVariableDomain& getDomain(VarID varID) const = 0;
+};
 
 using ExplainerFunction = function<vector<Literal>(const NarrowingExplanationParams&)>;
 
