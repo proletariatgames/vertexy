@@ -103,10 +103,11 @@
     <Type Name="Vertexy::ProgramSymbol">
         <DisplayString Condition="getType() == 0">{m_packed}</DisplayString>
         <DisplayString Condition="getType() == 1">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
-        <DisplayString Condition="getType() == 2">Formula</DisplayString>
+        <DisplayString Condition="getType() == 2 &amp;&amp; ((m_packed&amp;1)==1)">{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="getType() == 2 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! {((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
         <DisplayString Condition="getType() == 3">Invalid</DisplayString>
         <Expand>
-            <Item Name="Formula" Condition="getType()==2">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
+            <Item Name="Signature" Condition="getType()==2">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
         </Expand>
     </Type>
 </AutoVisualizer>

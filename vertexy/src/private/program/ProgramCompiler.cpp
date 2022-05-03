@@ -7,83 +7,165 @@
 
 using namespace Vertexy;
 
+struct VariableNameAllocator
+{
+    static const wchar_t* allocate()
+    {
+        storage.emplace_back(wstring::CtorSprintf(), TEXT("__M%d"), count++);
+        return storage.back().c_str();
+    }
+    static void reset() { count = 1; }
+    inline static int count = 1;
+    inline static vector<wstring> storage = {};
+};
+
 hash_set<ConstantFormula*, ConstantFormula::Hash, ConstantFormula::Hash> ConstantFormula::s_lookup;
 vector<unique_ptr<ConstantFormula>> ConstantFormula::s_formulas;
 
 void ProgramCompiler::compile(ProgramInstance* instance)
 {
     m_instance = instance;
-    vector<RuleStatement*> nonFacts = extractFacts();
+    rewriteMath();
 
-    m_components = createComponents(nonFacts);
+    createDependencyGraph(m_instance->getRuleStatements());
+    m_components = createComponents(m_instance->getRuleStatements());
+
     ground();
 }
 
-vector<RuleStatement*> ProgramCompiler::extractFacts()
+//
+// Rewrite all internal math terms are outside of any functions, and on the right hand side of relational terms
+// e.g.
+//
+// A(X+1) <<= B(X)
+//  --> A(Y) <<= B(X) && Y == X+1
+//
+// A(Y) <<= B(X) && C(X+1==Y-1)
+//  --> A(Y) <<= B(X) && C(Z==W) && Z == X+1 && W == Y-1
+//
+void ProgramCompiler::rewriteMath()
 {
-    vector<RuleStatement*> nonFactStatements;
-    nonFactStatements.reserve(m_instance->getRuleStatements().size());
+    enum class BinOpType
+    {
+        Math,
+        Relational,
+        Equality
+    };
+
+    auto getBinOpType = [](const BinaryOpTerm* term)
+    {
+        switch (term->op)
+        {
+        case EBinaryOperatorType::Add:
+        case EBinaryOperatorType::Subtract:
+        case EBinaryOperatorType::Divide:
+        case EBinaryOperatorType::Multiply:
+            return BinOpType::Math;
+
+        case EBinaryOperatorType::Equality:
+            return BinOpType::Equality;
+
+        case EBinaryOperatorType::Inequality:
+        case EBinaryOperatorType::LessThan:
+        case EBinaryOperatorType::LessThanEq:
+        case EBinaryOperatorType::GreaterThan:
+        case EBinaryOperatorType::GreaterThanEq:
+            return BinOpType::Relational;
+        default:
+            vxy_fail_msg("unexpected binary operator");
+            return BinOpType::Math;
+        }
+    };
+
+    struct TermHasher
+    {
+        size_t operator()(const BinaryOpTerm* term) const
+        {
+            return term->hash();
+        }
+        size_t operator()(const UBinaryOpTerm& term) const
+        {
+            return term->hash();
+        }
+    };
 
     for (auto& stmt : m_instance->getRuleStatements())
     {
-        if (!stmt->body.empty())
-        {
-            nonFactStatements.push_back(stmt.get());
-        }
-        // if this is a fact, add it to the atom database.
-        else
-        {
-            vxy_assert_msg(stmt->head != nullptr, "empty rule?");
-            vxy_sanity_msg(!stmt->bodyContains<VariableTerm>(), "cannot have a fact statement containing variables");
+        VariableNameAllocator::reset();
 
-            bool isNormalRule = false;
-            vector<ProgramSymbol> symbols = stmt->head->eval(isNormalRule);
-            for (auto& symbol : symbols)
+        hash_map<const BinaryOpTerm*, ProgramVariable, TermHasher, pointer_value_equality<BinaryOpTerm>> replacements;
+        hash_map<ProgramVariable, UBinaryOpTerm> assignments;
+
+        stmt->visit<Term>([&](const Term* term)
+        {
+            if (auto binOpTerm = dynamic_cast<const BinaryOpTerm*>(term))
             {
-                vxy_assert(!symbol.isNegated());
-                addAtom(CompilerAtom{symbol, /*isFact=*/isNormalRule});
-
-                if (!isNormalRule)
+                if (getBinOpType(binOpTerm) == BinOpType::Math)
                 {
-                    auto found = m_createdAtomVars.find(symbol);
-                    if (found == m_createdAtomVars.end())
+                    auto insertionPoint = replacements.find(binOpTerm);
+                    if (insertionPoint == replacements.end())
                     {
-                        found = m_createdAtomVars.insert({symbol, m_rdb.createAtom(symbol.toString().c_str())}).first;
+                        ProgramVariable newVar(VariableNameAllocator::allocate());
+
+                        auto clone = UBinaryOpTerm(move(static_cast<BinaryOpTerm*>(binOpTerm->clone().detach())));
+
+                        insertionPoint = replacements.insert({clone.get(), newVar}).first;
+                        assignments[insertionPoint->second] = move(clone);
                     }
                 }
             }
+        });
+
+        if (!replacements.empty())
+        {
+            wstring before = stmt->toString();
+
+            stmt->replace<BinaryOpTerm>([&](const BinaryOpTerm* term) -> UTerm
+            {
+                auto found = replacements.find(term);
+                if (found != replacements.end())
+                {
+                    return make_unique<VariableTerm>(found->second);
+                }
+                return nullptr;
+            });
+
+            for (auto& assignment : assignments)
+            {
+                auto lhs = make_unique<VariableTerm>(assignment.first);
+                auto assignmentTerm = make_unique<BinaryOpTerm>(
+                    EBinaryOperatorType::Equality,
+                    move(lhs),
+                    move(assignment.second)
+                );
+                stmt->body.push_back(move(assignmentTerm));
+            }
+
+            VERTEXY_LOG("Rewrote:\n  %s\n  %s", before.c_str(), stmt->toString().c_str());
         }
     }
-
-    return nonFactStatements;
 }
 
-// Builds the set of components, where each component is a SCC of the dependency graph of positive literals.
-// I.e., each graph edge points from a formula head to a formula body that contains that head. The strongly
-// connected components are cyclical dependencies between rules, which need to be handled specially.
-//
-// OUTPUT: an array of components (set or rules), ordered by inverse topological sort. I.e., all statements in
-// each component can be reified entirely by components later in the list.
-vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vector<RuleStatement*>& stmts)
+// Create the dependency graph, where each graph edge points from a formula head to a formula body that contains that
+// head. The strongly connected components are cyclical dependencies between rules, which need to be handled specially.
+void ProgramCompiler::createDependencyGraph(const vector<URuleStatement>& stmts)
 {
     m_depGraph = make_shared<DigraphTopology>();
     m_depGraph->reset(stmts.size());
 
-    vector<Component> output;
-
     m_depGraphData.initialize(ITopology::adapt(m_depGraph));
 
-    vector<vector<bool>> edgeIsPositive;
-    edgeIsPositive.resize(m_depGraph->getNumVertices());
+    m_edges.clear();
+    m_edges.resize(m_depGraph->getNumVertices());
 
     // Build a graph, where each node is a Statement.
     // Create edges between Statements where a rule head points toward the bodies those heads appear in.
     for (int vertex = 0; vertex < m_depGraph->getNumVertices(); ++vertex)
     {
         auto& stmt = stmts[vertex];
-        vxy_assert(!stmt->body.empty());
+        // vxy_assert(!stmt->body.empty());
 
-        m_depGraphData.get(vertex).statement = stmt;
+        m_depGraphData.get(vertex).statement = stmt.get();
         m_depGraphData.get(vertex).vertex = vertex;
 
         // mark any rules that contain facts in the body as groundable
@@ -101,11 +183,6 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
         {
             for (int otherVertex = 0; otherVertex < m_depGraph->getNumVertices(); ++otherVertex)
             {
-                if (vertex == otherVertex)
-                {
-                    continue;
-                }
-
                 auto& otherStmt = stmts[otherVertex];
                 otherStmt->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
                 {
@@ -116,14 +193,23 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
 
                     if (headTerm->functionUID == bodyTerm->functionUID && !m_depGraph->hasEdge(vertex, otherVertex))
                     {
-                        edgeIsPositive[vertex].push_back(!bodyTerm->negated);
+                        m_edges[vertex].push_back(const_cast<FunctionTerm*>(bodyTerm));
                         m_depGraph->addEdge(vertex, otherVertex);
-                        vxy_sanity(edgeIsPositive[vertex].size() == m_depGraph->getNumOutgoing(vertex));
+                        vxy_sanity(m_edges[vertex].size() == m_depGraph->getNumOutgoing(vertex));
                     }
                 });
             }
         });
     }
+}
+
+// Builds the set of components, where each component is a SCC of the dependency graph of positive literals.
+//
+// OUTPUT: an array of components (set or rules), ordered by inverse topological sort. I.e., all statements in
+// each component can be reified entirely by components later in the list.
+vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vector<URuleStatement>& stmts)
+{
+    vector<Component> output;
 
     // Grab all the outer SCCs. They will be in reverse topographical order.
     vector<vector<int>> outerSCCs;
@@ -135,6 +221,15 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
             outerSCCs.back().push_back(*it);
         }
     });
+
+    for (int i = outerSCCs.size()-1, outerSCCIndex = 0; i >= 0; i--, outerSCCIndex++)
+    {
+        auto& curOuterSCC = outerSCCs[i];
+        for (int j = 0; j < curOuterSCC.size(); ++j)
+        {
+            m_depGraphData.get(curOuterSCC[j]).outerSCCIndex = outerSCCIndex;
+        }
+    }
 
     vector<int> statementToSCC;
 
@@ -149,7 +244,6 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
         for (int j = 0; j < curOuterSCC.size(); ++j)
         {
             statementToSCC[curOuterSCC[j]] = j;
-            m_depGraphData.get(curOuterSCC[j]).outerSCCIndex = outerSCCIndex;
         }
 
         positiveGraph.reset(curOuterSCC.size());
@@ -171,7 +265,7 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
                     continue;
                 }
 
-                if (m_depGraphData.get(destVertex).outerSCCIndex == outerSCCIndex && edgeIsPositive[vertex][edgeIdx])
+                if (m_depGraphData.get(destVertex).outerSCCIndex == outerSCCIndex && !m_edges[vertex][edgeIdx]->negated)
                 {
                     positiveGraph.addEdge(statementToSCC[vertex], statementToSCC[destVertex]);
                 }
@@ -194,19 +288,19 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
 
         // Assign the inner SCC index for each statement of each positive SCC
         // Go backward, since this is in reverse topographical order
-        for (int j = posSCCs.size()-1, posSCCIndex = 0; j >= 0; --j, ++posSCCIndex)
+        for (int j = posSCCs.size()-1, innerSCCIndex = 0; j >= 0; --j, ++innerSCCIndex)
         {
             for (int vertex : posSCCs[j])
             {
-                m_depGraphData.get(vertex).innerSCCIndex = posSCCIndex;
+                m_depGraphData.get(vertex).innerSCCIndex = innerSCCIndex;
             }
         }
 
         //
-        // Write out rule statements and record any positive-recursive literals
+        // Write out rule statements and mark any recursive literals
         //
 
-        for (int j = posSCCs.size()-1, posSCCIndex = 0; j >= 0; --j, ++posSCCIndex)
+        for (int j = posSCCs.size()-1, innerSCCIndex = 0; j >= 0; --j, ++innerSCCIndex)
         {
             auto& posSCC = posSCCs[j];
 
@@ -215,11 +309,27 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
 
             for (int vertex : posSCC)
             {
-                vxy_sanity(m_depGraphData.get(vertex).statement == stmts[vertex]);
+                vxy_sanity(m_depGraphData.get(vertex).statement == stmts[vertex].get());
                 componentNodes.push_back(&m_depGraphData.get(vertex));
+
+                // If any literals in the head of this statement appear in earlier components,
+                // then mark those literals as recursive.
+                int numDeps = m_depGraph->getNumOutgoing(vertex);
+                for (int edgeIdx = 0; edgeIdx < numDeps; ++edgeIdx)
+                {
+                    int depVertex;
+                    m_depGraph->getOutgoingDestination(vertex, edgeIdx, depVertex);
+
+                    auto& depNode = m_depGraphData.get(depVertex);
+                    if (depNode.outerSCCIndex < outerSCCIndex ||
+                        (depNode.outerSCCIndex == outerSCCIndex && depNode.innerSCCIndex <= innerSCCIndex))
+                    {
+                        m_edges[vertex][edgeIdx]->recursive = true;
+                    }
+                }
             }
 
-            output.emplace_back(move(componentNodes), outerSCCIndex, posSCCIndex);
+            output.emplace_back(move(componentNodes), outerSCCIndex, innerSCCIndex);
         }
     }
 
@@ -228,28 +338,23 @@ vector<ProgramCompiler::Component> ProgramCompiler::createComponents(const vecto
 
 void ProgramCompiler::ground()
 {
-    for (auto& c : m_components)
+    for (auto& component : m_components)
     {
-        groundComponent(c);
-    }
-}
-
-void ProgramCompiler::groundComponent(const Component& comp)
-{
-    // create rules out of this component (which may be self-recursive) until fixpoint.
-    do
-    {
-        m_foundRecursion = false;
-        for (DepGraphNodeData* stmtNode : comp.stmts)
+        // create rules out of this component (which may be self-recursive) until fixpoint.
+        do
         {
-            if (stmtNode->marked)
+            m_foundRecursion = false;
+            for (DepGraphNodeData* stmtNode : component.stmts)
             {
-                stmtNode->marked = false;
-                groundRule(stmtNode);
+                if (stmtNode->marked || stmtNode->statement->body.empty())
+                {
+                    stmtNode->marked = false;
+                    groundRule(stmtNode);
+                }
             }
         }
+        while (m_foundRecursion);
     }
-    while (m_foundRecursion);
 }
 
 void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
@@ -390,6 +495,12 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
             vxy_assert_msg(fnTerm != nullptr, "not a function, but got a function symbol?");
             vxy_assert(fnTerm->negated == bodySym.isNegated());
 
+            if (fnTerm->negated && !fnTerm->recursive && !hasAtom(fnTerm->assignedAtom.symbol.negatedFormula()))
+            {
+                // can't possibly be true, so no need to include.
+                continue;
+            }
+
             // Only non-fact atoms need to be included in the rule body
             if (!fnTerm->assignedAtom.isFact)
             {
@@ -444,21 +555,22 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
     bool areFacts = isNormalRule && bodyTerms.empty();
     for (const ProgramSymbol& headSym : headSymbols)
     {
-        addAtom(CompilerAtom{headSym, areFacts});
-
-        int numEdges = m_depGraph->getNumOutgoing(stmtNode->vertex);
-        for (int edgeIdx = 0; edgeIdx < numEdges; ++edgeIdx)
+        if (addAtom(CompilerAtom{headSym, areFacts}))
         {
-            int destVertex;
-            m_depGraph->getOutgoingDestination(stmtNode->vertex, edgeIdx, destVertex);
-
-            DepGraphNodeData& destNode = m_depGraphData.get(destVertex);
-            destNode.marked = true;
-
-            // If this is part of the same component, we need to recurse
-            if (destNode.outerSCCIndex == stmtNode->outerSCCIndex && destNode.innerSCCIndex == stmtNode->innerSCCIndex)
+            int numEdges = m_depGraph->getNumOutgoing(stmtNode->vertex);
+            for (int edgeIdx = 0; edgeIdx < numEdges; ++edgeIdx)
             {
-                m_foundRecursion = true;
+                int destVertex;
+                m_depGraph->getOutgoingDestination(stmtNode->vertex, edgeIdx, destVertex);
+
+                DepGraphNodeData& destNode = m_depGraphData.get(destVertex);
+                destNode.marked = true;
+
+                // If this is part of the same component, we need to recurse
+                if (destNode.outerSCCIndex == stmtNode->outerSCCIndex && destNode.innerSCCIndex == stmtNode->innerSCCIndex)
+                {
+                    m_foundRecursion = true;
+                }
             }
         }
     }
@@ -525,7 +637,7 @@ void ProgramCompiler::emit(DepGraphNodeData* stmtNode, const VariableMap& varBin
     }
 }
 
-void ProgramCompiler::addAtom(const CompilerAtom& atom)
+bool ProgramCompiler::addAtom(const CompilerAtom& atom)
 {
     vxy_assert(atom.symbol.getType() == ESymbolType::Formula);
     auto domainIt = m_groundedAtoms.find(atom.symbol.getFormula()->uid);
@@ -534,16 +646,22 @@ void ProgramCompiler::addAtom(const CompilerAtom& atom)
         domainIt = m_groundedAtoms.insert({atom.symbol.getFormula()->uid, make_unique<AtomDomain>()}).first;
     }
 
+    bool isNew = false;
+
     AtomDomain& domain = *domainIt->second;
     auto atomIt = domain.map.find(atom.symbol);
     if (atomIt == domain.map.end())
     {
         domain.map.insert({atom.symbol, domain.list.size()});
         domain.list.push_back(atom);
+
+        isNew = true;
     }
     else
     {
         CompilerAtom& existing = domain.list[atomIt->second];
         existing.isFact = existing.isFact || atom.isFact;
     }
+
+    return isNew;
 }
