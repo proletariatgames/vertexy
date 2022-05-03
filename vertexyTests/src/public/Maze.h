@@ -16,9 +16,11 @@ class MazeSolver
 	}
 
 public:
-	static int solve(int times, int numRows, int numCols, int seed, bool printVerbose=true);
+	static int solveKeyDoor(int times, int numRows, int numCols, int seed, bool printVerbose=true);
 	static int check(const shared_ptr<TTopologyVertexData<VarID>>& Cells, const ConstraintSolver& solver);
 	static void print(const shared_ptr<TTopologyVertexData<VarID>>& cells, const shared_ptr<TTopologyVertexData<VarID>>& edges, const ConstraintSolver& solver);
+
+	static int solveProgram(int times, int numRows, int numCols, int seed, bool printVerbose=true);
 };
 
 }
