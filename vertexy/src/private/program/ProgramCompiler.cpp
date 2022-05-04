@@ -1,11 +1,15 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "program/ProgramCompiler.h"
+
+#include "ConstraintSolver.h"
 #include "rules/RuleDatabase.h"
 #include "topology/DigraphTopology.h"
 #include "topology/ITopology.h"
 #include "topology/TopologySearch.h"
 
 using namespace Vertexy;
+static constexpr bool LOG_RULE_INSTANTIATION = false;
+static constexpr bool LOG_MATH_REWRITE = false;
 
 struct VariableNameAllocator
 {
@@ -148,7 +152,10 @@ void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
                 stmt->body.push_back(move(assignmentTerm));
             }
 
-            VERTEXY_LOG("Rewrote:\n  %s\n  %s", before.c_str(), stmt->toString().c_str());
+            if constexpr (LOG_MATH_REWRITE)
+            {
+                VERTEXY_LOG("Rewrote:\n  %s\n  %s", before.c_str(), stmt->toString().c_str());
+            }
         }
     }
 }
@@ -630,16 +637,32 @@ void ProgramCompiler::exportStatement(DepGraphNodeData* stmtNode, const Variable
         }
 
         m_rdb.addRule(ruleHead, ruleBodyLits);
-        VERTEXY_LOG("Added rule %s", toString().c_str());
+
+        if (LOG_RULE_INSTANTIATION)
+        {
+            VERTEXY_LOG("Added rule %s", toString().c_str());
+            VERTEXY_LOG("    From %s", stmt->toString().c_str());
+        }
     }
     else
     {
-        VERTEXY_LOG("Encoded fact %s", toString().c_str());
+        if (LOG_RULE_INSTANTIATION)
+        {
+            VERTEXY_LOG("Encoded fact %s", toString().c_str());
+            VERTEXY_LOG("    From %s", stmt->toString().c_str());
+        }
+
+        if (stmt->head != nullptr)
+        {
+            stmt->head->bindAsFacts(*this);
+        }
     }
 }
 
 AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& sym, bool forHead)
 {
+    auto foundBinder = m_binders.find(sym.getFormula()->uid);
+
     vxy_assert(!sym.isNegated());
     auto found = m_createdAtomVars.find(sym);
     if (found != m_createdAtomVars.end())
@@ -651,7 +674,6 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& sym, bool forHead)
         else
         {
             // RDB needs to invert this AtomLiteral, so we need to update to reflect the inversion.
-            auto foundBinder = m_binders.find(sym.getFormula()->uid);
             vxy_assert(foundBinder != m_binders.end());
 
             SignedClause clause = foundBinder->second->call(m_rdb, sym.getFormula()->args);
@@ -671,14 +693,15 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& sym, bool forHead)
     // a solver Literal assigned to it.
     //
 
-    auto foundBinder = m_binders.find(sym.getFormula()->uid);
     if (foundBinder != m_binders.end() && foundBinder->second != nullptr)
     {
         SignedClause clause = foundBinder->second->call(m_rdb, sym.getFormula()->args);
         if (clause.variable.isValid())
         {
             Literal lit = clause.translateToLiteral(m_rdb);
-            AtomLiteral atomLiteral = m_rdb.createAtom(lit, sym.toString().c_str());
+            AtomLiteral atomLiteral = forHead
+                ? AtomLiteral(m_rdb.createHeadAtom(lit, sym.toString().c_str()), true)
+                : m_rdb.createAtom(lit, sym.toString().c_str());
 
             m_createdAtomVars.insert({sym, atomLiteral});
             return atomLiteral;
@@ -692,6 +715,24 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& sym, bool forHead)
     AtomLiteral atomLiteral = AtomLiteral(m_rdb.createAtom(sym.toString().c_str()), true);
     m_createdAtomVars.insert({sym, atomLiteral});
     return atomLiteral;
+}
+
+void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym)
+{
+    vxy_assert(!sym.isNegated());
+    vxy_assert(m_createdAtomVars.find(sym) == m_createdAtomVars.end());
+    if (auto found = m_binders.find(sym.getFormula()->uid); found != m_binders.end() && found->second != nullptr)
+    {
+        SignedClause clause = found->second->call(m_rdb, sym.getFormula()->args);
+        if (clause.variable.isValid())
+        {
+            Literal lit = clause.translateToLiteral(m_rdb);
+            if (!m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+            {
+                m_failure = true;
+            }
+        }
+    }
 }
 
 bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom)

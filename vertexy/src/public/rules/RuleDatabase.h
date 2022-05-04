@@ -89,6 +89,7 @@ public:
     GraphAtomLiteral createGraphAtom(const shared_ptr<ITopology>& topology, const RuleGraphRelation& equivalence, const wchar_t* name=nullptr);
 
     const ConstraintSolver& getSolver() const { return m_solver; }
+    ConstraintSolver& getSolver() { return m_solver; }
 
     template<typename H, typename B>
     void addRule(const H& head, const vector<B>& body)

@@ -7,6 +7,7 @@
 using namespace Vertexy;
 
 constexpr int REDUNDANCY_CHECKING_LEVEL = 0;
+constexpr bool LOG_CONFLICTS = false;
 
 ConflictAnalyzer::ConflictAnalyzer(ConstraintSolver& inSolver)
 	: m_solver(inSolver)
@@ -47,7 +48,10 @@ SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs
 		vxy_sanity(m_solver.m_variableDB.isInContradiction(contradictingVariable));
 		explanation = m_solver.getExplanationForModification(m_solver.m_variableDB.getLastModificationTimestamp(contradictingVariable));
 	}
-	// VERTEXY_LOG("Initial conflict explanation: %s", m_solver.literalArrayToString(explanation).c_str());
+	if constexpr (LOG_CONFLICTS)
+	{
+		VERTEXY_LOG("Initial conflict explanation: %s", m_solver.literalArrayToString(explanation).c_str());
+	}
 
 	// Some explanations can return empty values, which are useless (they won't ever be a support)
 	// Remove them.

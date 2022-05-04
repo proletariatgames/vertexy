@@ -5,6 +5,7 @@
 
 #include "ConstraintSolver.h"
 #include "EATest/EATest.h"
+#include "program/ProgramDSL.h"
 #include "util/SolverDecisionLog.h"
 #include "variable/SolverVariableDomain.h"
 
@@ -510,5 +511,150 @@ int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
 	EATEST_VERIFY(numResults == 28);
 	EATEST_VERIFY(solver.getStats().nonTightRules);
 
+	return nErrorCount;
+}
+
+int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	// Define the output of the program, so that we can instances of the returned formulas to named variables.
+	struct HamiltonianOutput
+	{
+		FormulaResult<2> path;
+	};
+
+	// Create a program definition using the rule-definition language.
+	// This program finds a hamiltonian cycle: given a graph, find a path that traverses
+	// through every node exactly once, and is circular.
+	auto hamiltonian = Program::define([]()
+	{
+		// Define a formula called "node" that has 1 parameter.
+		VXY_FORMULA(node, 1);
+		// Encode facts about which nodes exist.
+		node(0);
+		node(1);
+		node(2);
+		node(3);
+
+		// Define a formula called "edge" that has 2 parameters.
+		VXY_FORMULA(edge, 2);
+		// Encode facts about which edges exist.
+		edge(0, 1);
+		edge(0, 2);
+		edge(1, 2);
+		edge(1, 3);
+		edge(2, 0);
+		edge(2, 3);
+		edge(3, 0);
+
+		// Specify a start point for the cycle
+		VXY_FORMULA(start, 1);
+		start(0);
+
+		// Declare variables that will be used in rule definitions.
+		// These will be expanded during compilation into all possible values.
+		VXY_VARIABLE(X);
+		VXY_VARIABLE(Y);
+		VXY_VARIABLE(Z);
+
+		// Define path(X,Y) and omit(X,Y).
+		VXY_FORMULA(path, 2);
+		VXY_FORMULA(omit, 2);
+
+		// Circular rules: a given path(X,Y) exists if there is an edge(X,Y) and an omit(X,Y) doesn't exist.
+		// Likewise, a given omit(X,Y) exists if there is an edge(X,Y) and a path(X,Y) doesn't exist.
+		//
+		// There are two other synonymous ways of saying this:
+		//
+		//		(path(X,Y) | omit(X,Y)) <<= edge(X,Y);
+		//		Says **either** a path(X,Y) or emit(X,Y) exists if for any edge(X,Y) that exists.
+		//  or
+		//		path(X,Y).choice() <<= edge(X,Y);
+		//		Says there **can be** a path(X,Y) for any edge(X,Y) that exists.
+		//		(Note that "omit" is not needed in this case)
+		path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
+		omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
+
+		VXY_VARIABLE(X1);
+		VXY_VARIABLE(Y1);
+		// Program::disallow prevents any solution where the statement is true.
+		// Specify that there can't be two paths ending at the same node.
+		Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
+		// Specify that there can't be two paths starting at the same node.
+		Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
+
+		VXY_FORMULA(on_path, 1);
+		// on_path(X) is only true if there is a path reaching node X and a path leaving node X.
+		on_path(X) <<= path(X, Y) && path(Y, Z);
+		// Disallow any node that is not on the path. (~ is logical NOT, i.e. "on_path(X) does not exist")
+		Program::disallow(node(X) && ~on_path(X));
+
+		// Ensure that every node is reached.
+		VXY_FORMULA(reach, 1);
+		// We reach a node if it is the start node.
+		reach(X) <<= start(X);
+		// We reach a node Y if we reached a node X and a path between X,Y was created.
+		reach(Y) <<= reach(X) && path(X, Y);
+		Program::disallow(node(X) && ~reach(X));
+
+		// Return the path formula so we can bind named variables to it.
+		return HamiltonianOutput{path};
+	});
+
+	// create the solver that will generate the solution.
+	ConstraintSolver solver(TEXT("hamiltonianProgram"), seed);
+
+	// Instantiate the program. Programs can take arguments and be instantiated multiple times.
+	// Note that the formulas are NOT shared between multiple instances of the same program.
+	auto inst = hamiltonian();
+
+	//
+	// Bind all possible instances of path(X,Y) to named variables.
+	// The callback will be called during solve() for every *potential* path(X,Y) that may occur.
+	// Note that since there are only 4 nodes in the program, we know the bounds of X and Y for path(X,Y).
+	//
+	// NOTE: some variables will not be bound if it is determined they cannot possibly occur.
+	// E.g. in our example path(0,3) cannot exist because there is no edge(0,3).
+	// Therefore pathVars[0][3] will be invalid.
+	//
+
+	VarID pathVars[4][4];
+	get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	{
+		// Create a boolean solver variable to hold the result of this path(x,y).
+		wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
+		VarID var = solver.makeBoolean(varName);
+
+		// Store it and return it as the variable to bind to.
+		pathVars[x.getInt()][y.getInt()] = var;
+		return var;
+	});
+
+	// Add the program to the solver. You can add more than one program; the solver will only
+	// report a solution once all added programs have been solved.
+	solver.addProgram<HamiltonianOutput>(move(inst));
+	solver.solve();
+
+	// Print out all path(X,Y) that are true, and count the number of times each node was visited.
+	int timesVisited[4][4] = {0};
+
+	for (int x = 0; x < 4; ++x)
+	{
+		for (int y = 0; y < 4; ++y)
+		{
+			// if a pathVar is invalid, it means it wasn't possibly part of any solution,
+			// meaning we can safely treat it as false here.
+			if (pathVars[x][y].isValid() && solver.getSolvedValue(pathVars[x][y]) != 0)
+			{
+				if (printVerbose) { VERTEXY_LOG("%s", solver.getVariableName(pathVars[x][y]).c_str()); }
+				timesVisited[x][y]++;
+				// check each node was only visited once.
+				EATEST_VERIFY(timesVisited[x][y] == 1);
+			}
+		}
+	}
+
+	solver.dumpStats(true);
 	return nErrorCount;
 }
