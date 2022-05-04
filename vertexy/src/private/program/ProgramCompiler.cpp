@@ -26,7 +26,7 @@ struct VariableNameAllocator
 hash_set<ConstantFormula*, ConstantFormula::Hash, ConstantFormula::Hash> ConstantFormula::s_lookup;
 vector<unique_ptr<ConstantFormula>> ConstantFormula::s_formulas;
 
-bool ProgramCompiler::compile(RuleDatabase& rdb, const vector<RuleStatement*>& statements, const BindMap& binders)
+bool ProgramCompiler::compile(RuleDatabase& rdb, const vector<RelationalRuleStatement>& statements, const BindMap& binders)
 {
     ProgramCompiler compiler(rdb, binders);
     compiler.rewriteMath(statements);
@@ -54,7 +54,7 @@ ProgramCompiler::ProgramCompiler(RuleDatabase& rdb, const BindMap& binders)
 // A(Y) <<= B(X) && C(X+1==Y-1)
 //  --> A(Y) <<= B(X) && C(Z==W) && Z == X+1 && W == Y-1
 //
-void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
+void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& statements)
 {
     enum class BinOpType
     {
@@ -107,7 +107,7 @@ void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
         hash_map<const BinaryOpTerm*, ProgramVariable, TermHasher, pointer_value_equality<BinaryOpTerm>> replacements;
         hash_map<ProgramVariable, UBinaryOpTerm> assignments;
 
-        stmt->visit<Term>([&](const Term* term)
+        stmt.statement->visit<Term>([&](const Term* term)
         {
             if (auto binOpTerm = dynamic_cast<const BinaryOpTerm*>(term))
             {
@@ -129,9 +129,9 @@ void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
 
         if (!replacements.empty())
         {
-            wstring before = stmt->toString();
+            wstring before = stmt.statement->toString();
 
-            stmt->replace<BinaryOpTerm>([&](const BinaryOpTerm* term) -> UTerm
+            stmt.statement->replace<BinaryOpTerm>([&](const BinaryOpTerm* term) -> UTerm
             {
                 auto found = replacements.find(term);
                 if (found != replacements.end())
@@ -149,12 +149,12 @@ void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
                     move(lhs),
                     move(assignment.second)
                 );
-                stmt->body.push_back(move(assignmentTerm));
+                stmt.statement->body.push_back(move(assignmentTerm));
             }
 
             if constexpr (LOG_MATH_REWRITE)
             {
-                VERTEXY_LOG("Rewrote:\n  %s\n  %s", before.c_str(), stmt->toString().c_str());
+                VERTEXY_LOG("Rewrote:\n  %s\n  %s", before.c_str(), stmt.statement->toString().c_str());
             }
         }
     }
@@ -162,7 +162,7 @@ void ProgramCompiler::rewriteMath(const vector<RuleStatement*>& statements)
 
 // Create the dependency graph, where each graph edge points from a formula head to a formula body that contains that
 // head. The strongly connected components are cyclical dependencies between rules, which need to be handled specially.
-void ProgramCompiler::createDependencyGraph(const vector<RuleStatement*>& stmts)
+void ProgramCompiler::createDependencyGraph(const vector<RelationalRuleStatement>& stmts)
 {
     m_depGraph = make_shared<DigraphTopology>();
     m_depGraph->reset(stmts.size());
@@ -179,11 +179,11 @@ void ProgramCompiler::createDependencyGraph(const vector<RuleStatement*>& stmts)
         auto& stmt = stmts[vertex];
         // vxy_assert(!stmt->body.empty());
 
-        m_depGraphData.get(vertex).statement = stmt;
+        m_depGraphData.get(vertex).stmt = &stmt;
         m_depGraphData.get(vertex).vertex = vertex;
 
         // mark any rules that contain facts in the body as groundable
-        stmt->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
+        stmt.statement->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
         {
             if (m_groundedAtoms.find(bodyTerm->functionUID) != m_groundedAtoms.end())
             {
@@ -193,18 +193,13 @@ void ProgramCompiler::createDependencyGraph(const vector<RuleStatement*>& stmts)
             return Term::EVisitResponse::Continue;
         });
 
-        stmt->visitHead<FunctionHeadTerm>([&](const FunctionHeadTerm* headTerm)
+        stmt.statement->visitHead<FunctionHeadTerm>([&](const FunctionHeadTerm* headTerm)
         {
             for (int otherVertex = 0; otherVertex < m_depGraph->getNumVertices(); ++otherVertex)
             {
                 auto& otherStmt = stmts[otherVertex];
-                otherStmt->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
+                otherStmt.statement->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
                 {
-                    if (auto ext = dynamic_cast<const ExternalFunctionTerm*>(bodyTerm))
-                    {
-                        m_externals[ext->functionUID] = ext->provider;
-                    }
-
                     if (headTerm->functionUID == bodyTerm->functionUID && !m_depGraph->hasEdge(vertex, otherVertex))
                     {
                         m_edges[vertex].push_back(const_cast<FunctionTerm*>(bodyTerm));
@@ -221,7 +216,7 @@ void ProgramCompiler::createDependencyGraph(const vector<RuleStatement*>& stmts)
 //
 // OUTPUT: an array of components (set or rules), ordered by inverse topological sort. I.e., all statements in
 // each component can be reified entirely by components later in the list.
-void ProgramCompiler::createComponents(const vector<RuleStatement*>& stmts)
+void ProgramCompiler::createComponents(const vector<RelationalRuleStatement>& stmts)
 {
     m_components.clear();
 
@@ -323,7 +318,7 @@ void ProgramCompiler::createComponents(const vector<RuleStatement*>& stmts)
 
             for (int vertex : posSCC)
             {
-                vxy_sanity(m_depGraphData.get(vertex).statement == stmts[vertex]);
+                vxy_sanity(m_depGraphData.get(vertex).stmt == &stmts[vertex]);
                 componentNodes.push_back(&m_depGraphData.get(vertex));
 
                 // If any literals in the head of this statement appear in earlier components,
@@ -358,7 +353,7 @@ void ProgramCompiler::ground()
             m_foundRecursion = false;
             for (DepGraphNodeData* stmtNode : component.stmts)
             {
-                if (stmtNode->marked || stmtNode->statement->body.empty())
+                if (stmtNode->marked || stmtNode->stmt->statement->body.empty())
                 {
                     stmtNode->marked = false;
                     groundRule(stmtNode);
@@ -375,14 +370,14 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     vector<VarNode> varNodes;
     vector<pair<VariableUID, vector<int>>> boundBy;
 
-    RuleStatement* statement = statementNode->statement;
+    const RelationalRuleStatement* stmt = statementNode->stmt;
 
     //
     // Build dependency graph of variables found in the body.
     // Literals that are non-negative FunctionTerms provide support; everything else relies on support.
     //
     hash_map<VariableUID, size_t> seen;
-    for (auto& bodyLit : statement->body)
+    for (auto& bodyLit : stmt->statement->body)
     {
         litNodes.emplace_back();
         litNodes.back().lit = bodyLit.get();
@@ -481,7 +476,7 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
 {
     if (cur == nodes.size())
     {
-        exportStatement(stmtNode, varBindings);
+        expandAndExportStatement(stmtNode, varBindings);
     }
     else
     {
@@ -493,15 +488,36 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
     }
 }
 
-void ProgramCompiler::exportStatement(DepGraphNodeData* stmtNode, const VariableMap& varBindings)
+void ProgramCompiler::expandAndExportStatement(const DepGraphNodeData* stmtNode, const VariableMap& varBindings)
+{
+    ITopology* topology = stmtNode->stmt->topology.get();
+    if (topology == nullptr)
+    {
+        auto newStmt = stmtNode->stmt->statement->makeConcrete(0);
+        return exportStatement(stmtNode, newStmt.get(), varBindings);
+    }
+    else
+    {
+        const int numVertices = stmtNode->stmt->topology->getNumVertices();
+        for (int vertex = 0; vertex < numVertices; ++vertex)
+        {
+            auto newStmt = stmtNode->stmt->statement->makeConcrete(vertex);
+            if (newStmt != nullptr)
+            {
+                exportStatement(stmtNode, newStmt.get(), varBindings);
+            }
+        }
+    }
+}
+
+void ProgramCompiler::exportStatement(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const VariableMap& varBindings)
 {
     vector<ProgramSymbol> bodyTerms;
-    RuleStatement* stmt = stmtNode->statement;
     for (auto& bodyTerm : stmt->body)
     {
         ProgramSymbol bodySym = bodyTerm->eval();
         vxy_assert(bodySym.isValid());
-        if (bodySym.getType() == ESymbolType::Formula)
+        if (bodySym.isFormula())
         {
             auto fnTerm = dynamic_cast<FunctionTerm*>(bodyTerm.get());
             vxy_assert_msg(fnTerm != nullptr, "not a function, but got a function symbol?");
@@ -737,7 +753,7 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym)
 
 bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom)
 {
-    vxy_assert(atom.symbol.getType() == ESymbolType::Formula);
+    vxy_assert(atom.symbol.isFormula());
     auto domainIt = m_groundedAtoms.find(atom.symbol.getFormula()->uid);
     if (domainIt == m_groundedAtoms.end())
     {

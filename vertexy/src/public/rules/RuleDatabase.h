@@ -2,7 +2,6 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "constraints/ConstraintGraphRelationInfo.h"
 #include "rules/RuleTypes.h"
 #include "topology/algo/tarjan.h"
 
@@ -84,9 +83,6 @@ public:
     AtomID createAtom(const wchar_t* name=nullptr);
     AtomID createHeadAtom(const Literal& equivalence, const wchar_t* name=nullptr);
     AtomLiteral createAtom(const Literal& equivalence, const wchar_t* name=nullptr);
-
-    GraphAtomID createGraphAtom(const shared_ptr<ITopology>& topology, const wchar_t* name=nullptr);
-    GraphAtomLiteral createGraphAtom(const shared_ptr<ITopology>& topology, const RuleGraphRelation& equivalence, const wchar_t* name=nullptr);
 
     const ConstraintSolver& getSolver() const { return m_solver; }
     ConstraintSolver& getSolver() { return m_solver; }
@@ -185,12 +181,6 @@ public:
         addRule(TRule(TRuleHead<AtomID>(ERuleHeadType::Normal), vbody));
     }
 
-    // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<GraphAtomLiteral>& rule);
-    // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<RuleGraphRelation>& rule);
-    // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<AtomLiteral>& rule);
-    // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<Literal>& rule);
-    // void addGraphRule(const shared_ptr<ITopology>& topology, const TGraphRuleDefinition<SignedClause>& rule);
-
     bool finalize();
     bool isTight() const { return m_isTight; }
 
@@ -206,19 +196,6 @@ protected:
 
     // IVariableDomainProvider
     virtual const SolverVariableDomain& getDomain(VarID varID) const override;
-
-    struct GraphAtomInfo
-    {
-        GraphAtomInfo() {}
-        GraphAtomInfo(const wchar_t* name, const GraphLiteralRelationPtr& relation)
-            : relation(relation)
-            , name(name)
-        {
-        }
-
-        GraphLiteralRelationPtr relation;
-        wstring name;
-    };
 
     struct BodyHasher
     {
@@ -247,9 +224,6 @@ protected:
         vector<Literal> literals;
     };
 
-    using GraphRelationList = vector<tuple<GraphLiteralRelationPtr, GraphAtomID>>;
-    using GraphAtomSet = hash_map<int32_t, unique_ptr<GraphAtomInfo>>;
-
     AtomID getFactAtom();
     void transformRule(const RuleHead& head, const RuleBody& body);
     void transformSum(AtomID head, const RuleBody& sumBody);
@@ -274,11 +248,6 @@ protected:
     vector<RuleBody> normalizeBody(const vector<AnyBodyElement>& elements);
     RuleBody normalizeBodyElement(const AnyBodyElement& element);
 
-    GraphLiteralRelationPtr normalizeGraphRelation(const RuleGraphRelation& relation) const;
-    GraphAtomLiteral findExistingAtomForRelation(const shared_ptr<ITopology>& topology, const GraphLiteralRelationPtr& relation, const GraphRelationList& list) const;
-
-    // void instantiateGraphRule(const TRuleHead<GraphAtomLiteral>& head, const vector<AnyGraphBodyElement>& body);
-
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
     void computeSCCs();
@@ -295,12 +264,6 @@ protected:
     hash_set<BodyInfo*, BodyHasher> m_bodySet;
     vector<unique_ptr<BodyInfo>> m_bodies;
 
-    // Graph -> list of created graph atoms for that graph
-    hash_map<shared_ptr<ITopology>, unique_ptr<GraphAtomSet>> m_graphAtoms;
-
-    // Maps clause relations to corresponding GraphAtom
-    hash_map<shared_ptr<ITopology>, unique_ptr<GraphRelationList>> m_graphAtomMaps;
-
     vector<AtomInfo*> m_atomsToPropagate;
     vector<BodyInfo*> m_bodiesToPropagate;
     bool m_conflict = false;
@@ -310,8 +273,6 @@ protected:
 
     bool m_isTight = true;
     AtomID m_factAtom;
-
-    int32_t m_nextGraphAtomID = 1;
 };
 
 } // namespace Vertexy

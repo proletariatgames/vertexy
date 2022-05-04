@@ -157,12 +157,12 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 					return false;
 				}
 
-				auto linkRel = make_shared<TTopologyLinkGraphRelation<VarID>>(m_sourceGraphData, link);
+				auto linkRel = make_shared<TTopologyLinkGraphRelation<VarID>>(m_sourceGraph, m_sourceGraphData, link);
 				outRelations.addRelation(m_sourceGraphData->get(vertex), linkRel);
 			}
 			else
 			{
-				auto selfRel = make_shared<TVertexToDataGraphRelation<VarID>>(m_sourceGraphData);
+				auto selfRel = make_shared<TVertexToDataGraphRelation<VarID>>(m_sourceGraph, m_sourceGraphData);
 				outRelations.addRelation(m_sourceGraphData->get(vertex), selfRel);
 			}
 		}
@@ -192,7 +192,7 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 			}
 
 			auto nodeToEdgeNodeRel = make_shared<TVertexEdgeToEdgeGraphVertexGraphRelation<ITopology>>(m_sourceGraph, m_edgeGraph, nodeEdgeIndex);
-			auto nodeToEdgeVarRel = nodeToEdgeNodeRel->map(make_shared<TVertexToDataGraphRelation<VarID>>(m_edgeGraphData));
+			auto nodeToEdgeVarRel = nodeToEdgeNodeRel->map(make_shared<TVertexToDataGraphRelation<VarID>>(m_sourceGraph, m_edgeGraphData));
 
 			if (edgeOrigin != minGraphVertex)
 			{

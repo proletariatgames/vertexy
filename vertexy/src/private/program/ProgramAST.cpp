@@ -113,6 +113,19 @@ bool VariableTerm::operator==(const LiteralTerm& rhs) const
     return false;
 }
 
+ULiteralTerm VariableTerm::makeConcrete(int vertex) const
+{
+    ProgramSymbol concrete = sharedBoundRef->makeConcrete(vertex);
+    if (!concrete.isValid())
+    {
+        return nullptr;
+    }
+
+    auto outTerm = make_unique<VariableTerm>(var);
+    outTerm->sharedBoundRef = make_shared<ProgramSymbol>(concrete);
+    return outTerm;
+}
+
 bool VariableTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -165,6 +178,12 @@ bool SymbolTerm::operator==(const LiteralTerm& rhs) const
     return false;
 }
 
+ULiteralTerm SymbolTerm::makeConcrete(int vertex) const
+{
+    ProgramSymbol concrete = sym.makeConcrete(vertex);
+    return concrete.isValid() ? make_unique<SymbolTerm>(concrete) : nullptr;
+}
+
 bool SymbolTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -175,10 +194,11 @@ UTerm SymbolTerm::clone() const
     return make_unique<SymbolTerm>(sym);
 }
 
-FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated)
+FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated, const IExternalFormulaProviderPtr& provider)
     : functionUID(functionUID)
     , functionName(functionName)
     , arguments(move(arguments))
+    , provider(provider)
     , negated(negated)
 {
 }
@@ -235,6 +255,21 @@ ProgramSymbol FunctionTerm::eval() const
     return ProgramSymbol(functionUID, functionName, resolvedArgs, negated);
 }
 
+ULiteralTerm FunctionTerm::makeConcrete(int vertex) const
+{
+    vector<ULiteralTerm> concreteArgs;
+    for (auto& arg : arguments)
+    {
+        ULiteralTerm concreteTerm = arg->makeConcrete(vertex);
+        if (concreteTerm == nullptr)
+        {
+            return nullptr;
+        }
+        concreteArgs.push_back(move(concreteTerm));
+    }
+
+    return make_unique<FunctionTerm>(functionUID, functionName, move(concreteArgs), negated, nullptr);
+}
 
 UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler)
 {
@@ -272,7 +307,7 @@ UTerm FunctionTerm::clone() const
         auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
         clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
     }
-    return make_unique<FunctionTerm>(functionUID, functionName, move(clonedArgs), negated);
+    return make_unique<FunctionTerm>(functionUID, functionName, move(clonedArgs), negated, provider);
 }
 
 wstring FunctionTerm::toString() const
@@ -332,24 +367,6 @@ bool FunctionTerm::operator==(const LiteralTerm& rhs) const
     return false;
 }
 
-ExternalFunctionTerm::ExternalFunctionTerm(const shared_ptr<IExternalFormulaProvider>& provider, vector<ULiteralTerm>&& arguments, bool negated)
-    : FunctionTerm(FormulaUID(-1), nullptr, move(arguments), negated)
-    , provider(provider)
-{
-}
-
-UTerm ExternalFunctionTerm::clone() const
-{
-    vector<ULiteralTerm> clonedArgs;
-    clonedArgs.reserve(arguments.size());
-    for (auto& arg : arguments)
-    {
-        auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
-        clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
-    }
-    return make_unique<ExternalFunctionTerm>(provider, move(clonedArgs), negated);
-}
-
 UnaryOpTerm::UnaryOpTerm(EUnaryOperatorType op, ULiteralTerm&& child)
     : op(op)
     , child(move(child))
@@ -395,17 +412,34 @@ ProgramSymbol UnaryOpTerm::eval() const
         return {};
     }
 
-    vxy_assert_msg(sym.getType() == ESymbolType::Integer, "expected integer term");
-
     switch (op)
     {
     case EUnaryOperatorType::Negate:
-        return -sym.getInt();
+        switch (sym.getType())
+        {
+        case ESymbolType::Integer:
+            return -sym.getInt();
+        case ESymbolType::Abstract:
+            return ProgramSymbol(make_shared<NegateGraphRelation>(sym.getAbstractRelation()));
+        default:
+            vxy_fail_msg("Unexpected symbol type");
+        }
     default:
         vxy_fail_msg("Unexpected unary operator");
     }
 
     return {};
+}
+
+ULiteralTerm UnaryOpTerm::makeConcrete(int vertex) const
+{
+    auto concreteChild = child->makeConcrete(vertex);
+    if (concreteChild == nullptr)
+    {
+        return nullptr;
+    }
+
+    return make_unique<UnaryOpTerm>(op, move(concreteChild));
 }
 
 wstring UnaryOpTerm::toString() const
@@ -492,46 +526,75 @@ ProgramSymbol BinaryOpTerm::eval() const
     {
         return {};
     }
-    vxy_assert_msg(resolvedLHS.getType() == ESymbolType::Integer, "can only apply binary operators on integer symbols");
 
     ProgramSymbol resolvedRHS = rhs->eval();
     if (resolvedRHS.isInvalid())
     {
         return {};
     }
-    vxy_assert_msg(resolvedRHS.getType() == ESymbolType::Integer, "can only apply binary operators on integer symbols");
+    vxy_assert_msg(
+        resolvedLHS.getType() == ESymbolType::Integer || resolvedRHS.getType() == ESymbolType::Abstract,
+        "can only apply binary operators on integer or abstract symbols"
+    );
 
-    IGraphRelationPtr<int> rel;
-    if (resolvedLHS.getRelation() != nullptr && resolvedRHS.getRelation() != nullptr)
+    if (resolvedLHS.getType() == ESymbolType::Integer && resolvedRHS.getType() == ESymbolType::Integer)
     {
-        rel = make_shared<BinOpGraphRelation>(resolvedLHS.getRelation(), resolvedRHS.getRelation(), op);
+        switch (op)
+        {
+        case EBinaryOperatorType::Add:
+            return ProgramSymbol(resolvedLHS.getInt() + resolvedRHS.getInt());
+        case EBinaryOperatorType::Subtract:
+            return ProgramSymbol(resolvedLHS.getInt() - resolvedRHS.getInt());
+        case EBinaryOperatorType::Multiply:
+            return ProgramSymbol(resolvedLHS.getInt() * resolvedRHS.getInt());
+        case EBinaryOperatorType::Divide:
+            return ProgramSymbol(resolvedLHS.getInt() / resolvedRHS.getInt());
+        case EBinaryOperatorType::Equality:
+            return ProgramSymbol(resolvedLHS.getInt() == resolvedRHS.getInt() ? 1 : 0);
+        case EBinaryOperatorType::Inequality:
+            return ProgramSymbol(resolvedLHS.getInt() != resolvedRHS.getInt() ? 1 :0);
+        case EBinaryOperatorType::LessThan:
+            return ProgramSymbol(resolvedLHS.getInt() < resolvedRHS.getInt() ? 1 : 0);
+        case EBinaryOperatorType::LessThanEq:
+            return ProgramSymbol(resolvedLHS.getInt() <= resolvedRHS.getInt() ? 1 : 0);
+        case EBinaryOperatorType::GreaterThan:
+            return ProgramSymbol(resolvedLHS.getInt() > resolvedRHS.getInt() ? 1 : 0);
+        case EBinaryOperatorType::GreaterThanEq:
+            return ProgramSymbol(resolvedLHS.getInt() >= resolvedRHS.getInt() ? 1 : 0);
+        default:
+            vxy_fail_msg("unrecognized operator");
+            return ProgramSymbol();
+        }
     }
-    switch (op)
+    else
     {
-    case EBinaryOperatorType::Add:
-        return ProgramSymbol(resolvedLHS.getInt() + resolvedRHS.getInt(), rel);
-    case EBinaryOperatorType::Subtract:
-        return ProgramSymbol(resolvedLHS.getInt() - resolvedRHS.getInt(), rel);
-    case EBinaryOperatorType::Multiply:
-        return ProgramSymbol(resolvedLHS.getInt() * resolvedRHS.getInt(), rel);
-    case EBinaryOperatorType::Divide:
-        return ProgramSymbol(resolvedLHS.getInt() / resolvedRHS.getInt(), rel);
-    case EBinaryOperatorType::Equality:
-        return ProgramSymbol(resolvedLHS.getInt() == resolvedRHS.getInt() ? 1 : 0, rel);
-    case EBinaryOperatorType::Inequality:
-        return ProgramSymbol(resolvedLHS.getInt() != resolvedRHS.getInt() ? 1 :0, rel);
-    case EBinaryOperatorType::LessThan:
-        return ProgramSymbol(resolvedLHS.getInt() < resolvedRHS.getInt() ? 1 : 0, rel);
-    case EBinaryOperatorType::LessThanEq:
-        return ProgramSymbol(resolvedLHS.getInt() <= resolvedRHS.getInt() ? 1 : 0, rel);
-    case EBinaryOperatorType::GreaterThan:
-        return ProgramSymbol(resolvedLHS.getInt() > resolvedRHS.getInt() ? 1 : 0, rel);
-    case EBinaryOperatorType::GreaterThanEq:
-        return ProgramSymbol(resolvedLHS.getInt() >= resolvedRHS.getInt() ? 1 : 0, rel);
-    default:
-        vxy_fail_msg("unrecognized operator");
-        return ProgramSymbol();
+        auto leftRel = resolvedLHS.getType() == ESymbolType::Abstract
+            ? resolvedLHS.getAbstractRelation()
+            : make_shared<ConstantGraphRelation<int>>(resolvedLHS.getInt());
+
+        auto rightRel = resolvedRHS.getType() == ESymbolType::Abstract
+            ? resolvedRHS.getAbstractRelation()
+            : make_shared<ConstantGraphRelation<int>>(resolvedRHS.getInt());
+
+        return ProgramSymbol(make_shared<BinOpGraphRelation>(leftRel, rightRel, op));
     }
+}
+
+ULiteralTerm BinaryOpTerm::makeConcrete(int vertex) const
+{
+    auto concreteLhs = lhs->makeConcrete(vertex);
+    if (concreteLhs == nullptr)
+    {
+        return nullptr;
+    }
+
+    auto concreteRhs = rhs->makeConcrete(vertex);
+    if (concreteRhs == nullptr)
+    {
+        return nullptr;
+    }
+
+    return make_unique<BinaryOpTerm>(op, move(concreteLhs), move(concreteRhs));
 }
 
 UTerm BinaryOpTerm::clone() const
@@ -610,7 +673,7 @@ FunctionHeadTerm::FunctionHeadTerm(FormulaUID functionUID, const wchar_t* functi
 {
 }
 
-ProgramSymbol FunctionHeadTerm::evalSingle()
+ProgramSymbol FunctionHeadTerm::evalSingle() const
 {
     vector<ProgramSymbol> resolvedArgs;
     for (auto& arg : arguments)
@@ -721,6 +784,23 @@ wstring FunctionHeadTerm::toString() const
     return out;
 }
 
+UHeadTerm FunctionHeadTerm::makeConcrete(int vertex) const
+{
+    vector<ULiteralTerm> concreteArgs;
+    concreteArgs.reserve(arguments.size());
+
+    for (auto& arg : arguments)
+    {
+        concreteArgs.push_back(arg->makeConcrete(vertex));
+        if (concreteArgs.back() == nullptr)
+        {
+            return nullptr;
+        }
+    }
+
+    return make_unique<FunctionHeadTerm>(functionUID, functionName, move(concreteArgs));
+}
+
 DisjunctionTerm::DisjunctionTerm(vector<UFunctionHeadTerm>&& children)
     : children(move(children))
 {
@@ -778,7 +858,6 @@ vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
 
     for (auto& child : children)
     {
-        bool ignored;
         ProgramSymbol childSym = child->evalSingle();
         if (!childSym.isValid())
         {
@@ -790,6 +869,22 @@ vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
         }
     }
     return out;
+}
+
+UHeadTerm DisjunctionTerm::makeConcrete(int vertex) const
+{
+    vector<UFunctionHeadTerm> children;
+    for (auto& child : children)
+    {
+        auto concreteChild = child->makeConcrete(vertex);
+        if (concreteChild == nullptr)
+        {
+            return nullptr;
+        }
+        children.emplace_back(move(static_cast<FunctionHeadTerm*>(concreteChild.detach())));
+    }
+
+    return make_unique<DisjunctionTerm>(move(children));
 }
 
 wstring DisjunctionTerm::toString() const
@@ -871,6 +966,17 @@ vector<ProgramSymbol> ChoiceTerm::eval(bool& isNormalRule)
     return {subTerm->evalSingle()};
 }
 
+unique_ptr<HeadTerm> ChoiceTerm::makeConcrete(int vertex) const
+{
+    auto concreteSub = subTerm->makeConcrete(vertex);
+    if (concreteSub == nullptr)
+    {
+        return nullptr;
+    }
+
+    return make_unique<ChoiceTerm>(UFunctionHeadTerm(move(static_cast<FunctionHeadTerm*>(concreteSub.detach()))));
+}
+
 wstring ChoiceTerm::toString() const
 {
     wstring out;
@@ -892,6 +998,28 @@ RuleStatement::RuleStatement(UHeadTerm&& head, vector<ULiteralTerm>&& body)
     : head(move(head))
     , body(move(body))
 {
+}
+
+URuleStatement RuleStatement::makeConcrete(int vertex) const
+{
+    UHeadTerm headTerm = head != nullptr ? head->makeConcrete(vertex) : nullptr;
+    if (headTerm == nullptr && head != nullptr)
+    {
+        return nullptr;
+    }
+
+    vector<ULiteralTerm> bodyLits;
+    for (auto& bodyTerm : body)
+    {
+        ULiteralTerm term = bodyTerm->makeConcrete(vertex);
+        if (term == nullptr)
+        {
+            return nullptr;
+        }
+        bodyLits.push_back(move(term));
+    }
+
+    return make_unique<RuleStatement>(move(headTerm), move(bodyLits));
 }
 
 URuleStatement RuleStatement::clone() const

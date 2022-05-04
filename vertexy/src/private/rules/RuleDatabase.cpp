@@ -2,7 +2,6 @@
 #include "rules/RuleDatabase.h"
 
 #include "ConstraintSolver.h"
-#include "topology/GraphRelations.h"
 
 using namespace Vertexy;
 
@@ -1107,104 +1106,6 @@ bool RuleDatabase::synchronizeAtomVariable(const AtomInfo* atom)
         }
     }
     return true;
-}
-
-
-GraphAtomLiteral RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topology, const RuleGraphRelation& equivalence, const wchar_t* name)
-{
-    auto relation = normalizeGraphRelation(equivalence);
-
-    auto it = m_graphAtomMaps.find(topology);
-    if (it == m_graphAtomMaps.end())
-    {
-        auto newRelationMap = make_unique<GraphRelationList>();
-        it = m_graphAtomMaps.insert(make_pair(topology, move(newRelationMap))).first;
-    }
-
-    GraphRelationList& relationList = *it->second.get();
-    if (GraphAtomLiteral existing = findExistingAtomForRelation(topology, relation, relationList); existing.isValid())
-    {
-        return existing;
-    }
-
-
-    #if VERTEXY_RULE_NAME_ATOMS
-        wstring sname;
-        if (name == nullptr)
-        {
-            sname = {wstring::CtorSprintf(), TEXT("graphAtom%d(%s)"), m_nextGraphAtomID, relation->toString().c_str()};
-            name = sname.c_str();
-        }
-    #endif
-
-    auto newAtom = createGraphAtom(topology, name);
-    relationList.push_back(make_tuple(relation, newAtom));
-
-    return GraphAtomLiteral(newAtom, true);
-}
-
-GraphAtomID RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topology, const wchar_t* name)
-{
-    auto it = m_graphAtoms.find(topology);
-    if (it == m_graphAtoms.end())
-    {
-        it = m_graphAtoms.insert(make_pair(topology, make_unique<GraphAtomSet>())).first;
-    }
-
-    GraphAtomSet& atomSet = *it->second.get();
-    GraphAtomID newAtom(m_nextGraphAtomID++);
-
-    #if VERTEXY_RULE_NAME_ATOMS
-        wstring sname;
-        if (name == nullptr)
-        {
-            sname = {wstring::CtorSprintf(), TEXT("graphAtom%d"), newAtom.value};
-            name = sname.c_str();
-        }
-    #endif
-
-    atomSet[newAtom.value] = make_unique<GraphAtomInfo>(name, nullptr);
-    return newAtom;
-}
-
-GraphAtomLiteral RuleDatabase::findExistingAtomForRelation(const shared_ptr<ITopology>& topology, const GraphLiteralRelationPtr& relation, const GraphRelationList& list) const
-{
-    GraphLiteralRelationPtr invRelation;
-    if (auto inversion = dynamic_cast<const InvertLiteralGraphRelation*>(relation.get()))
-    {
-        invRelation = inversion->getInner();
-    }
-
-    for (auto it = list.begin(), itEnd = list.end(); it != itEnd; ++it)
-    {
-        auto itRel = get<GraphLiteralRelationPtr>(*it);
-        if (itRel->equals(topology, *relation.get()))
-        {
-            return GraphAtomLiteral(get<GraphAtomID>(*it), true);
-        }
-        else if (invRelation != nullptr && itRel->equals(topology, *invRelation.get()))
-        {
-            return GraphAtomLiteral(get<GraphAtomID>(*it), false);
-        }
-    }
-
-    return GraphAtomLiteral();
-}
-
-GraphLiteralRelationPtr RuleDatabase::normalizeGraphRelation(const RuleGraphRelation& relation) const
-{
-    return visit([&](auto&& typedRel) -> GraphLiteralRelationPtr
-    {
-        using ElementType = decay_t<decltype(typedRel)>;
-        if constexpr (is_same_v<ElementType, GraphLiteralRelationPtr>)
-        {
-            return typedRel;
-        }
-        else
-        {
-            return make_shared<ClauseToLiteralGraphRelation>(m_solver, typedRel);
-        }
-    }, relation);
 }
 
 const SolverVariableDomain& RuleDatabase::getDomain(VarID varID) const

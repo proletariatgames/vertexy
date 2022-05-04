@@ -124,14 +124,18 @@ namespace detail
     class ProgramExternalFunctionTerm
     {
     public:
-        explicit ProgramExternalFunctionTerm(const IExternalFormulaProviderPtr& provider, vector<ProgramBodyTerm>&& args)
-            : provider(provider)
+        explicit ProgramExternalFunctionTerm(FormulaUID uid, const wchar_t* name, const IExternalFormulaProviderPtr& provider, vector<ProgramBodyTerm>&& args)
+            : uid(uid)
+            , name(name)
             , args(move(args))
+            , provider(provider)
         {
         }
 
-        IExternalFormulaProviderPtr provider;
+        FormulaUID uid;
+        const wchar_t* name;
         vector<ProgramBodyTerm> args;
+        IExternalFormulaProviderPtr provider;
     };
 
     class ProgramBodyTerm
@@ -163,7 +167,7 @@ namespace detail
             {
                 argTerms.push_back(move(arg.term));
             }
-            term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms), false);
+            term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms), false, nullptr);
         }
         ProgramBodyTerm(ProgramExternalFunctionTerm&& f)
         {
@@ -174,7 +178,7 @@ namespace detail
             {
                 argTerms.push_back(move(arg.term));
             }
-            term = make_unique<ExternalFunctionTerm>(f.provider, move(argTerms), false);
+            term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms), false, f.provider);
         }
         ProgramBodyTerm(ProgramOpArgument&& h)
         {
@@ -235,42 +239,6 @@ namespace detail
         bool bound = false;
     };
 
-    template<int ARITY>
-    class ExternalFormula
-    {
-    public:
-        ExternalFormula(const IExternalFormulaProviderPtr& provider, const wchar_t* name=nullptr)
-            : m_name(name)
-            , m_provider(provider)
-        {
-        }
-
-        template<typename... ARGS>
-        ProgramBodyTerm operator()(ARGS&&... args)
-        {
-            vector<ProgramBodyTerm> fargs;
-            fargs.reserve(ARITY);
-
-            return foldArgs(fargs, args...);
-        }
-
-    private:
-        template<typename T, typename... REM>
-        ProgramBodyTerm foldArgs(vector<ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
-        {
-            outArgs.push_back(move(arg));
-            return foldArgs(outArgs, rem...);
-        }
-
-        ProgramBodyTerm foldArgs(vector<ProgramBodyTerm>& outArgs)
-        {
-            return ProgramBodyTerm(ProgramExternalFunctionTerm(m_provider, move(outArgs)));
-        }
-
-        const wchar_t* m_name;
-        IExternalFormulaProviderPtr m_provider;
-    };
-
 } // namespace Detail
 
 // Static functions for defining rule programs
@@ -302,6 +270,35 @@ public:
         else
         {
             R result = fn(forward<ARGS>(args)...);
+            out = make_tuple(move(inst), move(result));
+        }
+
+        s_currentInstance = nullptr;
+        return out;
+    }
+
+    // Specialization for passing in a topology for graph instantiation of programs.
+    // Note that (currently) only the first argument can be a graph-instantiated.
+    // The definition function should take a ProgramSymbol in place of this argument, which represents
+    // an (unknown) vertex on the graph.
+    template<typename R, typename... ARGS>
+    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, const ITopologyPtr&, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
+    {
+        auto inst = make_unique<ProgramInstance>(topo);
+        vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
+        s_currentInstance = inst.get();
+
+        static auto relation = make_shared<IdentityGraphRelation>();
+
+        tuple<UProgramInstance, R> out;
+        if constexpr (is_same_v<R, void>)
+        {
+            fn(ProgramSymbol(relation), forward<ARGS>(args)...);
+            out = make_tuple(move(inst), (void)0);
+        }
+        else
+        {
+            R result = fn(ProgramSymbol(relation), forward<ARGS>(args)...);
             out = make_tuple(move(inst), move(result));
         }
 
@@ -429,6 +426,45 @@ private:
 
     const wchar_t* m_name;
     FormulaUID m_uid;
+};
+
+
+template<int ARITY>
+class ExternalFormula
+{
+public:
+    ExternalFormula(const IExternalFormulaProviderPtr& provider, const wchar_t* name=nullptr)
+        : m_uid(Program::allocateFormulaUID())
+        , m_name(name)
+        , m_provider(provider)
+    {
+    }
+
+    template<typename... ARGS>
+    detail::ProgramBodyTerm operator()(ARGS&&... args)
+    {
+        vector<detail::ProgramBodyTerm> fargs;
+        fargs.reserve(ARITY);
+
+        return foldArgs(fargs, args...);
+    }
+
+private:
+    template<typename T, typename... REM>
+    detail::ProgramBodyTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
+    {
+        outArgs.push_back(move(arg));
+        return foldArgs(outArgs, rem...);
+    }
+
+    detail::ProgramBodyTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs)
+    {
+        return detail::ProgramBodyTerm(detail::ProgramExternalFunctionTerm(m_uid, m_name, m_provider, move(outArgs)));
+    }
+
+    FormulaUID m_uid;
+    const wchar_t* m_name;
+    IExternalFormulaProviderPtr m_provider;
 };
 
 // Allows returning a formula outside of the Program::define() block. The bind() function allows
@@ -591,7 +627,7 @@ inline detail::ProgramBodyTerm operator~(detail::ProgramFunctionTerm&& rhs)
     {
         argTerms.push_back(move(arg.term));
     }
-    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, move(argTerms), true);
+    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, move(argTerms), true, nullptr);
     return detail::ProgramBodyTerm(move(term));
 }
 
@@ -604,7 +640,7 @@ inline detail::ProgramBodyTerm operator~(detail::ProgramExternalFunctionTerm&& r
     {
         argTerms.push_back(move(arg.term));
     }
-    auto term = make_unique<ExternalFunctionTerm>(rhs.provider, move(argTerms), true);
+    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, move(argTerms), true, rhs.provider);
     return detail::ProgramBodyTerm(move(term));
 }
 

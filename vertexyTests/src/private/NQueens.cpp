@@ -142,9 +142,10 @@ int NQueensSolvers::solveUsingGraph(int times, int n, int seed, bool printVerbos
 
 		SolverVariableDomain tileDomain(0, 1);
 		auto tileGrid = make_shared<PlanarGridTopology>(n, n);
+		auto iTileGrid = IPlanarTopology::adapt(tileGrid);
 
-		auto tileGridData = solver.makeVariableGraph(TEXT("Tiles"), IPlanarTopology::adapt(tileGrid), tileDomain, TEXT("Tile"));
-		auto selfRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(tileGridData, TopologyLink::SELF);
+		auto tileGridData = solver.makeVariableGraph(TEXT("Tiles"), iTileGrid, tileDomain, TEXT("Tile"));
+		auto selfRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(iTileGrid, tileGridData, TopologyLink::SELF);
 
 		auto tile_On = vector{1};
 
@@ -175,6 +176,8 @@ int NQueensSolvers::solveUsingGraph(int times, int n, int seed, bool printVerbos
 				return true;
 			}
 
+			virtual size_t hash() const override { return 0; }
+
 		protected:
 			const ConstraintSolver& m_solver;
 			shared_ptr<PlanarGridTopology> m_topology;
@@ -190,10 +193,10 @@ int NQueensSolvers::solveUsingGraph(int times, int n, int seed, bool printVerbos
 		GraphRelationClause self_Off(selfRelation, EClauseSign::Outside, tile_On);
 		for (int i = 1; i < n; ++i)
 		{
-			auto upRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(tileGridData, PlanarGridTopology::moveUp(i));
-			auto downRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(tileGridData, PlanarGridTopology::moveDown(i));
-			auto downRightRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(tileGridData, PlanarGridTopology::moveDown(i).combine(PlanarGridTopology::moveRight(i)));
-			auto downLeftRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(tileGridData, PlanarGridTopology::moveDown(i).combine(PlanarGridTopology::moveLeft(i)));
+			auto upRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(iTileGrid, tileGridData, PlanarGridTopology::moveUp(i));
+			auto downRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(iTileGrid, tileGridData, PlanarGridTopology::moveDown(i));
+			auto downRightRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(iTileGrid, tileGridData, PlanarGridTopology::moveDown(i).combine(PlanarGridTopology::moveRight(i)));
+			auto downLeftRelation = make_shared<TTopologyLinkGraphRelation<VarID>>(iTileGrid, tileGridData, PlanarGridTopology::moveDown(i).combine(PlanarGridTopology::moveLeft(i)));
 
 			solver.makeGraphConstraint<ClauseConstraint>(tileGrid, vector{
 				self_Off, GraphRelationClause(downRelation, EClauseSign::Outside, tile_On)

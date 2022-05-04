@@ -131,7 +131,7 @@ class ProgramInstance
 public:
     using BinderMap = hash_map<FormulaUID, unique_ptr<BindCaller>>;
 
-    ProgramInstance();
+    ProgramInstance(const ITopologyPtr& topology=nullptr);
     virtual ~ProgramInstance();
 
     void addRule(URuleStatement&& rule);
@@ -139,8 +139,10 @@ public:
 
     const vector<URuleStatement>& getRuleStatements() const { return m_ruleStatements; }
     const BinderMap& getBinders() const { return m_binders; }
+    const ITopologyPtr& getTopology() const { return m_topology; }
 
 protected:
+    ITopologyPtr m_topology;
     BinderMap m_binders;
     vector<URuleStatement> m_ruleStatements;
 };

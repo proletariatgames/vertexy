@@ -39,10 +39,25 @@ enum class ESymbolType : uint8_t
     Integer = 0,
     ID,
     Formula,
+    Abstract,
+    External,
     Invalid
 };
 
 class ConstantFormula;
+class ProgramSymbol;
+
+class IExternalFormulaProvider
+{
+public:
+    virtual ~IExternalFormulaProvider() {}
+    // Return whether the given atom exists.
+    virtual bool instantiate(const vector<ProgramSymbol>& args) const = 0;
+    virtual size_t hash() const = 0;
+};
+
+using IExternalFormulaProviderPtr = shared_ptr<IExternalFormulaProvider>;
+
 
 // Represents a constant value in a rule program: either an integer, a string ID, or a grounded formula call.
 // Internally it is represented as a tagged pointer.
@@ -54,19 +69,26 @@ public:
         m_packed = encode(ESymbolType::Invalid, 0);
     }
 
-    ProgramSymbol(int32_t constant, const IGraphRelationPtr<int>& relation=nullptr)
-        : m_relation(relation)
+    ProgramSymbol(const IGraphRelationPtr<int>& relation)
+    {
+        m_packed = encode(ESymbolType::Abstract, 0);
+    }
+
+    ProgramSymbol(int32_t constant)
     {
         m_packed = encode(ESymbolType::Integer, constant);
     }
     ProgramSymbol(const wchar_t* name)
-        : m_relation(nullptr)
     {
         m_packed = encode(ESymbolType::ID, reinterpret_cast<intptr_t>(name));
     }
 
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IGraphRelationPtr<int>& relation=nullptr);
-    explicit ProgramSymbol(const ConstantFormula* formula, bool negated, const IGraphRelationPtr<int>& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+
+    explicit ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+
+    ~ProgramSymbol();
 
     ESymbolType getType() const
     {
@@ -87,13 +109,18 @@ public:
 
     const ConstantFormula* getFormula() const
     {
-        vxy_sanity(getType() == ESymbolType::Formula);
+        vxy_sanity(isFormula());
         return reinterpret_cast<ConstantFormula*>(decode(m_packed));
+    }
+
+    bool isFormula() const
+    {
+        return getType() == ESymbolType::Formula || getType() == ESymbolType::External;
     }
 
     bool isNegated() const
     {
-        vxy_sanity(getType() == ESymbolType::Formula);
+        vxy_sanity(isFormula());
         return (m_packed & 1) == 0;
     }
 
@@ -107,31 +134,62 @@ public:
         return !isValid();
     }
 
+    ProgramSymbol makeConcrete(int vertex) const;
+
     ProgramSymbol negatedFormula() const;
 
     ProgramSymbol absolute() const
     {
-        return (getType() == ESymbolType::Formula && isNegated())
-        ? negatedFormula()
-        : *this;
+        return isNegated() ? negatedFormula() : *this;
     }
 
-    const IGraphRelationPtr<int>& getRelation() const
+    const IGraphRelationPtr<int>& getAbstractRelation() const
     {
-        return m_relation;
+        vxy_assert(getType() == ESymbolType::Abstract);
+        return *reinterpret_cast<const IGraphRelationPtr<int>*>(m_smartPtrBytes);
+    }
+
+    const IExternalFormulaProviderPtr& getExternalFormulaProvider() const
+    {
+        if (getType() == ESymbolType::Formula)
+        {
+            const static IExternalFormulaProviderPtr nullPtr = nullptr;
+            return nullPtr;
+        }
+
+        vxy_assert(getType() == ESymbolType::External);
+        return *reinterpret_cast<const IExternalFormulaProviderPtr*>(m_smartPtrBytes);
     }
 
     uint32_t hash() const
     {
-        return eastl::hash<uint64_t>()(m_packed);
+        switch (getType())
+        {
+        case ESymbolType::Abstract:
+            return getAbstractRelation()->hash();
+        case ESymbolType::External:
+            return combineHashes(eastl::hash<uint64_t>()(m_packed), getExternalFormulaProvider()->hash());
+        default:
+            return eastl::hash<uint64_t>()(m_packed);
+        }
     }
 
     bool operator==(const ProgramSymbol& rhs) const
     {
         if (this == &rhs) { return true; }
-        // TODO: handle relation equality?
-        return (m_packed == rhs.m_packed && m_relation == rhs.m_relation);
+        if (rhs.getType() != getType()) { return false; }
+
+        switch (getType())
+        {
+        case ESymbolType::Abstract:
+            return getAbstractRelation()->equals(*rhs.getAbstractRelation());
+        case ESymbolType::External:
+            return getExternalFormulaProvider() == rhs.getExternalFormulaProvider();
+        default:
+            return m_packed == rhs.m_packed;
+        }
     }
+
     bool operator!=(const ProgramSymbol& rhs) const
     {
         return !operator==(rhs);
@@ -149,8 +207,14 @@ private:
         return packed & 0x00FFFFFFFFFFFFFEULL;
     }
 
+    void setExternalProvider(const IExternalFormulaProviderPtr& provider);
+    void setAbstractRelation(const IGraphRelationPtr<int>& relation);
+
+    IExternalFormulaProviderPtr* getExternalFormulaProviderPtr();
+    IGraphRelationPtr<int>* getAbstractRelationPtr();
+
     uint64_t m_packed;
-    IGraphRelationPtr<int> m_relation;
+    uint8_t m_smartPtrBytes[sizeof(std::shared_ptr<int>)];
 };
 
 // Represents a unique grounded formula call.
@@ -170,16 +234,26 @@ public:
 
     static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args)
     {
-        ConstantFormula temp(formula, name, args);
-
-        uint32_t hash = makeHash(formula, args);
-        auto it = s_lookup.find_by_hash(&temp, hash);
-        if (it != s_lookup.end())
+        size_t hash;
+        if (ConstantFormula* existing = getExisting(formula, name, args, hash))
         {
-            return *it;
+            return existing;
         }
 
         s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, args)));
+        s_lookup.insert(hash, nullptr, s_formulas.back().get());
+        return s_formulas.back().get();
+    }
+
+    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args)
+    {
+        size_t hash;
+        if (ConstantFormula* existing = getExisting(formula, name, args, hash))
+        {
+            return existing;
+        }
+
+        s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, move(args))));
         s_lookup.insert(hash, nullptr, s_formulas.back().get());
         return s_formulas.back().get();
     }
@@ -205,6 +279,34 @@ public:
     }
 
 private:
+    static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, size_t& outHash)
+    {
+        outHash = makeHash(formula, args);
+        auto range = s_lookup.find_range_by_hash(outHash);
+        for (auto it = range.first; it != range.second; ++it)
+        {
+            if ((*it)->uid == formula)
+            {
+                vxy_assert((*it)->args.size() == args.size());
+                bool match = true;
+                for (int i = 0; i < args.size(); ++i)
+                {
+                    if ((*it)->args[i] != args[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    return *it;
+                }
+            }
+        }
+        return nullptr;
+    }
+
     static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args)
     {
         uint32_t out = hash<int>()(formula);
@@ -252,24 +354,68 @@ private:
     static vector<unique_ptr<ConstantFormula>> s_formulas;
 };
 
-inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, bool negated, const IGraphRelationPtr<int>& relation)
-    : m_relation(relation)
+inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& provider)
 {
+    setExternalProvider(provider);
+
     ConstantFormula* f = ConstantFormula::get(formula, formulaName, args);
-    m_packed = encode(ESymbolType::Formula, reinterpret_cast<intptr_t>(f)) | (negated ? 0 : 1);
+    m_packed = encode(
+        provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
+        reinterpret_cast<intptr_t>(f)
+    ) | (negated ? 0 : 1);
     vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
 }
 
-inline ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const IGraphRelationPtr<int>& relation)
-    : m_relation(relation)
+inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& provider)
 {
-    m_packed = encode(ESymbolType::Formula, reinterpret_cast<intptr_t>(formula)) | (negated ? 0 : 1);
+    setExternalProvider(provider);
+
+    ConstantFormula* f = ConstantFormula::get(formula, name, move(args));
+    m_packed = encode(
+        provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
+        reinterpret_cast<intptr_t>(f)
+    ) | (negated ? 0 : 1);
+    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
+}
+
+
+inline ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& provider)
+{
+    setExternalProvider(provider);
+
+    m_packed = encode(
+        provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
+        reinterpret_cast<intptr_t>(formula)
+    ) | (negated ? 0 : 1);
     vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == formula);
+}
+
+inline ProgramSymbol::~ProgramSymbol()
+{
+    switch (getType())
+    {
+    case ESymbolType::Formula:
+        {
+            IExternalFormulaProviderPtr* provider = getExternalFormulaProviderPtr();
+            (*provider).~IExternalFormulaProviderPtr();
+        }
+        break;
+    case ESymbolType::External:
+        {
+            IGraphRelationPtr<int>* relation = getAbstractRelationPtr();
+            (*relation).~IGraphRelationPtr<int>();
+        }
+        break;
+
+    default:
+        // No need to do anything
+        break;
+    }
 }
 
 inline ProgramSymbol ProgramSymbol::negatedFormula() const
 {
-    return ProgramSymbol(getFormula(), !isNegated(), m_relation);
+    return ProgramSymbol(getFormula(), !isNegated(), getExternalFormulaProvider());
 }
 
 inline wstring ProgramSymbol::toString() const
@@ -277,11 +423,14 @@ inline wstring ProgramSymbol::toString() const
     switch (getType())
     {
     case ESymbolType::Formula:
+    case ESymbolType::External:
         return isNegated() ? (TEXT("~") + getFormula()->toString()) : getFormula()->toString();
     case ESymbolType::Integer:
         return {wstring::CtorSprintf(), TEXT("%d"), getInt()};
     case ESymbolType::ID:
         return getID();
+    case ESymbolType::Abstract:
+        return {wstring::CtorSprintf(), TEXT("Abstract(%s)"), getAbstractRelation()->toString().c_str()};
     case ESymbolType::Invalid:
         return TEXT("<Invalid>");
     default:
@@ -290,16 +439,89 @@ inline wstring ProgramSymbol::toString() const
     }
 }
 
-class IExternalFormulaProvider
+inline void ProgramSymbol::setExternalProvider(const IExternalFormulaProviderPtr& provider)
 {
-public:
-    virtual ~IExternalFormulaProvider() {}
-    // create the positive instantiations of this formula, given the supplied arguments.
-    // some arguments may be invalid (ProgramSymbol::isInvalid()) : these should be treated as a wildcards.
-    virtual vector<ProgramSymbol> instantiate(const vector<ProgramSymbol>& args) const = 0;
-};
+    new(m_smartPtrBytes) IExternalFormulaProviderPtr(provider);
+}
 
-using IExternalFormulaProviderPtr = shared_ptr<IExternalFormulaProvider>;
+inline void ProgramSymbol::setAbstractRelation(const IGraphRelationPtr<int>& relation)
+{
+    new(m_smartPtrBytes) IGraphRelationPtr<int>(relation);
+}
+
+inline IGraphRelationPtr<int>* ProgramSymbol::getAbstractRelationPtr()
+{
+    return reinterpret_cast<IGraphRelationPtr<int>*>(m_smartPtrBytes);
+}
+
+inline IExternalFormulaProviderPtr* ProgramSymbol::getExternalFormulaProviderPtr()
+{
+    return reinterpret_cast<IExternalFormulaProviderPtr*>(m_smartPtrBytes);
+}
+
+inline ProgramSymbol ProgramSymbol::makeConcrete(int vertex) const
+{
+    switch (getType())
+    {
+    case ESymbolType::Integer:
+    case ESymbolType::ID:
+        return *this;
+
+    case ESymbolType::Abstract:
+        {
+            int destVertex;
+            if (!getAbstractRelation()->getRelation(vertex, destVertex))
+            {
+                return {};
+            }
+            return ProgramSymbol(destVertex);
+        }
+
+    case ESymbolType::Formula:
+        {
+            auto sig = getFormula();
+
+            vector<ProgramSymbol> concreteArgs;
+            concreteArgs.reserve(sig->args.size());
+            for (auto& arg : sig->args)
+            {
+                concreteArgs.push_back(arg.makeConcrete(vertex));
+            }
+
+            return ProgramSymbol(sig->uid, sig->name, move(concreteArgs), isNegated());
+        }
+
+    case ESymbolType::External:
+        {
+            auto sig = getFormula();
+
+            vector<ProgramSymbol> concreteArgs;
+            concreteArgs.reserve(sig->args.size());
+            for (auto& arg : sig->args)
+            {
+                concreteArgs.push_back(arg.makeConcrete(vertex));
+            }
+
+            if (getExternalFormulaProvider()->instantiate(concreteArgs))
+            {
+                return isNegated()
+                    ? ProgramSymbol()
+                    : ProgramSymbol(sig->uid, sig->name, move(concreteArgs), false);
+            }
+            else
+            {
+                return isNegated()
+                    ? ProgramSymbol(sig->uid, sig->name, move(concreteArgs), true)
+                    : ProgramSymbol();
+            }
+        }
+
+    case ESymbolType::Invalid:
+    default:
+        vxy_fail_msg("Unexpected symbol type");
+        return {};
+    }
+}
 
 // Base class for instantiating all values of a particular literal in a program rule
 class Instantiator
