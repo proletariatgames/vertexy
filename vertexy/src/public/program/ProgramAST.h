@@ -76,6 +76,7 @@ public:
     virtual size_t hash() const = 0;
     virtual bool operator==(const LiteralTerm& rhs) const = 0;
     bool operator !=(const LiteralTerm& rhs) const { return !operator==(rhs); }
+    virtual unique_ptr<LiteralTerm> makeConcrete(int vertex) const = 0;
 
     bool createVariableReps(VariableMap& bound);
 
@@ -106,6 +107,7 @@ public:
     }
     virtual wstring toString() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+    virtual ULiteralTerm makeConcrete(int vertex) const override;
 
     ProgramVariable var;
     bool isBinder = false;
@@ -128,6 +130,7 @@ public:
     {
         return eastl::hash<ProgramSymbol>()(sym);
     }
+    virtual ULiteralTerm makeConcrete(int vertex) const override;
 
     ProgramSymbol sym;
 };
@@ -144,6 +147,7 @@ public:
     virtual wstring toString() const override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+    virtual ULiteralTerm makeConcrete(int vertex) const override;
 
     EUnaryOperatorType op;
     ULiteralTerm child;
@@ -163,6 +167,7 @@ public:
     virtual UInstantiator instantiate(ProgramCompiler& compiler) override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+    virtual ULiteralTerm makeConcrete(int vertex) const override;
 
     EBinaryOperatorType op;
     ULiteralTerm lhs;
@@ -174,7 +179,7 @@ using UBinaryOpTerm = unique_ptr<BinaryOpTerm>;
 class FunctionTerm : public LiteralTerm
 {
 public:
-    FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated);
+    FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated, const IExternalFormulaProviderPtr& provider);
 
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
@@ -186,30 +191,14 @@ public:
     virtual wstring toString() const override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+    virtual ULiteralTerm makeConcrete(int vertex) const override;
 
     FormulaUID functionUID;
     const wchar_t* functionName;
     vector<ULiteralTerm> arguments;
+    IExternalFormulaProviderPtr provider;
     bool negated;
     bool recursive = false;
-};
-
-using UFunctionTerm = unique_ptr<FunctionTerm>;
-
-class ExternalFunctionTerm : public FunctionTerm
-{
-public:
-    ExternalFunctionTerm(const shared_ptr<IExternalFormulaProvider>& provider, vector<ULiteralTerm>&& arguments, bool negated);
-
-    virtual ProgramSymbol eval() const override { vxy_fail_msg("NYI"); return {}; }
-    virtual UTerm clone() const override;
-    virtual UInstantiator instantiate(ProgramCompiler& compiler) override
-    {
-        vxy_fail_msg("NYI");
-        return nullptr;
-    }
-
-    shared_ptr<IExternalFormulaProvider> provider;
 };
 
 using UFunctionTerm = unique_ptr<FunctionTerm>;
@@ -220,6 +209,7 @@ public:
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) = 0;
     virtual void bindAsFacts(ProgramCompiler& compiler) = 0;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) = 0;
+    virtual unique_ptr<HeadTerm> makeConcrete(int vertex) const = 0;
 };
 
 using UHeadTerm = unique_ptr<HeadTerm>;
@@ -236,9 +226,10 @@ public:
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
+    virtual unique_ptr<HeadTerm> makeConcrete(int vertex) const override;
     virtual wstring toString() const override;
 
-    ProgramSymbol evalSingle();
+    ProgramSymbol evalSingle() const;
     AtomID getOrCreateAtom(ProgramCompiler& compiler);
 
     FormulaUID functionUID;
@@ -260,6 +251,7 @@ public:
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
+    virtual unique_ptr<HeadTerm> makeConcrete(int vertex) const override;
     virtual wstring toString() const override;
 
     vector<UFunctionHeadTerm> children;
@@ -276,6 +268,7 @@ public:
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
     virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
+    virtual unique_ptr<HeadTerm> makeConcrete(int vertex) const override;
     virtual wstring toString() const override;
 
     UFunctionHeadTerm subTerm;
@@ -295,6 +288,8 @@ public:
         replaceInHead(visitor);
         replaceInBody(visitor);
     }
+
+    URuleStatement makeConcrete(int vertex) const;
 
     wstring toString() const;
 

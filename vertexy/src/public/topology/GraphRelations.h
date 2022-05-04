@@ -15,6 +15,7 @@ class IGraphRelation : public enable_shared_from_this<IGraphRelation<T>>
 {
 public:
 	using RelationType = T;
+	using VertexID = ITopology::VertexID;
 
 	IGraphRelation()
 	{
@@ -27,17 +28,87 @@ public:
 	template <typename U>
 	shared_ptr<IGraphRelation<typename U::RelationType>> map(const shared_ptr<U>& relation) const;
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const
+	virtual bool equals(const IGraphRelation<T>& rhs) const
 	{
 		return this == &rhs;
 	}
 
-	virtual bool getRelation(int sourceVertex, T& out) const = 0;
+	bool operator==(const IGraphRelation<T>& rhs) const
+	{
+		return equals(rhs);
+	}
+
+	virtual size_t hash() const = 0;
+
+	virtual bool getRelation(VertexID sourceVertex, T& out) const = 0;
 	virtual wstring toString() const { return TEXT("Custom"); }
 };
 
 template<typename T>
 using IGraphRelationPtr = shared_ptr<const IGraphRelation<T>>;
+
+// Basic graph relation that simply returns the vertex itself.
+class IdentityGraphRelation : public IGraphRelation<ITopology::VertexID>
+{
+public:
+	virtual bool getRelation(VertexID sourceVertex, VertexID& out) const override
+	{
+		out = sourceVertex;
+		return true;
+	}
+	virtual bool equals(const IGraphRelation<VertexID>& rhs) const override
+	{
+		return dynamic_cast<const IdentityGraphRelation*>(&rhs) != nullptr;
+	}
+	virtual wstring toString() const override { return TEXT("Vertex"); }
+	virtual size_t hash() const override
+	{
+		return 0; // TODO: better hash value?
+	}
+};
+
+// Basic graph relation that always returns the same value
+template<typename T>
+class ConstantGraphRelation : public IGraphRelation<T>
+{
+public:
+	using VertexID = typename IGraphRelation<T>::VertexID;
+
+	ConstantGraphRelation(const T& val)
+		: m_val(val)
+	{
+	}
+
+	ConstantGraphRelation(T&& val) noexcept
+		: m_val(move(val))
+	{
+	}
+
+	virtual bool getRelation(VertexID sourceVertex, T& out) const override
+	{
+		out = m_val;
+		return true;
+	}
+
+	virtual bool equals(const IGraphRelation<VertexID>& rhs) const override
+	{
+		if (auto rrhs = dynamic_cast<const ConstantGraphRelation*>(&rhs))
+		{
+			return rrhs->m_val == m_val;
+		}
+		return false;
+	}
+
+	virtual size_t hash() const override
+	{
+		return eastl::hash<T>()(m_val);
+	}
+
+	virtual wstring toString() const override { return eastl::to_wstring(m_val); }
+
+protected:
+	T m_val;
+};
 
 /** Combines a Vertex->Int relation and an Int->Value relation into a Vertex->Value relation */
 template <typename T>
@@ -64,7 +135,7 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (this == &rhs)
 		{
@@ -72,18 +143,23 @@ public:
 		}
 		if (auto typedRHS = dynamic_cast<const TMappingGraphRelation<T>*>(&rhs))
 		{
-			return typedRHS->m_relationFirst->equals(topology, *m_relationFirst.get()) && typedRHS->m_relationSecond->equals(topology, *m_relationSecond.get());
+			return typedRHS->m_relationFirst->equals(*m_relationFirst.get()) && typedRHS->m_relationSecond->equals(*m_relationSecond.get());
 		}
 		else
 		{
 			// Defer to other side to inspect mapping to determine equivalency
-			return rhs.equals(topology, *this);
+			return rhs.equals(*this);
 		}
 	}
 
 	virtual wstring toString() const override
 	{
 		return {wstring::CtorSprintf(), TEXT("%s -> %s"), m_relationFirst->toString().c_str(), m_relationSecond->toString().c_str()};
+	}
+
+	virtual size_t hash() const override
+	{
+		return combineHashes(m_relationFirst->hash(), m_relationSecond->hash());
 	}
 
 	const shared_ptr<const IGraphRelation<int>>& getFirstRelation() const { return m_relationFirst; }
@@ -99,8 +175,9 @@ template <typename T>
 class TVertexToDataGraphRelation : public IGraphRelation<T>
 {
 public:
-	explicit TVertexToDataGraphRelation(const shared_ptr<TTopologyVertexData<T>>& data)
-		: m_data(data)
+	explicit TVertexToDataGraphRelation(const ITopologyPtr& topo, const shared_ptr<TTopologyVertexData<T>>& data)
+		: m_topo(topo)
+		, m_data(data)
 	{
 	}
 
@@ -114,14 +191,14 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (this == &rhs)
 		{
 			return true;
 		}
 		auto typedRHS = dynamic_cast<const TVertexToDataGraphRelation<T>*>(&rhs);
-		return typedRHS != nullptr && typedRHS->m_data == m_data;
+		return typedRHS != nullptr && typedRHS->m_topo == m_topo && typedRHS->m_data == m_data;
 	}
 
 	virtual wstring toString() const override
@@ -129,9 +206,16 @@ public:
 		return m_data->getName();
 	}
 
+	virtual size_t hash() const override
+	{
+		return eastl::hash<TTopologyVertexData<T>*>()(m_data.get());
+	}
+
 	const shared_ptr<TTopologyVertexData<T>>& getData() const { return m_data; }
+	const ITopologyPtr& getTopo() const { return m_topo; }
 
 protected:
+	ITopologyPtr m_topo;
 	const shared_ptr<TTopologyVertexData<T>> m_data;
 };
 
@@ -158,19 +242,24 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (this == &rhs)
 		{
 			return true;
 		}
 		auto typedRHS = dynamic_cast<const TArrayAccessGraphRelation<T>*>(&rhs);
-		return typedRHS && typedRHS->arrayRel->equals(topology, *arrayRel.get()) && typedRHS->index == index;
+		return typedRHS && typedRHS->arrayRel->equals(*arrayRel.get()) && typedRHS->index == index;
 	}
 
 	virtual wstring toString() const override
 	{
 		return {wstring::CtorSprintf(), TEXT("%s[%d]"), arrayRel->toString().c_str(), index};
+	}
+
+	virtual size_t hash() const override
+	{
+		return combineHashes(eastl::hash<int>()(index), arrayRel->hash());
 	}
 
 protected:
@@ -217,7 +306,7 @@ public:
 		m_relations.push_back(rel);
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (this == &rhs)
 		{
@@ -233,7 +322,7 @@ public:
 		{
 			return !containsPredicate(typedRHS->getRelations().begin(), typedRHS->getRelations().end(), [&](auto&& inner)
 			{
-				return outer->equals(topology, *inner.get());
+				return outer->equals(*inner.get());
 			});
 		});
 	}
@@ -246,6 +335,16 @@ public:
 			out.append_sprintf(TEXT("%s%s"), m_relations[i]->toString().c_str(), i == m_relations.size() - 1 ? TEXT("") : TEXT(", "));
 		}
 		out.append(TEXT(")"));
+		return out;
+	}
+
+	virtual size_t hash() const override
+	{
+		size_t out = 0;
+		for (auto& rel : m_relations)
+		{
+			out |= rel->hash();
+		}
 		return out;
 	}
 
@@ -267,6 +366,15 @@ public:
 	virtual wstring toString() const override;
 
 	void add(const shared_ptr<const IGraphRelation<Literal>>& rel);
+	virtual size_t hash() const override
+	{
+		size_t hash = 0;
+		for (auto& rel : m_relations)
+		{
+			hash |= rel->hash();
+		}
+		return hash;
+	}
 protected:
 	vector<shared_ptr<const IGraphRelation<Literal>>> m_relations;
 	wstring m_operator;
@@ -281,7 +389,7 @@ public:
 	{
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
+	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
 
 	virtual bool combine(ValueSet& dest, const ValueSet& src) const override
 	{
@@ -299,7 +407,7 @@ public:
 	{
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
+	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
 
 	virtual bool combine(ValueSet& dest, const ValueSet& src) const override
 	{
@@ -314,8 +422,12 @@ class ClauseToLiteralGraphRelation : public IGraphRelation<Literal>
 public:
 	ClauseToLiteralGraphRelation(const ConstraintSolver& solver, const shared_ptr<const IGraphRelation<SignedClause>>& clauseRel);
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
+	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
 	virtual wstring toString() const override;
+	virtual size_t hash() const override
+	{
+		return m_clauseRel->hash();
+	}
 protected:
 	const ConstraintSolver& m_solver;
 	shared_ptr<const IGraphRelation<SignedClause>> m_clauseRel;
@@ -325,7 +437,7 @@ protected:
 class TopologyLinkIndexGraphRelation : public IGraphRelation<int>
 {
 public:
-	TopologyLinkIndexGraphRelation(const shared_ptr<ITopology>& topo, const TopologyLink& link)
+	TopologyLinkIndexGraphRelation(const ITopologyPtr& topo, const TopologyLink& link)
 		: m_topo(topo)
 		, m_link(link)
 	{
@@ -343,14 +455,15 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+	virtual bool equals(const IGraphRelation<int>& rhs) const override
 	{
 		if (this == &rhs)
 		{
 			return true;
 		}
 		auto typedRHS = dynamic_cast<const TopologyLinkIndexGraphRelation*>(&rhs);
-		return typedRHS != nullptr && m_topo == typedRHS->m_topo && m_link.isEquivalent(typedRHS->m_link, *topology.get());
+		return typedRHS != nullptr && m_topo == typedRHS->m_topo &&
+			m_link.isEquivalent(typedRHS->m_link, *m_topo.get());
 	}
 
 	virtual wstring toString() const override
@@ -359,9 +472,15 @@ public:
 	}
 
 	const TopologyLink& getLink() const { return m_link; }
+	const ITopologyPtr& getTopo() const { return m_topo; }
+
+	virtual size_t hash() const override
+	{
+		return m_link.hash();
+	}
 
 protected:
-	shared_ptr<ITopology> m_topo;
+	ITopologyPtr m_topo;
 	TopologyLink m_link;
 };
 
@@ -370,8 +489,9 @@ template <typename T>
 class TTopologyLinkGraphRelation : public IGraphRelation<T>
 {
 public:
-	TTopologyLinkGraphRelation(const shared_ptr<TTopologyVertexData<T>>& data, const TopologyLink& link)
-		: m_data(data)
+	TTopologyLinkGraphRelation(const ITopologyPtr& topo, const shared_ptr<TTopologyVertexData<T>>& data, const TopologyLink& link)
+		: m_topo(topo)
+		, m_data(data)
 		, m_link(link)
 	{
 	}
@@ -388,14 +508,15 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<T>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (this == &rhs)
 		{
 			return true;
 		}
 		auto typedRHS = dynamic_cast<const TTopologyLinkGraphRelation<T>*>(&rhs);
-		if (typedRHS != nullptr && m_data == typedRHS->m_data && m_link.isEquivalent(typedRHS->m_link, *topology.get()))
+		if (typedRHS != nullptr && m_topo == typedRHS->m_topo && m_data == typedRHS->m_data &&
+			m_link.isEquivalent(typedRHS->m_link, *m_topo.get()))
 		{
 			return true;
 		}
@@ -406,7 +527,8 @@ public:
 			auto innerSecond = dynamic_cast<const TVertexToDataGraphRelation<T>*>(mapping->getSecondRelation().get());
 			if (innerFirst && innerSecond)
 			{
-				return innerSecond->getData() == m_data && innerFirst->getLink().isEquivalent(m_link, *topology.get());
+				return innerSecond->getData() == m_data && m_topo == innerSecond->getTopo() &&
+					innerFirst->getLink().isEquivalent(m_link, *m_topo.get());
 			}
 		}
 
@@ -415,13 +537,21 @@ public:
 
 	const TopologyLink& getLink() const { return m_link; }
 	const shared_ptr<TTopologyVertexData<T>>& getData() const { return m_data; }
+	const ITopologyPtr& getTopo() const { return m_topo; }
 
 	virtual wstring toString() const override
 	{
 		return {wstring::CtorSprintf(), TEXT("%s %s"), m_link.toString(m_data->getSource()).c_str(), m_data->getName().c_str()};
 	}
 
+	virtual size_t hash() const override
+	{
+		size_t dataHash = eastl::hash<TTopologyVertexData<T>*>()(m_data.get());
+		return combineHashes(dataHash, m_link.hash());
+	}
+
 protected:
+	ITopologyPtr m_topo;
 	const shared_ptr<TTopologyVertexData<T>> m_data;
 	TopologyLink m_link;
 };
@@ -453,7 +583,7 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+	virtual bool equals(const IGraphRelation<int>& rhs) const override
 	{
 		if (this == &rhs)
 		{
@@ -468,6 +598,10 @@ public:
 		return INCOMING_EDGE ? TEXT("IncomingVertexForEdge") : TEXT("OutgoingVertexForEdge");
 	}
 
+	virtual size_t hash() const override
+	{
+		return eastl::hash<EdgeTopology*>()(m_edgeTopology.get());
+	}
 
 protected:
 	shared_ptr<EdgeTopology> m_edgeTopology;
@@ -510,7 +644,7 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+	virtual bool equals(const IGraphRelation<int>& rhs) const override
 	{
 		if (this == &rhs)
 		{
@@ -527,6 +661,14 @@ public:
 		: wstring{wstring::CtorSprintf(), TEXT("OutgoingEdge(%s)"), m_vertexTopo->edgeIndexToString(m_edgeIndex).c_str()};
 	}
 
+	virtual size_t hash() const override
+	{
+		size_t hash = eastl::hash<TOPO_TYPE*>()(m_vertexTopo.get());
+		hash = combineHashes(hash, eastl::hash<EdgeTopology*>()(m_edgeTopo.get()));
+		hash = combineHashes(hash, eastl::hash<int>()(m_edgeIndex));
+		return hash;
+	}
+
 protected:
 	shared_ptr<TOPO_TYPE> m_vertexTopo;
 	shared_ptr<EdgeTopology> m_edgeTopo;
@@ -540,9 +682,13 @@ public:
 	InvertLiteralGraphRelation(const shared_ptr<const IGraphRelation<Literal>>& inner);
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
 	virtual wstring toString() const override;
-	virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const override;
+	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
 
 	const shared_ptr<const IGraphRelation<Literal>>& getInner() const { return m_inner; }
+	virtual size_t hash() const override
+	{
+		return m_inner->hash();
+	}
 
 protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
@@ -557,11 +703,11 @@ public:
     {
     }
 
-    virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+    virtual bool equals(const IGraphRelation<int>& rhs) const override
     {
         if (auto typed = dynamic_cast<const NegateGraphRelation*>(&rhs))
         {
-            return typed->m_child->equals(topology, *m_child.get());
+            return typed->m_child->equals(*m_child.get());
         }
         return false;
     }
@@ -574,6 +720,16 @@ public:
             return true;
         }
         return false;
+    }
+
+	virtual size_t hash() const override
+    {
+	    return m_child->hash();
+    }
+
+	const IGraphRelationPtr<int>& getInner() const
+    {
+	    return m_child;
     }
 
 protected:
@@ -590,14 +746,14 @@ public:
     {
     }
 
-    virtual bool equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<int>& rhs) const override
+    virtual bool equals(const IGraphRelation<int>& rhs) const override
     {
         if (auto typed = dynamic_cast<const BinOpGraphRelation*>(&rhs))
         {
             return
                 typed->m_op == m_op &&
-                typed->m_lhs->equals(topology, *m_lhs.get()) &&
-                typed->m_rhs->equals(topology, *m_rhs.get());
+                typed->m_lhs->equals(*m_lhs.get()) &&
+                typed->m_rhs->equals(*m_rhs.get());
         }
         return false;
     }
@@ -644,6 +800,13 @@ public:
             return true;
         }
         return false;
+    }
+
+	virtual size_t hash() const override
+    {
+	    return combineHashes(m_lhs->hash(),
+	    	combineHashes(m_rhs->hash(), eastl::hash<EBinaryOperatorType>()(m_op))
+	    );
     }
 
 protected:

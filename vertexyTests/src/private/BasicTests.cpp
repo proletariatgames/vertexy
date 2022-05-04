@@ -518,7 +518,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	// Define the output of the program, so that we can instances of the returned formulas to named variables.
+	// Define the output of the program, so that we can bind instances of the returned formulas to named variables.
 	struct HamiltonianOutput
 	{
 		FormulaResult<2> path;
@@ -633,7 +633,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 
 	// Add the program to the solver. You can add more than one program; the solver will only
 	// report a solution once all added programs have been solved.
-	solver.addProgram<HamiltonianOutput>(move(inst));
+	solver.addProgram(move(inst));
 	solver.solve();
 
 	// Print out all path(X,Y) that are true, and count the number of times each node was visited.

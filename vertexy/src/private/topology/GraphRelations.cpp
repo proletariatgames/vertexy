@@ -22,14 +22,14 @@ bool ClauseToLiteralGraphRelation::getRelation(int sourceVertex, Literal& out) c
 	return true;
 }
 
-bool ClauseToLiteralGraphRelation::equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const
+bool ClauseToLiteralGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 {
 	if (this == &rhs)
 	{
 		return true;
 	}
 	auto typedRHS = dynamic_cast<const ClauseToLiteralGraphRelation*>(&rhs);
-	return typedRHS != nullptr && (&typedRHS->m_solver) == (&m_solver) && m_clauseRel->equals(topology, *typedRHS->m_clauseRel.get());
+	return typedRHS != nullptr && (&typedRHS->m_solver) == (&m_solver) && m_clauseRel->equals(*typedRHS->m_clauseRel.get());
 }
 
 wstring ClauseToLiteralGraphRelation::toString() const
@@ -106,14 +106,14 @@ InvertLiteralGraphRelation::InvertLiteralGraphRelation(const shared_ptr<const IG
 {
 }
 
-bool InvertLiteralGraphRelation::equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const
+bool InvertLiteralGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 {
 	if (this == &rhs)
 	{
 		return true;
 	}
 	auto typedRHS = dynamic_cast<const InvertLiteralGraphRelation*>(&rhs);
-	return typedRHS != nullptr && m_inner->equals(topology, *typedRHS->m_inner.get());
+	return typedRHS != nullptr && m_inner->equals(*typedRHS->m_inner.get());
 }
 
 wstring InvertLiteralGraphRelation::toString() const
@@ -121,7 +121,7 @@ wstring InvertLiteralGraphRelation::toString() const
 	return {wstring::CtorSprintf(), TEXT("InvertLiteral(%s)"), m_inner->toString().c_str()};
 }
 
-bool LiteralUnionGraphRelation::equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const
+bool LiteralUnionGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 {
 	if (this == &rhs)
 	{
@@ -136,12 +136,12 @@ bool LiteralUnionGraphRelation::equals(const shared_ptr<const ITopology>& topolo
 	{
 		return !containsPredicate(typedRHS->m_relations.begin(), typedRHS->m_relations.end(), [&](auto&& inner)
 		{
-			return inner->equals(topology, *outer.get());
+			return inner->equals(*outer.get());
 		});
 	});
 }
 
-bool LiteralIntersectionGraphRelation::equals(const shared_ptr<const ITopology>& topology, const IGraphRelation<Literal>& rhs) const
+bool LiteralIntersectionGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 {
 	if (this == &rhs)
 	{
@@ -156,7 +156,7 @@ bool LiteralIntersectionGraphRelation::equals(const shared_ptr<const ITopology>&
 	{
 		return !containsPredicate(typedRHS->m_relations.begin(), typedRHS->m_relations.end(), [&](auto&& inner)
 		{
-			return inner->equals(topology, *outer.get());
+			return inner->equals(*outer.get());
 		});
 	});
 }

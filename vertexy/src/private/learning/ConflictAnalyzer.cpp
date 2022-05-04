@@ -560,9 +560,9 @@ shared_ptr<const IGraphRelation<T>> ConflictAnalyzer::createOffsetGraphRelation(
 			TopologyLink combinedLink = link.combine(existingLinkRel->getLink());
 			if (combinedLink.isEquivalent(TopologyLink::SELF, *m_graph.get()))
 			{
-				return make_shared<TVertexToDataGraphRelation<T>>(existingLinkRel->getData());
+				return make_shared<TVertexToDataGraphRelation<T>>(existingLinkRel->getTopo(), existingLinkRel->getData());
 			}
-			return make_shared<TTopologyLinkGraphRelation<T>>(existingLinkRel->getData(), combinedLink);
+			return make_shared<TTopologyLinkGraphRelation<T>>(existingLinkRel->getTopo(), existingLinkRel->getData(), combinedLink);
 		}
 		else if (auto existingMapping = dynamic_cast<const TMappingGraphRelation<T>*>(inRel.get()))
 		{
@@ -659,7 +659,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 				// The explanation returned something unexpected. TODO: Maybe can check subset instead?
 				isValid = false;
 			}
-			else if (!hasExistingRelation || !offsetRel->equals(m_graph, *get<LiteralRelationType>(node.relation).get()))
+			else if (!hasExistingRelation || !offsetRel->equals(*get<LiteralRelationType>(node.relation).get()))
 			{
 				if (hasExistingRelation)
 				{
@@ -691,7 +691,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 
 		else if constexpr (is_same_v<T, VariableRelationType>)
 		{
-			if (!hasExistingRelation || !offsetRel->equals(m_graph, *get<VariableRelationType>(node.relation).get()))
+			if (!hasExistingRelation || !offsetRel->equals(*get<VariableRelationType>(node.relation).get()))
 			{
 				if (hasExistingRelation)
 				{
@@ -717,7 +717,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 
 					bool isAlreadyContained = containsPredicate(node.multiRelation->getRelations().begin(), node.multiRelation->getRelations().end(), [&](auto&& inner)
 					{
-						return inner->equals(m_graph, *offsetRel.get());
+						return inner->equals(*offsetRel.get());
 					});
 					if (!isAlreadyContained)
 					{

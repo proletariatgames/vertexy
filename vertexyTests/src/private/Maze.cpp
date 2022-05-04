@@ -321,12 +321,13 @@ int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool
 
 	// Topology links allow you to specify relative coordinates in an arbitrary topology.
 	// In this case, we want to get various neighbors of grid tiles.
-	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(tileData);
-	auto leftTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveLeft());
-	auto rightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveRight());
-	auto upTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveUp());
-	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
-	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
+	auto igrid = ITopology::adapt(grid);
+	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(igrid, tileData);
+	auto leftTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, PlanarGridTopology::moveLeft());
+	auto rightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, PlanarGridTopology::moveRight());
+	auto upTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, PlanarGridTopology::moveUp());
+	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, PlanarGridTopology::moveDown());
+	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
 	//
 	// DECLARE CONSTRAINTS
@@ -491,7 +492,7 @@ int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool
 		auto stepData = solver.makeVariableGraph(stepName, ITopology::adapt(grid), stepDomain, {wstring::CtorSprintf(), TEXT("Step%d-"), step});
 		stepDatas.push_back(stepData);
 
-		auto selfStepTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepData);
+		auto selfStepTile = make_shared<TVertexToDataGraphRelation<VarID>>(igrid, stepData);
 
 		// If this tile is the entrance in the maze, constrain it to be the entrance in this step.
 		solver.makeGraphConstraint<IffConstraint>(grid,
@@ -534,7 +535,7 @@ int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool
 
 		if (step > 0)
 		{
-			auto PrevStepTile = make_shared<TTopologyLinkGraphRelation<VarID>>(stepDatas[step - 1], TopologyLink::SELF);
+			auto PrevStepTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, stepDatas[step - 1], TopologyLink::SELF);
 			// Optimization: Later step's tile is always reachable if earlier step's tile is reachable.
 			solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
 				GraphRelationClause(selfStepTile, EClauseSign::Outside, step_Reachable),
@@ -556,7 +557,7 @@ int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool
 		auto stepEdgeData = solver.makeVariableGraph(stepEdgesName, ITopology::adapt(edges), edgeDomain, {wstring::CtorSprintf(), TEXT("Step%d-Edge "), step});
 		stepEdgeDatas.push_back(stepEdgeData);
 
-		auto edgeNodeToEdgeVarRel = make_shared<TVertexToDataGraphRelation<VarID>>(stepEdgeData);
+		auto edgeNodeToEdgeVarRel = make_shared<TVertexToDataGraphRelation<VarID>>(igrid, stepEdgeData);
 		for (int direction : {PlanarGridTopology::Left, PlanarGridTopology::Right, PlanarGridTopology::Up, PlanarGridTopology::Down})
 		{
 			// Relations: Maps a node index in Grid to a node index in Edges
@@ -567,8 +568,8 @@ int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool
 			auto incomingEdgeVarRel = tileToIncomingEdgeNodeRel->map(edgeNodeToEdgeVarRel);
 
 			// Map from an edge node to the Tile variable on other side of edge
-			auto destTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, TopologyLink::create(make_tuple(direction, 1)));
-			auto destStepTile = make_shared<TTopologyLinkGraphRelation<VarID>>(stepData, TopologyLink::create(make_tuple(direction, 1)));
+			auto destTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, tileData, TopologyLink::create(make_tuple(direction, 1)));
+			auto destStepTile = make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, stepData, TopologyLink::create(make_tuple(direction, 1)));
 
 			// Edges toward walls are always solid
 			solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,

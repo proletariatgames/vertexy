@@ -14,7 +14,7 @@ struct TopologyLink;
 /** Generic interface for all topologies. Allows navigation of the topology without knowing underlying implementation.
  *
  *  To create from a raw topology, e.g.:
- *  shared_ptr<ITopology> TopoItf = ITopology::Adapt(Topo);
+ *  ITopologyPtr TopoItf = ITopology::Adapt(Topo);
  *
  *  NOTE you should **NOT** implement this interface yourself. Create a TTopology-derived class instead, and wrap
  *  it with Adapt() to get an ITopology.
@@ -76,6 +76,8 @@ public:
 	const shared_ptr<T>& getImplementation() const;
 };
 
+using ITopologyPtr = shared_ptr<ITopology>;
+
 /** Implementation of ITopology for a specific implementation */
 template <typename Impl, typename Itf=ITopology>
 class TTopologyAdapter : public Itf
@@ -107,7 +109,7 @@ protected:
 };
 
 template <typename T>
-shared_ptr<ITopology> ITopology::adapt(const shared_ptr<T>& topology)
+ITopologyPtr ITopology::adapt(const shared_ptr<T>& topology)
 {
 	if (topology->m_itf.get() == nullptr)
 	{

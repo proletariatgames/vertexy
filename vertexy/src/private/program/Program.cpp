@@ -36,7 +36,8 @@ Vertexy::detail::ProgramRangeTerm Program::range(ProgramSymbol min, ProgramSymbo
     return detail::ProgramRangeTerm(minV, maxV);
 }
 
-ProgramInstance::ProgramInstance()
+ProgramInstance::ProgramInstance(const shared_ptr<ITopology>& topology)
+    : m_topology(topology)
 {
 }
 

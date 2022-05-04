@@ -185,6 +185,16 @@ struct TopologyLink
 
 	const DirectionList& getDirections() const { return m_directions; }
 
+	size_t hash() const
+	{
+		size_t hash = 0;
+		for (auto& dir : m_directions)
+		{
+			hash = combineHashes(hash, combineHashes(eastl::hash<int>()(dir.direction), eastl::hash<int>()(dir.distance)));
+		}
+		return hash;
+	}
+
 private:
 	// Helper function for constructor that takes variable number of arguments
 	template <typename Dir, typename... Rem>

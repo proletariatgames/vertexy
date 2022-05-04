@@ -15,10 +15,60 @@ class DigraphTopology;
 
 class ProgramCompiler
 {
+public:
+    using BindMap = hash_map<FormulaUID, BindCaller*>;
+
+    struct AtomDomain
+    {
+        FormulaUID uid;
+        hash_map<ProgramSymbol, int> map;
+        vector<CompilerAtom> list;
+    };
+    using UAtomDomain = unique_ptr<AtomDomain>;
+
+    struct RelationalRuleStatement
+    {
+        RuleStatement* statement;
+        ITopologyPtr topology;
+    };
+
+    ProgramCompiler(RuleDatabase& rdb, const BindMap& binders);
+
+    static bool compile(RuleDatabase& rdb, const vector<RelationalRuleStatement>& statements, const BindMap& binders);
+
+    const AtomDomain& getDomain(FormulaUID formula) const
+    {
+        static AtomDomain empty;
+        auto found = m_groundedAtoms.find(formula);
+        if (found != m_groundedAtoms.end())
+        {
+            return *found->second.get();
+        }
+        return empty;
+    }
+
+    bool hasAtom(const ProgramSymbol& sym) const
+    {
+        vxy_assert(!sym.isNegated());
+        auto found = m_groundedAtoms.find(sym.getFormula()->uid);
+        if (found != m_groundedAtoms.end())
+        {
+            return found->second->map.find(sym) != found->second->map.end();
+        }
+        return false;
+    }
+
+    AtomLiteral exportAtom(const ProgramSymbol& sym, bool forHead=false);
+    AnyGraphLiteralType exportGraphAtom(const ITopologyPtr& topology, const ProgramSymbol& sym, bool forHead=false);
+
+    void bindFactIfNeeded(const ProgramSymbol& sym);
+
+    bool hasFailure() const { return m_failure; }
+
 protected:
     struct DepGraphNodeData
     {
-        RuleStatement* statement;
+        const RelationalRuleStatement* stmt;
         bool marked = false;
         int vertex = 0;
         int outerSCCIndex = -1;
@@ -56,58 +106,16 @@ protected:
         LiteralTerm* lit;
     };
 
-public:
-    struct AtomDomain
-    {
-        FormulaUID uid;
-        hash_map<ProgramSymbol, int> map;
-        vector<CompilerAtom> list;
-    };
-    using UAtomDomain = unique_ptr<AtomDomain>;
-
-    using BindMap = hash_map<FormulaUID, BindCaller*>;
-
-    ProgramCompiler(RuleDatabase& rdb, const BindMap& binders);
-
-    static bool compile(RuleDatabase& rdb, const vector<RuleStatement*>& statements, const BindMap& binders);
-
-    const AtomDomain& getDomain(FormulaUID formula) const
-    {
-        static AtomDomain empty;
-        auto found = m_groundedAtoms.find(formula);
-        if (found != m_groundedAtoms.end())
-        {
-            return *found->second.get();
-        }
-        return empty;
-    }
-
-    bool hasAtom(const ProgramSymbol& sym) const
-    {
-        vxy_assert(!sym.isNegated());
-        auto found = m_groundedAtoms.find(sym.getFormula()->uid);
-        if (found != m_groundedAtoms.end())
-        {
-            return found->second->map.find(sym) != found->second->map.end();
-        }
-        return false;
-    }
-
-    AtomLiteral exportAtom(const ProgramSymbol& sym, bool forHead=false);
-    void bindFactIfNeeded(const ProgramSymbol& sym);
-
-    bool hasFailure() const { return m_failure; }
-
-protected:
-    void rewriteMath(const vector<RuleStatement*>& stmts);
-    void createDependencyGraph(const vector<RuleStatement*>& stmts);
-    void createComponents(const vector<RuleStatement*>& stmts);
+    void rewriteMath(const vector<RelationalRuleStatement>& stmts);
+    void createDependencyGraph(const vector<RelationalRuleStatement>& stmts);
+    void createComponents(const vector<RelationalRuleStatement>& stmts);
 
     void ground();
     void groundRule(DepGraphNodeData* statementNode);
     void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur=0);
 
-    void exportStatement(DepGraphNodeData* stmtNode, const VariableMap& varBindings);
+    void expandAndExportStatement(const DepGraphNodeData* stmtNode, const VariableMap& varBindings);
+    void exportStatement(const DepGraphNodeData* stmtNode, const RuleStatement* statement, const VariableMap& varBindings);
     bool addGroundedAtom(const CompilerAtom& atom);
 
     RuleDatabase& m_rdb;
@@ -121,8 +129,8 @@ protected:
 
     hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
 
-    hash_map<FormulaUID, IExternalFormulaProviderPtr> m_externals;
     hash_map<ProgramSymbol, AtomLiteral> m_createdAtomVars;
+    hash_map<ProgramSymbol, BoundGraphAtomLiteral> m_createdGraphAtomVars;
 
     bool m_failure = false;
     bool m_foundRecursion = false;

@@ -170,8 +170,13 @@ public:
     bool isSum = false;
 };
 
+using GraphAtomRelationPtr = shared_ptr<const IGraphRelation<vector<AtomID>>>;
 
-using RuleGraphRelation = variant<GraphLiteralRelationPtr, GraphClauseRelationPtr>;
+using RuleGraphRelationPtr = variant<
+    GraphLiteralRelationPtr,
+    GraphClauseRelationPtr,
+    GraphAtomRelationPtr
+>;
 
 using AnyLiteralType = variant<
     AtomLiteral, SignedClause, Literal
@@ -183,12 +188,24 @@ using AnyBodyElement = variant<
     TRuleBodyElement<Literal>
 >;
 
+class BindCaller;
+
+using BoundGraphAtomID = pair<GraphAtomID, BindCaller*>;
+using BoundGraphAtomLiteral = pair<GraphAtomLiteral, BindCaller*>;
+
+using AnyGraphLiteralType = variant<
+    BoundGraphAtomLiteral,
+    AtomLiteral
+>;
+
 using AnyGraphBodyElement = variant<
-    TRuleBodyElement<GraphAtomLiteral>,
-    TRuleBodyElement<RuleGraphRelation>,
-    TRuleBodyElement<AtomLiteral>,
-    TRuleBodyElement<SignedClause>,
-    TRuleBodyElement<Literal>
+    TRuleBodyElement<BoundGraphAtomLiteral>,
+    TRuleBodyElement<AtomLiteral>
+>;
+
+using AnyGraphHeadType = variant<
+    TRuleHead<AtomID>,
+    TRuleHead<BoundGraphAtomID>
 >;
 
 using RuleBodyList = vector<AnyBodyElement>;

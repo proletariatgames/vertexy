@@ -962,14 +962,14 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 
 bool ConstraintSolver::finalizeRules()
 {
-	vector<RuleStatement*> ruleStatements;
+	vector<ProgramCompiler::RelationalRuleStatement> ruleStatements;
 	ProgramCompiler::BindMap binders;
 
 	for (auto& prgInst : m_programInsts)
 	{
 		for (auto& stmt : prgInst->getRuleStatements())
 		{
-			ruleStatements.push_back(stmt.get());
+			ruleStatements.push_back({stmt.get(), prgInst->getTopology()});
 		}
 		for (auto& entry : prgInst->getBinders())
 		{

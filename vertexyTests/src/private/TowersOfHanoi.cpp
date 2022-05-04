@@ -348,13 +348,13 @@ int TowersOfHanoiSolver::solverTowersDiskBasedGraph(int times, int numDisks, int
 
 		auto prevTurnRel = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(timeGraph), PlanarGridTopology::moveLeft());
 
-		auto curMoveRel = make_shared<TVertexToDataGraphRelation<VarID>>(moveData);
+		auto curMoveRel = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(timeGraph), moveData);
 		auto prevMoveRel = prevTurnRel->map(curMoveRel);
 
-		auto curMoveDestRel = make_shared<TVertexToDataGraphRelation<VarID>>(moveDestData);
+		auto curMoveDestRel = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(timeGraph), moveDestData);
 		auto prevMoveDestRel = prevTurnRel->map(curMoveDestRel);
 
-		auto disksOnRel = make_shared<TVertexToDataGraphRelation<vector<VarID>>>(diskOnData);
+		auto disksOnRel = make_shared<TVertexToDataGraphRelation<vector<VarID>>>(ITopology::adapt(timeGraph), diskOnData);
 		auto prevDisksOnRel = prevTurnRel->map(disksOnRel);
 
 		//
