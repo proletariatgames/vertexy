@@ -94,6 +94,7 @@ public:
     }
 
     AtomLiteral exportAtom(const ProgramSymbol& sym, bool forHead=false);
+    void bindFactIfNeeded(const ProgramSymbol& sym);
 
     bool hasFailure() const { return m_failure; }
 
@@ -122,6 +123,7 @@ protected:
 
     hash_map<FormulaUID, IExternalFormulaProviderPtr> m_externals;
     hash_map<ProgramSymbol, AtomLiteral> m_createdAtomVars;
+
     bool m_failure = false;
     bool m_foundRecursion = false;
 };

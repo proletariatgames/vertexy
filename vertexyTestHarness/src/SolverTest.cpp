@@ -264,183 +264,38 @@ static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
 static constexpr bool PRINT_VERBOSE = false;
 
-// class PrefabDef;
-//
-// #define VXY_BIND_FORMULA(name, binder) Formula name(L#name); name = binder
-// #define VXY_BIND_CONST(name, binder) const Formula name(L#name); name = binder
-//
-// void createPrefabConstraints(const PrefabDef& def, Formula<2>& tileType, Formula<2>& prefabID, Formula<2>& prefabPos)
-// {
-// 	shared_ptr<ITopology> topology;
-// 	vector<PrefabDef> prefabDefs;
-// 	TTopologyVertexData<VarID> tileTypes, prefabIDs, prefabPositions;
-//
-// 	// position(0...numPositions)
-// 	VXY_BIND_CONST(position, Program::range(0, def.getNumTiles()));
-// 	// tiles(index, tileType)
-// 	VXY_BIND_CONST(tiles, Program::index(def.tiles.begin(), def.tiles.end()));
-// 	// neighbor(index, neighbor_pos, direction)
-// 	VXY_BIND_CONST(neighbor, Program::index(def.allNeighbors.begin(), def.allNeighbors.end()));
-// 	VXY_BIND_CONST(direction, Program::fromEnum<EDirections>());
-//
-// 	auto prog = Program::define([&](ProgramSymbol vertex)
-// 	{
-// 		using EDirections = PlanarGridTopology::EDirections;
-//
-// 		VXY_VARIABLE(V);
-// 		VXY_VARIABLE(I);
-// 		VXY_VARIABLE(J);
-// 		VXY_VARIABLE(T);
-// 		VXY_VARIABLE(DIR);
-//
-// 		// Define that there must be exactly one atom of signature tileType(V,*).
-// 		// Internally can use this to encode tileType(V,Domain(N)) as a bitfield var
-// 		Program::singleton(tileType(V,T), T);
-// 		Program::singleton(prefabID(V,I), I);
-// 		Program::singleton(prefabPos(V,I), I);
-//
-// 		auto left = Program::graphLink(PlanarGridTopology::moveLeft());
-// 		auto right = Program::graphLink(PlanarGridTopology::moveRight());
-// 		auto up = Program::graphLink(PlanarGridTopology::moveUp());
-// 		auto down =	Program::graphLink(PlanarGridTopology::moveDown());
-// 		// BIND_CONST should disallow e.g. left(V, X) <<= foo(X)
-//
-// 		VXY_FORMULA(adjacent, 3);
-// 		adjacent(EDirections::Left,	 V) <<= left(vertex, V);
-// 		adjacent(EDirections::Right, V) <<= right(vertex, V);
-// 		adjacent(EDirections::Up,	 V) <<= up(vertex, V);
-// 		adjacent(EDirections::Down,	 V) <<= down(vertex, V);
-//
-// 		int id = def.getId();
-// 		// option of assigning this ID.
-// 		prefabID(vertex, id).choice();
-//
-// 		// option of assigning a position.
-// 		prefabPos(vertex, I).choice() <<= prefabID(vertex, id) && position(I);
-// 		// position must be valid
-// 		Program::disallow(prefabID(vertex, id) && prefabPos(vertex, I) && ~position(I));
-//
-// 		// if this vertex is a prefabID at position index I, tileType should be the tile at position index I.
-// 		tileType(vertex, T) <<= prefabID(vertex, id) && prefabPos(vertex, I) && tiles(I, T);
-// 		// if this vertex is a prefabID at position index I, for any adjacent position index J, the vertex in
-// 		// the corresponding direction should be same prefab ID.
-// 		prefabID(V, id) <<= prefabID(vertex, id) && prefabPos(vertex, I) && neighbor(I, J, DIR) && adjacent(DIR, V);
-// 		// if this vertex is a prefabID at position index I, for any adjacent position index J, the vertex in
-// 		// the corresponding direction should have the correct position index.
-// 		prefabPos(V, J) <<= prefabID(vertex, id) && prefabPos(vertex, I) && neighbor(I, J, DIR) && adjacent(DIR, V);
-// 	});
-//
-// 	auto instance = prog(topology);
-// 	solver.addProgram(instance);
-// }
-
 int main(int argc, char* argv[])
 {
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
 
-	{
-		struct HamiltonianOutput
-		{
-			FormulaResult<2> path;
-		};
-
-		auto hamiltonian = Program::define([]()
-		{
-			VXY_FORMULA(node, 1);
-			node(0);
-			node(1);
-			node(2);
-			node(3);
-
-			VXY_FORMULA(edge, 2);
-			edge(0, 1); edge(0, 2);
-			edge(1, 2); edge(1, 3);
-			edge(2, 0); edge(2, 3);
-			edge(3, 0);
-
-			VXY_FORMULA(start, 1);
-			start(0);
-
-			VXY_VARIABLE(X);
-			VXY_VARIABLE(Y);
-			VXY_VARIABLE(Z);
-
-			VXY_FORMULA(path, 2);
-			VXY_FORMULA(omit, 2);
-			path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
-			omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
-
-			VXY_VARIABLE(X1);
-			VXY_VARIABLE(Y1);
-			Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
-			Program::disallow(path(X,Y) && path(X, Y1) && Y < Y1);
-
-			VXY_FORMULA(on_path, 1);
-			on_path(X) <<= path(X, Y) && path(Y, Z);
-			Program::disallow(node(X) && ~on_path(X));
-
-			VXY_FORMULA(reach, 1);
-			reach(X) <<= start(X);
-			reach(Y) <<= reach(X) && path(X, Y);
-			Program::disallow(node(X) && ~reach(X));
-
-			return HamiltonianOutput{path};
-		});
-
-
-		vector<VarID> pathVars;
-
-		ConstraintSolver solver;
-		auto inst = hamiltonian();
-
-		get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
-		{
-			wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
-			pathVars.push_back(solver.makeBoolean(varName));
-			return pathVars.back();
-		});
-
-		solver.addProgram<HamiltonianOutput>(move(inst));
-		solver.solve();
-
-		for (VarID var : pathVars)
-		{
-			if (solver.getSolvedValue(var) != 0)
-			{
-				VERTEXY_LOG("%s", solver.getVariableName(var).c_str());
-			}
-		}
-
-		solver.dumpStats(true);
-	}
-
-	MazeSolver::solveProgram(1, 10, 10, FORCE_SEED, true);
-
 	TestApplication Suite("Solver Tests", argc, argv);
-	// Suite.AddTest("ValueBitset", test_ValueBitset);
-	// Suite.AddTest("Digraph", test_Digraph);
-	// Suite.AddTest("RuleSCCs", test_ruleSCCs);
-	// Suite.AddTest("Clause-Basic", []() { return TestSolvers::solveClauseBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Inequality-Basic", []() { return TestSolvers::solveInequalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Cardinality-Basic", []() { return TestSolvers::solveCardinalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("AllDifferent-Small", []() { return TestSolvers::solveAllDifferentSmall(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("AllDifferent-Large", []() { return TestSolvers::solveAllDifferentLarge(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Rules-BasicChoice", []() { return TestSolvers::solveRules_basicChoice(FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Rules-BasicDisjunction", []() { return TestSolvers::solveRules_basicDisjunction(FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Rules-BasicCycle", []() { return TestSolvers::solveRules_basicCycle(FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveRules_incompleteCycle(FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Sum-Basic", []() { return TestSolvers::solveSumBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Sudoku", []() { return SudokuSolver::solve(NUM_TIMES, SUDOKU_STARTING_HINTS, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersGrid(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersDiskBased(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solverTowersDiskBasedGraph(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("KnightTourPacked", []() { return KnightTourSolver::solvePacked(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("KnightTour", []() { return KnightTourSolver::solveAtomic(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("NQueens-AllDifferent", []() { return NQueensSolvers::solveUsingAllDifferent(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
-	// Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("ValueBitset", test_ValueBitset);
+	Suite.AddTest("Digraph", test_Digraph);
+	Suite.AddTest("RuleSCCs", test_ruleSCCs);
+	Suite.AddTest("Clause-Basic", []() { return TestSolvers::solveClauseBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Inequality-Basic", []() { return TestSolvers::solveInequalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Cardinality-Basic", []() { return TestSolvers::solveCardinalityBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Cardinality-Shift", []() { return TestSolvers::solveCardinalityShiftProblem(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("AllDifferent-Small", []() { return TestSolvers::solveAllDifferentSmall(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("AllDifferent-Large", []() { return TestSolvers::solveAllDifferentLarge(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicChoice", []() { return TestSolvers::solveRules_basicChoice(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicDisjunction", []() { return TestSolvers::solveRules_basicDisjunction(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicCycle", []() { return TestSolvers::solveRules_basicCycle(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveRules_incompleteCycle(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveProgram_hamiltonian(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Sum-Basic", []() { return TestSolvers::solveSumBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Sudoku", []() { return SudokuSolver::solve(NUM_TIMES, SUDOKU_STARTING_HINTS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersGrid(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersDiskBased(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solverTowersDiskBasedGraph(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("KnightTourPacked", []() { return KnightTourSolver::solvePacked(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("KnightTour", []() { return KnightTourSolver::solveAtomic(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("NQueens-AllDifferent", []() { return NQueensSolvers::solveUsingAllDifferent(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+
 	return Suite.Run();
 }

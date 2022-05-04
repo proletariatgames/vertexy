@@ -48,6 +48,8 @@ namespace detail
         {
         }
 
+        operator ProgramSymbol() const;
+
         ULiteralTerm term;
     };
 
@@ -741,6 +743,16 @@ inline void operator<<=(detail::ProgramHeadChoiceTerm&& head, detail::ProgramBod
     vector<ULiteralTerm> terms;
     terms.push_back(move(body.term));
     operator<<=(forward<detail::ProgramHeadChoiceTerm>(head), detail::ProgramBodyTerms(move(terms)));
+}
+
+// needed to support e.g.
+// ProgramSymbol x;
+// Formula<1> y = Program::range(0, x-1);
+inline Vertexy::detail::ProgramOpArgument::operator ProgramSymbol() const
+{
+    ProgramSymbol result = term->eval();
+    vxy_assert_msg(result.isValid(), "No variables allowed in this expression");
+    return result;
 }
 
 } // namespace Vertexy

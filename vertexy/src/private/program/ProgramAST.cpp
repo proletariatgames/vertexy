@@ -643,9 +643,20 @@ AtomID FunctionHeadTerm::getOrCreateAtom(ProgramCompiler& compiler)
 
     vxy_assert(!symbol.isNegated());
     auto atomLit = compiler.exportAtom(symbol, true);
-
     vxy_assert(atomLit.sign());
     return atomLit.id();
+}
+
+TRuleHead<AtomID> FunctionHeadTerm::createHead(ProgramCompiler& compiler)
+{
+    return TRuleHead(getOrCreateAtom(compiler));
+}
+
+void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler)
+{
+    ProgramSymbol symbol = evalSingle();
+    vxy_assert(symbol.isValid());
+    compiler.bindFactIfNeeded(symbol);
 }
 
 bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
@@ -689,11 +700,6 @@ UTerm FunctionHeadTerm::clone() const
         clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
     }
     return make_unique<FunctionHeadTerm>(functionUID, functionName, move(clonedArgs));
-}
-
-TRuleHead<AtomID> FunctionHeadTerm::createHead(ProgramCompiler& compiler)
-{
-    return TRuleHead(getOrCreateAtom(compiler));
 }
 
 wstring FunctionHeadTerm::toString() const
@@ -815,6 +821,14 @@ TRuleHead<AtomID> DisjunctionTerm::createHead(ProgramCompiler& compiler)
     return TRuleHead(headAtoms, ERuleHeadType::Disjunction);
 }
 
+void DisjunctionTerm::bindAsFacts(ProgramCompiler& compiler)
+{
+    for (auto& child : children)
+    {
+        child->bindAsFacts(compiler);
+    }
+}
+
 ChoiceTerm::ChoiceTerm(UFunctionHeadTerm&& term)
     : subTerm(move(term))
 {
@@ -867,6 +881,11 @@ wstring ChoiceTerm::toString() const
 TRuleHead<AtomID> ChoiceTerm::createHead(ProgramCompiler& compiler)
 {
     return TRuleHead(subTerm->getOrCreateAtom(compiler), ERuleHeadType::Choice);
+}
+
+void ChoiceTerm::bindAsFacts(ProgramCompiler& compiler)
+{
+    subTerm->bindAsFacts(compiler);
 }
 
 RuleStatement::RuleStatement(UHeadTerm&& head, vector<ULiteralTerm>&& body)

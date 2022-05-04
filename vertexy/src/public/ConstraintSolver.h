@@ -508,6 +508,11 @@ protected:
 		return contains(varGraphs.begin(), varGraphs.end(), graphID);
 	}
 
+	// Current status - updated every time Step() is called
+	EConstraintSolverResult m_currentStatus = EConstraintSolverResult::Uninitialized;
+	// storage for all variables and backtracking data
+	SolverVariableDatabase m_variableDB;
+
 	// All constraints that have been learned through conflict analysis that may be purged
 	vector<ClauseConstraint*> m_temporaryLearnedConstraints;
 	// Learned constraints that will never be purged
@@ -540,8 +545,6 @@ protected:
 
 	vector<DisabledWatchMarker> m_disabledWatchMarkers;
 
-	// storage for all variables and backtracking data
-	SolverVariableDatabase m_variableDB;
 	// bit for whether a given variable is currently in propagation queue
 	ValueSet m_variableQueuedSet;
 
@@ -573,9 +576,6 @@ protected:
 
 	// The watcher for each variable
 	vector<unique_ptr<IVariablePropagator>> m_variablePropagators;
-
-	// Current status - updated every time Step() is called
-	EConstraintSolverResult m_currentStatus = EConstraintSolverResult::Uninitialized;
 
 	// Decision heuristic stack
 	vector<shared_ptr<ISolverDecisionHeuristic>> m_heuristicStack;

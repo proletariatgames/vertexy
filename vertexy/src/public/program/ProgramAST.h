@@ -218,6 +218,7 @@ class HeadTerm : public Term
 {
 public:
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) = 0;
+    virtual void bindAsFacts(ProgramCompiler& compiler) = 0;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) = 0;
 };
 
@@ -233,6 +234,7 @@ public:
     virtual UTerm clone() const override;
 
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
+    virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 
@@ -256,6 +258,7 @@ public:
     virtual UTerm clone() const override;
 
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
+    virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 
@@ -271,6 +274,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
     virtual UTerm clone() const override;
     virtual TRuleHead<AtomID> createHead(ProgramCompiler& compiler) override;
+    virtual void bindAsFacts(ProgramCompiler& compiler) override;
     virtual vector<ProgramSymbol> eval(bool& isNormalRule) override;
     virtual wstring toString() const override;
 
