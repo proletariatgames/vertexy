@@ -39,7 +39,7 @@ class BindCaller
 {
 public:
     virtual ~BindCaller() {}
-    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
 };
 
 // Implementation of BindCaller for a given arity
@@ -52,10 +52,11 @@ public:
     {
     }
 
-    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        return std::apply(m_bindFun, zip(syms));
+        SignedClause clause = std::apply(m_bindFun, zip(syms));
+        return clause.translateToLiteral(provider);
     }
 
     // zip up ARITY elements from the vector into a tuple
@@ -89,7 +90,7 @@ public:
     {
     }
 
-    virtual SignedClause call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
         VarID var = std::apply(m_bindFun, zip(syms));
@@ -100,7 +101,9 @@ public:
 
         auto domain = provider.getDomain(var);
         vxy_assert_msg(domain.getDomainSize() == 2, "Your binder must return either a SignedClause, or a VarID with a domain size of 2");
-        return SignedClause(var, vector{domain.getMax()});
+        SignedClause c(var, vector{domain.getMax()});
+
+        return c.translateToLiteral(provider);
     }
 
     // zip up ARITY elements from the vector into a tuple

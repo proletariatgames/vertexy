@@ -26,7 +26,9 @@ public:
 	}
 
 	template <typename U>
-	shared_ptr<IGraphRelation<typename U::RelationType>> map(const shared_ptr<U>& relation) const;
+	shared_ptr<const IGraphRelation<typename U::RelationType>> map(const shared_ptr<U>& relation) const;
+	template<typename U>
+	shared_ptr<const IGraphRelation<T>> filter(U&& filter) const;
 
 	virtual bool equals(const IGraphRelation<T>& rhs) const
 	{
@@ -47,10 +49,25 @@ public:
 template<typename T>
 using IGraphRelationPtr = shared_ptr<const IGraphRelation<T>>;
 
+using GraphVertexRelationPtr = IGraphRelationPtr<ITopology::VertexID>;
+
 // Basic graph relation that simply returns the vertex itself.
 class IdentityGraphRelation : public IGraphRelation<ITopology::VertexID>
 {
+private:
+	IdentityGraphRelation() {} // should not instantiate; use get() instead.
+
 public:
+	static shared_ptr<IdentityGraphRelation> get()
+	{
+		static shared_ptr<IdentityGraphRelation> inst;
+		if (inst == nullptr)
+		{
+			inst = shared_ptr<IdentityGraphRelation>(new IdentityGraphRelation());
+		}
+		return inst;
+	}
+
 	virtual bool getRelation(VertexID sourceVertex, VertexID& out) const override
 	{
 		out = sourceVertex;
@@ -60,7 +77,7 @@ public:
 	{
 		return dynamic_cast<const IdentityGraphRelation*>(&rhs) != nullptr;
 	}
-	virtual wstring toString() const override { return TEXT("Vertex"); }
+	virtual wstring toString() const override { return TEXT("I"); }
 	virtual size_t hash() const override
 	{
 		return 0; // TODO: better hash value?
@@ -90,7 +107,7 @@ public:
 		return true;
 	}
 
-	virtual bool equals(const IGraphRelation<VertexID>& rhs) const override
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
 		if (auto rrhs = dynamic_cast<const ConstantGraphRelation*>(&rhs))
 		{
@@ -170,6 +187,55 @@ protected:
 	shared_ptr<const IGraphRelation<T>> m_relationSecond;
 };
 
+template<typename T, typename U>
+class TFilterGraphRelation : public IGraphRelation<T>
+{
+public:
+	TFilterGraphRelation(U&& filter, const shared_ptr<const IGraphRelation<T>>& inner)
+		: m_filter(filter)
+		, m_inner(inner)
+	{		
+	}
+
+	virtual bool getRelation(int vertex, T& out) const override
+	{
+		if (!m_filter(vertex))
+		{
+			return false;
+		}
+		return m_inner->getRelation(vertex, out);
+	}
+
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
+	{
+		if (&rhs == this)
+		{
+			return true;
+		}
+		if (auto rrhs = dynamic_cast<const TFilterGraphRelation<T,U>*>(&rhs))
+		{
+			return rrhs->m_inner->equals(*m_inner);
+		}
+		return false;
+	}
+
+	virtual size_t hash() const override
+	{
+		return m_inner->hash();
+	}
+
+	virtual wstring toString() const override
+	{
+		wstring out;
+		out.sprintf(TEXT("Filter(%s)"), m_inner->toString().c_str());
+		return out;
+	}
+	
+protected:
+	U m_filter;
+	shared_ptr<const IGraphRelation<T>> m_inner;
+};
+
 // Given a vertex in a graph, return the corresponding value in a TTopologyVertexData object.
 template <typename T>
 class TVertexToDataGraphRelation : public IGraphRelation<T>
@@ -223,7 +289,7 @@ template<typename T>
 class TArrayAccessGraphRelation : public IGraphRelation<T>
 {
 public:
-	explicit TArrayAccessGraphRelation(const shared_ptr<IGraphRelation<vector<T>>>& arrayRel, int index) : arrayRel(arrayRel), index(index) {}
+	explicit TArrayAccessGraphRelation(const shared_ptr<const IGraphRelation<vector<T>>>& arrayRel, int index) : arrayRel(arrayRel), index(index) {}
 
 	virtual bool getRelation(int sourceVertex, T& out) const override
 	{
@@ -263,7 +329,7 @@ public:
 	}
 
 protected:
-	shared_ptr<IGraphRelation<vector<T>>> arrayRel;
+	shared_ptr<const IGraphRelation<vector<T>>> arrayRel;
 	int index;
 };
 
@@ -274,6 +340,13 @@ class TManyToOneGraphRelation : public IGraphRelation<T>
 public:
 	TManyToOneGraphRelation()
 	{
+	}
+
+	shared_ptr<TManyToOneGraphRelation> clone() const
+	{
+		auto cloned = make_shared<TManyToOneGraphRelation>();
+		cloned->m_relations = m_relations;
+		return cloned;
 	}
 
 	virtual bool getRelation(int sourceVertex, T& out) const override
@@ -301,9 +374,17 @@ public:
 		return true;
 	}
 
-	void add(const shared_ptr<const IGraphRelation<T>>& rel)
+	void add(const shared_ptr<const IGraphRelation<T>>& rel, bool checkExists=false)
 	{
-		m_relations.push_back(rel);
+		auto checkEqual= [&](auto&& lhs)
+		{
+			return lhs->equals(*rel);
+		};
+
+		if (!checkExists || !containsPredicate(m_relations.begin(), m_relations.end(), checkEqual))
+		{
+			m_relations.push_back(rel);
+		}
 	}
 
 	virtual bool equals(const IGraphRelation<T>& rhs) const override
@@ -607,6 +688,65 @@ protected:
 	shared_ptr<EdgeTopology> m_edgeTopology;
 };
 
+/** Given a vertex in a graph and an edge index, returns the corresponding vertex at the other side of the edge. **/
+template<typename TOPO_TYPE, bool INCOMING_EDGE=false>
+class TVertexEdgeToVertexGraphRelation : public IGraphRelation<ITopology::VertexID>
+{
+public:
+	TVertexEdgeToVertexGraphRelation(const shared_ptr<TOPO_TYPE>& topo, int edgeIndex)
+		: m_topo(topo)
+		, m_edgeIndex(edgeIndex)
+	{
+	}
+
+	virtual bool getRelation(VertexID sourceVertex, VertexID& out) const override
+	{
+		if (!INCOMING_EDGE)
+		{
+			if (!m_topo->getOutgoingDestination(sourceVertex, m_edgeIndex, out))
+			{
+				return false;
+			}
+		}
+		else
+		{
+			if (!m_topo->getIncomingSource(sourceVertex, m_edgeIndex, out))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	virtual bool equals(const IGraphRelation<VertexID>& rhs) const override
+	{
+		if (this == &rhs)
+		{
+			return true;
+		}
+		auto typedRHS = dynamic_cast<const TVertexEdgeToVertexGraphRelation*>(&rhs);
+		return typedRHS != nullptr && typedRHS->m_topo == m_topo && typedRHS->m_edgeIndex == m_edgeIndex;
+	}
+
+	virtual wstring toString() const override
+	{
+		return INCOMING_EDGE
+			? wstring{wstring::CtorSprintf(), TEXT("IncomingEdge(%s)"), m_topo->edgeIndexToString(m_edgeIndex).c_str()}
+			: wstring{wstring::CtorSprintf(), TEXT("OutgoingEdge(%s)"), m_topo->edgeIndexToString(m_edgeIndex).c_str()};
+	}
+
+	virtual size_t hash() const override
+	{
+		size_t hash = eastl::hash<TOPO_TYPE*>()(m_topo.get());
+		hash = combineHashes(hash, eastl::hash<int>()(m_edgeIndex));
+		return hash;
+	}
+
+protected:
+	shared_ptr<TOPO_TYPE> m_topo;
+	int m_edgeIndex;
+};
+
 /** Given a vertex in a graph, an edge index, and a FEdgeTopology for the graph, and returns the corresponding vertex index in the edge graph */
 template <typename TOPO_TYPE, bool INCOMING_EDGE = false>
 class TVertexEdgeToEdgeGraphVertexGraphRelation : public IGraphRelation<int>
@@ -657,8 +797,8 @@ public:
 	virtual wstring toString() const override
 	{
 		return INCOMING_EDGE
-				   ? wstring{wstring::CtorSprintf(), TEXT("IncomingEdge(%s)"), m_vertexTopo->edgeIndexToString(m_edgeIndex).c_str()}
-		: wstring{wstring::CtorSprintf(), TEXT("OutgoingEdge(%s)"), m_vertexTopo->edgeIndexToString(m_edgeIndex).c_str()};
+			? wstring{wstring::CtorSprintf(), TEXT("IncomingEdgeInEdgeGraph(%s)"), m_vertexTopo->edgeIndexToString(m_edgeIndex).c_str()}
+			: wstring{wstring::CtorSprintf(), TEXT("OutgoingEdgeInEdgeGraph(%s)"), m_vertexTopo->edgeIndexToString(m_edgeIndex).c_str()};
 	}
 
 	virtual size_t hash() const override
@@ -736,7 +876,7 @@ protected:
     IGraphRelationPtr<int> m_child;
 };
 
-class BinOpGraphRelation : public IGraphRelation<int>
+class	BinOpGraphRelation : public IGraphRelation<int>
 {
 public:
     BinOpGraphRelation(const IGraphRelationPtr<int>& lhs, const IGraphRelationPtr<int>& rhs, EBinaryOperatorType op)
@@ -778,22 +918,28 @@ public:
                 out = left*right;
                 break;
             case EBinaryOperatorType::Equality:
-                out = (left == right) ? 1 : 0;
+            	if (left != right) { return false; }
+            	out = 1;
                 break;
             case EBinaryOperatorType::Inequality:
-                out = (left != right) ? 1 : 0;
+            	if (left == right) { return false; }
+                out = 1;
                 break;
             case EBinaryOperatorType::LessThan:
-                out = (left < right) ? 1 : 0;
+            	if (left >= right) { return false; }
+                out = 1;
                 break;
             case EBinaryOperatorType::LessThanEq:
-                out = (left <= right) ? 1 : 0;
+            	if (left > right) { return false; }
+                out = 1;
                 break;
             case EBinaryOperatorType::GreaterThan:
-                out = (left > right) ? 1 : 0;
+            	if (left <= right) { return false; }
+                out = 1;
                 break;
             case EBinaryOperatorType::GreaterThanEq:
-                out = (left >= right) ? 1 : 0;
+            	if (left < right) { return false; }
+                out = 1;
             default:
                 vxy_fail_msg("unexpected binary operator");
             }
@@ -809,18 +955,108 @@ public:
 	    );
     }
 
+	virtual wstring toString() const override
+    {
+	    wstring sOp;
+    	switch (m_op)
+    	{
+    	case EBinaryOperatorType::Add:				sOp = TEXT("+"); break;
+    	case EBinaryOperatorType::Subtract:			sOp = TEXT("-"); break;
+    	case EBinaryOperatorType::Divide:			sOp = TEXT("/"); break;
+    	case EBinaryOperatorType::Multiply:			sOp = TEXT("*"); break;
+    	case EBinaryOperatorType::Equality:			sOp = TEXT("=="); break;
+    	case EBinaryOperatorType::Inequality:		sOp = TEXT("!="); break;
+    	case EBinaryOperatorType::LessThan:			sOp = TEXT("<"); break;
+    	case EBinaryOperatorType::LessThanEq:		sOp = TEXT("<="); break;
+    	case EBinaryOperatorType::GreaterThan:		sOp = TEXT(">"); break;
+    	case EBinaryOperatorType::GreaterThanEq:	sOp = TEXT(">="); break;
+    	default:
+    		vxy_fail_msg("unexpected binary operator");
+    	}
+
+    	wstring out = m_lhs->toString();
+    	out.append_sprintf(TEXT(" %s %s"), sOp.c_str(), m_rhs->toString().c_str());
+    	return out;
+    }
+
 protected:
     IGraphRelationPtr<int> m_lhs;
     IGraphRelationPtr<int> m_rhs;
     EBinaryOperatorType m_op;
 };
 
+// given an evaluator relation E, and a two relations L and R:
+// resolve to L.map(E) iff L.map(E) == R.
+class FilterGraphRelation : public IGraphRelation<int>
+{
+public:
+	FilterGraphRelation(const IGraphRelationPtr<VertexID>& left, const IGraphRelationPtr<VertexID>& right, const IGraphRelationPtr<VertexID>& eval)
+		: m_lhs(left)
+		, m_rhs(right)
+		, m_eval(eval)
+	{
+	}
+
+	virtual bool getRelation(VertexID sourceVertex, VertexID& out) const override
+	{
+		VertexID left;
+		if (!m_lhs->getRelation(sourceVertex, left))
+		{
+			return false;
+		}
+
+		VertexID eval;
+		if (!m_eval->getRelation(left, eval))
+		{
+			return false;
+		}
+
+		VertexID right;
+		if (!m_rhs->getRelation(sourceVertex, right))
+		{
+			return false;
+		}
+
+		if (eval != right)
+		{
+			return false;
+		}
+
+		out = eval;
+		return true;
+	}
+
+protected:
+	IGraphRelationPtr<VertexID> m_lhs;
+	IGraphRelationPtr<VertexID> m_rhs;
+	IGraphRelationPtr<VertexID> m_eval;
+};
+
 
 template <>
 template <typename U>
-shared_ptr<IGraphRelation<typename U::RelationType>> IGraphRelation<int>::map(const shared_ptr<U>& relation) const
+shared_ptr<const IGraphRelation<typename U::RelationType>> IGraphRelation<int>::map(const shared_ptr<U>& relation) const
 {
+	if constexpr (is_same_v<typename U::RelationType, int>)
+	{
+		if (dynamic_cast<const IdentityGraphRelation*>(relation.get()) != nullptr)
+		{
+			return shared_from_this();
+		}
+	}
+	else if (dynamic_cast<const IdentityGraphRelation*>(this) != nullptr)
+	{
+		return relation;
+	}
+	
 	return make_shared<TMappingGraphRelation<typename U::RelationType>>(shared_from_this(), const_shared_pointer_cast<U, add_const<U>::type>(relation));
+}
+
+template<typename T>
+template<typename U>
+shared_ptr<const IGraphRelation<T>> IGraphRelation<T>::filter(U&& filter) const
+{
+	return make_shared<TFilterGraphRelation<T,U>>(forward<U>(filter), shared_from_this());	
 }
 
 } // namespace Vertexy

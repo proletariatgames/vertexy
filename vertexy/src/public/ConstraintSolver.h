@@ -28,12 +28,12 @@
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
 
-#include "program/Program.h"
-#include "rules/RuleDatabase.h"
-
 namespace Vertexy
 {
 class IRestartPolicy;
+
+class ProgramInstance;
+class RuleDatabase;
 
 enum class EConstraintSolverResult : uint8_t
 {
@@ -129,7 +129,7 @@ class ConstraintSolver : public IVariableDomainProvider
 
 	static ConstraintSolver* s_currentSolver; // for debugging
 
-public:
+	public:
 	using RandomStreamType = std::mt19937;
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
@@ -184,11 +184,11 @@ public:
 	EConstraintSolverResult getCurrentStatus() const { return m_currentStatus; }
 
 	template<typename T>
-	void addProgram(tuple<UProgramInstance, T>&& instance)
+	void addProgram(tuple<unique_ptr<ProgramInstance>, T>&& instance)
 	{
 		return addProgram(move(get<UProgramInstance>(instance)));
 	}
-	void addProgram(UProgramInstance&& instance);
+	void addProgram(unique_ptr<ProgramInstance>&& instance);
 
 	// Returns whether or not the given variable is solved.
 	bool isSolved(VarID varID) const;
@@ -196,9 +196,6 @@ public:
 	// Returns the solved value for a single variable. Will assert if variable is not solved.
 	// Note this returns the TRANSLATED value, not the internal (offset) value
 	int getSolvedValue(VarID varID) const;
-
-	// Returns whether a rule atom is currently true.
-	bool isAtomTrue(AtomID atomID) const;
 
 	// Returns the solution. Will assert if current state isn't Solved.
 	hash_map<VarID, SolvedVariableRecord> getSolution() const;
@@ -274,10 +271,15 @@ public:
 	VarID makeVariable(const wstring& varName, const SolverVariableDomain& domain, const vector<int>& potentialValues = {});
 
 	// Utility function to make a boolean variable
-	VarID makeBoolean(const wstring& varName)
+	VarID makeBoolean(const wstring& varName, const vector<int>& potentialValues = {})
 	{
-		return makeVariable(varName, SolverVariableDomain(0,1));
+		return makeVariable(varName, SolverVariableDomain(0,1), potentialValues);
 	}
+
+	// returns a literal for a boolean variable that is always true
+	const Literal& getTrue() const { return m_trueLiteral; }
+	// returns a literal for a boolean variable that is always false
+	const Literal& getFalse() const { return m_falseLiteral; }
 
 	// Create a graph of variables for the associated topology
 	// Returned reference can be upcast to shared_ptr<ITopologyInstance<FVarID>>
@@ -344,16 +346,16 @@ public:
 	//
 
 	// Helper functions for creating constraints
-	class ClauseConstraint& clause(const vector<SignedClause>& clauses);
-	class ClauseConstraint& nogood(const vector<SignedClause>& clauses);
-	class IffConstraint& iff(const SignedClause& head, const vector<SignedClause>& body);
-	class AllDifferentConstraint& allDifferent(const vector<VarID>& variables, bool useWeakPropagation = false);
-	class TableConstraint& table(const shared_ptr<struct TableConstraintData>& data, const vector<VarID>& variables);
-	class OffsetConstraint& offset(VarID sum, VarID term, int delta);
-	class InequalityConstraint& inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide);
-	class CardinalityConstraint& cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues);
-	class SumConstraint& sum(const VarID sum, const vector<VarID>& vars);
-	class DisjunctionConstraint& disjunction(IConstraint* consA, IConstraint* consB);
+	class ClauseConstraint* clause(const vector<SignedClause>& clauses);
+	class ClauseConstraint* nogood(const vector<SignedClause>& clauses);
+	class IffConstraint* iff(const SignedClause& head, const vector<SignedClause>& body);
+	class AllDifferentConstraint* allDifferent(const vector<VarID>& variables, bool useWeakPropagation = false);
+	class TableConstraint* table(const shared_ptr<struct TableConstraintData>& data, const vector<VarID>& variables);
+	class OffsetConstraint* offset(VarID sum, VarID term, int delta);
+	class InequalityConstraint* inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide);
+	class CardinalityConstraint* cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues);
+	class SumConstraint* sum(const VarID sum, const vector<VarID>& vars);
+	class DisjunctionConstraint* disjunction(IConstraint* consA, IConstraint* consB);
 
 	//
 	// Create a constraint across an entire graph. All vertices in the graph will share the same constraints.
@@ -383,13 +385,13 @@ public:
 
 		auto graphConstraintData = make_shared<TTopologyVertexData<IConstraint*>>(graph, nullptr);
 
-		for (int i = 0; i < graph->getNumVertices(); ++i)
+		for (int vertex = 0; vertex < graph->getNumVertices(); ++vertex)
 		{
-			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType, Mode>(graph, i, forward<ArgsType>(args)...);
+			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, vertex, forward<ArgsType>(args)...);
 			if (cons != nullptr)
 			{
 				anyMade = true;
-				graphConstraintData->set(i, cons);
+				graphConstraintData->set(vertex, cons);
 			}
 		}
 
@@ -411,9 +413,9 @@ public:
 	// Generic method for constructing a constraint.
 	// Usage: Solver.MakeConstraint<FMyConstraintType>(ConstructorParam1, ConstructorParam2, ...);
 	template <typename T, typename... ArgsType>
-	T& makeConstraint(ArgsType&&... args)
+	T* makeConstraint(ArgsType&&... args)
 	{
-		return *static_cast<T*>(registerConstraint(T::Factory::construct(ConstraintFactoryParams(*this), forward<ArgsType>(args)...)));
+		return static_cast<T*>(registerConstraint(T::Factory::construct(ConstraintFactoryParams(*this), forward<ArgsType>(args)...)));
 	}
 
 	// Access the database for creating ASP-style rules
@@ -624,9 +626,8 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
-	vector<UProgramInstance> m_programInsts;
+	vector<unique_ptr<ProgramInstance>> m_programInsts;
 	unique_ptr<RuleDatabase> m_ruleDB;
-	vector<variant<bool, Literal>> m_atomValues;
 
 	ConflictAnalyzer m_analyzer;
 
@@ -635,6 +636,9 @@ protected:
 	mutable ConstraintSolverStats m_stats;
 	shared_ptr<SolverDecisionLog> m_outputLog;
 	wstring m_name;
+
+	Literal m_trueLiteral;
+	Literal m_falseLiteral;
 
 	/////////////////////////////
 	//
@@ -645,9 +649,10 @@ protected:
 	//
 
 	template <typename T, typename... ArgsType>
-	T& makeConstraintForGraph(const ConstraintGraphRelationInfo& relationInfo, ArgsType&&... args)
+	T* makeConstraintForGraph(const ConstraintGraphRelationInfo& relationInfo, ArgsType&&... args)
 	{
-		return *static_cast<T*>(registerConstraint(T::Factory::construct(ConstraintFactoryParams(*this, relationInfo), forward<ArgsType>(args)...)));
+		auto cons = T::Factory::construct(ConstraintFactoryParams(*this, relationInfo), forward<ArgsType>(args)...);
+		return cons != nullptr ? static_cast<T*>(registerConstraint(cons)) : nullptr;
 	}
 
 	// Record the graph relation for a variable/literal.
@@ -668,6 +673,11 @@ protected:
 	}
 
 	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, SignedClause>& arg)
+	{
+		if (arg.relation) { relationInfo.addRelation(arg.value.variable, arg.relation); }
+	}
+
+	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<Literal, Literal>& arg)
 	{
 		if (arg.relation) { relationInfo.addRelation(arg.value.variable, arg.relation); }
 	}
@@ -733,6 +743,25 @@ protected:
 		return translatedArray;
 	}
 
+	// GraphCulledVector specialization removes elements of the array that do not resolve
+	template<typename T>
+	auto translateGraphConsArgument(const GraphCulledVector<T>& argArray, ConstraintGraphRelationInfo& relationInfo, bool& success)
+	{
+		using ElementType = decltype(translateGraphConsArgument(argArray.getInternal()[0], relationInfo, success));
+		vector<ElementType> translatedArray;
+		translatedArray.reserve(argArray.getInternal().size());
+		for (auto& arg : argArray.getInternal())
+		{
+			bool innerSuccess = true;
+			auto translatedArg = translateGraphConsArgument(arg, relationInfo, innerSuccess);
+			if (innerSuccess)
+			{
+				translatedArray.push_back(translatedArg);
+			}
+		}
+		return translatedArray;
+	}
+
 	// Concatenate arguments passed into a tuple<>, so that the constructor can be invoked via apply().
 	template <EOutOfBoundsMode Mode, typename... TranslatedParams>
 	auto concatGraphConsArgs(const std::tuple<TranslatedParams...>& params, ConstraintGraphRelationInfo&, bool&) { return params; }
@@ -757,7 +786,7 @@ protected:
 		auto translatedArgsTuple = concatGraphConsArgs<Mode>(std::tuple<>{}, graphRelationInfo, success, forward<ArgsType>(args)...);
 		if (success)
 		{
-			std::apply([&](auto&&... unpackedParams) { out = &makeConstraintForGraph<T>(graphRelationInfo, unpackedParams...); }, translatedArgsTuple);
+			std::apply([&](auto&&... unpackedParams) { out = makeConstraintForGraph<T>(graphRelationInfo, unpackedParams...); }, translatedArgsTuple);
 		}
 		return out;
 	}

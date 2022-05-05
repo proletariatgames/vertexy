@@ -35,7 +35,7 @@ void Term::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEsta
     });
 }
 
-UInstantiator LiteralTerm::instantiate(ProgramCompiler& compiler)
+UInstantiator LiteralTerm::instantiate(ProgramCompiler&, const ITopologyPtr&)
 {
     vxy_fail_msg("instantiate called on unexpected term");
     return nullptr;
@@ -70,7 +70,7 @@ bool LiteralTerm::createVariableReps(VariableMap& bound)
     return foundNewBindings;
 }
 
-bool LiteralTerm::match(const ProgramSymbol& sym, bool isFact)
+bool LiteralTerm::match(const ProgramSymbol& sym, bool& isFact)
 {
     ProgramSymbol evalSym = eval();
     if (evalSym.isValid() && sym == evalSym)
@@ -94,7 +94,7 @@ VariableTerm::VariableTerm(ProgramVariable param)
 
 wstring VariableTerm::toString() const
 {
-    if (sharedBoundRef != nullptr)
+    if (sharedBoundRef != nullptr && sharedBoundRef->isValid())
     {
         return sharedBoundRef->toString();
     }
@@ -113,19 +113,6 @@ bool VariableTerm::operator==(const LiteralTerm& rhs) const
     return false;
 }
 
-ULiteralTerm VariableTerm::makeConcrete(int vertex) const
-{
-    ProgramSymbol concrete = sharedBoundRef->makeConcrete(vertex);
-    if (!concrete.isValid())
-    {
-        return nullptr;
-    }
-
-    auto outTerm = make_unique<VariableTerm>(var);
-    outTerm->sharedBoundRef = make_shared<ProgramSymbol>(concrete);
-    return outTerm;
-}
-
 bool VariableTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -141,27 +128,45 @@ void VariableTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool
     outVars.push_back(make_pair(const_cast<VariableTerm*>(this), canEstablish));
 }
 
-bool VariableTerm::match(const ProgramSymbol& sym, bool isFact)
+bool VariableTerm::match(const ProgramSymbol& sym, bool& isFact)
 {
+    abstractToConst = ProgramSymbol();
     if (isBinder)
     {
         // if this is the term where the variable first appears in, we take on whatever symbol was handed to us.
         // The ProgramSymbol pointed to by sharedBoundRef is shared by all other VariableTerms for the same variable in the
         // rule's body.
         *sharedBoundRef = sym;
-        assignedAtom = {sym, isFact};
         return true;
     }
-    else
+    // Otherwise this is a variable that was already bound earlier. Check for equality.
+    else if (*sharedBoundRef == sym)
     {
-        // Otherwise this is a variable that was already bound earlier, so we just check for equality.
-        if (*sharedBoundRef == sym)
-        {
-            assignedAtom = {sym, isFact};
-            return true;
-        }
-        return false;
+        return true;
     }
+    else if (sharedBoundRef->isAbstract())
+    {
+        if (sym.isAbstract())
+        {
+            // abstractToConst = sym;
+        }
+        else
+        {
+            auto rel = make_shared<TManyToOneGraphRelation<ITopology::VertexID>>();
+            rel->add(sharedBoundRef->getAbstractRelation());
+            rel->add(make_shared<ConstantGraphRelation<int>>(sym.getInt()));
+            abstractToConst = ProgramSymbol(rel);
+        }
+
+        isFact = false;
+        return true;
+    }
+    return false;
+}
+
+ProgramSymbol VariableTerm::eval() const
+{
+    return abstractToConst.isValid() ? abstractToConst : *sharedBoundRef;
 }
 
 SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
@@ -178,12 +183,6 @@ bool SymbolTerm::operator==(const LiteralTerm& rhs) const
     return false;
 }
 
-ULiteralTerm SymbolTerm::makeConcrete(int vertex) const
-{
-    ProgramSymbol concrete = sym.makeConcrete(vertex);
-    return concrete.isValid() ? make_unique<SymbolTerm>(concrete) : nullptr;
-}
-
 bool SymbolTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
@@ -192,6 +191,35 @@ bool SymbolTerm::visit(const function<EVisitResponse(const Term*)>& visitor) con
 UTerm SymbolTerm::clone() const
 {
     return make_unique<SymbolTerm>(sym);
+}
+
+VertexTerm::VertexTerm()
+{
+}
+
+bool VertexTerm::operator==(const LiteralTerm& rhs) const
+{
+    return dynamic_cast<const VertexTerm*>(&rhs) != nullptr;
+}
+
+bool VertexTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    return visitor(this) != EVisitResponse::Abort;
+}
+
+UTerm VertexTerm::clone() const
+{
+    return make_unique<VertexTerm>();
+}
+
+bool VertexTerm::match(const ProgramSymbol& sym, bool& isFact)
+{
+    return sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get());
+}
+
+ProgramSymbol VertexTerm::eval() const
+{
+    return ProgramSymbol(IdentityGraphRelation::get());
 }
 
 FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated, const IExternalFormulaProviderPtr& provider)
@@ -205,7 +233,31 @@ FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, 
 
 void FunctionTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
 {
-    return LiteralTerm::collectVars(outVars, canEstablish && !negated);
+    if (provider != nullptr)
+    {
+        // We can only establish if we have at least one non-variable argument.
+        bool hasPartialArgs = false;
+        if (canEstablish && !negated) // skip work if unnecessary
+        {
+            for (auto& arg : arguments)
+            {
+                if (!arg->contains<VariableTerm>())
+                {
+                    hasPartialArgs = true;
+                    break;
+                }
+            }
+        }
+
+        for (int i = 0; i < arguments.size(); ++i)
+        {
+            arguments[i]->collectVars(outVars, canEstablish && !negated && hasPartialArgs && provider->canInstantiate(i));
+        }
+    }
+    else
+    {
+        return LiteralTerm::collectVars(outVars, canEstablish && !negated);
+    }
 }
 
 bool FunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
@@ -252,32 +304,26 @@ ProgramSymbol FunctionTerm::eval() const
         }
         resolvedArgs.push_back(argSym);
     }
-    return ProgramSymbol(functionUID, functionName, resolvedArgs, negated);
+
+    return ProgramSymbol(functionUID, functionName, resolvedArgs, negated, provider);
 }
 
-ULiteralTerm FunctionTerm::makeConcrete(int vertex) const
+UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
 {
-    vector<ULiteralTerm> concreteArgs;
-    for (auto& arg : arguments)
+    if (provider != nullptr)
     {
-        ULiteralTerm concreteTerm = arg->makeConcrete(vertex);
-        if (concreteTerm == nullptr)
-        {
-            return nullptr;
-        }
-        concreteArgs.push_back(move(concreteTerm));
+        return make_unique<ExternalFunctionInstantiator>(*this);
     }
-
-    return make_unique<FunctionTerm>(functionUID, functionName, move(concreteArgs), negated, nullptr);
+    else
+    {
+        return make_unique<FunctionInstantiator>(*this, compiler.getDomain(functionUID), topology);
+    }
 }
 
-UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler)
+bool FunctionTerm::match(const ProgramSymbol& sym, bool& isFact)
 {
-    return make_unique<FunctionInstantiator>(*this, compiler.getDomain(functionUID));
-}
+    vxy_assert(provider == nullptr); // should be handled by ExternalFunctionInstantiator instead
 
-bool FunctionTerm::match(const ProgramSymbol& sym, bool isFact)
-{
     if (sym.getType() != ESymbolType::Formula)
     {
         return false;
@@ -294,8 +340,23 @@ bool FunctionTerm::match(const ProgramSymbol& sym, bool isFact)
         }
     }
 
-    assignedAtom = {sym, isFact};
+    assignedAtom = {eval(), isFact};
     return true;
+}
+
+bool FunctionTerm::hasAbstractArgument() const
+{
+    for (auto& arg : arguments)
+    {
+        if (auto symTerm = dynamic_cast<const SymbolTerm*>(arg.get()))
+        {
+            if (symTerm->sym.isAbstract())
+            {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 UTerm FunctionTerm::clone() const
@@ -429,17 +490,6 @@ ProgramSymbol UnaryOpTerm::eval() const
     }
 
     return {};
-}
-
-ULiteralTerm UnaryOpTerm::makeConcrete(int vertex) const
-{
-    auto concreteChild = child->makeConcrete(vertex);
-    if (concreteChild == nullptr)
-    {
-        return nullptr;
-    }
-
-    return make_unique<UnaryOpTerm>(op, move(concreteChild));
 }
 
 wstring UnaryOpTerm::toString() const
@@ -576,25 +626,13 @@ ProgramSymbol BinaryOpTerm::eval() const
             ? resolvedRHS.getAbstractRelation()
             : make_shared<ConstantGraphRelation<int>>(resolvedRHS.getInt());
 
+        if (op == EBinaryOperatorType::Inequality && leftRel->equals(*rightRel))
+        {
+            return ProgramSymbol(0);
+        }
+
         return ProgramSymbol(make_shared<BinOpGraphRelation>(leftRel, rightRel, op));
     }
-}
-
-ULiteralTerm BinaryOpTerm::makeConcrete(int vertex) const
-{
-    auto concreteLhs = lhs->makeConcrete(vertex);
-    if (concreteLhs == nullptr)
-    {
-        return nullptr;
-    }
-
-    auto concreteRhs = rhs->makeConcrete(vertex);
-    if (concreteRhs == nullptr)
-    {
-        return nullptr;
-    }
-
-    return make_unique<BinaryOpTerm>(op, move(concreteLhs), move(concreteRhs));
 }
 
 UTerm BinaryOpTerm::clone() const
@@ -637,7 +675,7 @@ wstring BinaryOpTerm::toString() const
     }
 }
 
-UInstantiator BinaryOpTerm::instantiate(ProgramCompiler& compiler)
+UInstantiator BinaryOpTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr&)
 {
     if (op == EBinaryOperatorType::Equality)
     {
@@ -666,10 +704,10 @@ bool BinaryOpTerm::operator==(const LiteralTerm& term) const
     return false;
 }
 
-FunctionHeadTerm::FunctionHeadTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments)
-    : functionUID(functionUID)
-    , functionName(functionName)
-    , arguments(move(arguments))
+FunctionHeadTerm::FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, vector<ULiteralTerm>&& inArgs)
+    : functionUID(inUID)
+    , functionName(inName)
+    , arguments(move(inArgs))
 {
 }
 
@@ -687,7 +725,7 @@ ProgramSymbol FunctionHeadTerm::evalSingle() const
         resolvedArgs.push_back(argSym);
     }
 
-    return { ProgramSymbol(functionUID, functionName, resolvedArgs, false) };
+    return ProgramSymbol(functionUID, functionName, resolvedArgs, false);  
 }
 
 vector<ProgramSymbol> FunctionHeadTerm::eval(bool& isNormalRule)
@@ -696,30 +734,11 @@ vector<ProgramSymbol> FunctionHeadTerm::eval(bool& isNormalRule)
     return {evalSingle()};
 }
 
-AtomID FunctionHeadTerm::getOrCreateAtom(ProgramCompiler& compiler)
+void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
 {
-    ProgramSymbol symbol = evalSingle();
-    if (!symbol.isValid())
-    {
-        return {};
-    }
-
-    vxy_assert(!symbol.isNegated());
-    auto atomLit = compiler.exportAtom(symbol, true);
-    vxy_assert(atomLit.sign());
-    return atomLit.id();
-}
-
-TRuleHead<AtomID> FunctionHeadTerm::createHead(ProgramCompiler& compiler)
-{
-    return TRuleHead(getOrCreateAtom(compiler));
-}
-
-void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler)
-{
-    ProgramSymbol symbol = evalSingle();
-    vxy_assert(symbol.isValid());
-    compiler.bindFactIfNeeded(symbol);
+    auto evaluated = evalSingle();
+    vxy_assert(evaluated.isValid());
+    compiler.bindFactIfNeeded(evaluated, topology);
 }
 
 bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
@@ -784,23 +803,6 @@ wstring FunctionHeadTerm::toString() const
     return out;
 }
 
-UHeadTerm FunctionHeadTerm::makeConcrete(int vertex) const
-{
-    vector<ULiteralTerm> concreteArgs;
-    concreteArgs.reserve(arguments.size());
-
-    for (auto& arg : arguments)
-    {
-        concreteArgs.push_back(arg->makeConcrete(vertex));
-        if (concreteArgs.back() == nullptr)
-        {
-            return nullptr;
-        }
-    }
-
-    return make_unique<FunctionHeadTerm>(functionUID, functionName, move(concreteArgs));
-}
-
 DisjunctionTerm::DisjunctionTerm(vector<UFunctionHeadTerm>&& children)
     : children(move(children))
 {
@@ -858,7 +860,7 @@ vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
 
     for (auto& child : children)
     {
-        ProgramSymbol childSym = child->evalSingle();
+        auto childSym = child->evalSingle();
         if (!childSym.isValid())
         {
             return {};
@@ -869,22 +871,6 @@ vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
         }
     }
     return out;
-}
-
-UHeadTerm DisjunctionTerm::makeConcrete(int vertex) const
-{
-    vector<UFunctionHeadTerm> children;
-    for (auto& child : children)
-    {
-        auto concreteChild = child->makeConcrete(vertex);
-        if (concreteChild == nullptr)
-        {
-            return nullptr;
-        }
-        children.emplace_back(move(static_cast<FunctionHeadTerm*>(concreteChild.detach())));
-    }
-
-    return make_unique<DisjunctionTerm>(move(children));
 }
 
 wstring DisjunctionTerm::toString() const
@@ -899,28 +885,17 @@ wstring DisjunctionTerm::toString() const
         }
         first = false;
 
-        out.append(child->evalSingle().toString());
+        out.append(child->toString());
     }
     out.append(TEXT(")"));
     return out;
 }
 
-TRuleHead<AtomID> DisjunctionTerm::createHead(ProgramCompiler& compiler)
-{
-    vector<AtomID> headAtoms;
-    headAtoms.reserve(children.size());
-    for (auto& child : children)
-    {
-        headAtoms.push_back(child->getOrCreateAtom(compiler));
-    }
-    return TRuleHead(headAtoms, ERuleHeadType::Disjunction);
-}
-
-void DisjunctionTerm::bindAsFacts(ProgramCompiler& compiler)
+void DisjunctionTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
 {
     for (auto& child : children)
     {
-        child->bindAsFacts(compiler);
+        child->bindAsFacts(compiler, topology);
     }
 }
 
@@ -966,60 +941,22 @@ vector<ProgramSymbol> ChoiceTerm::eval(bool& isNormalRule)
     return {subTerm->evalSingle()};
 }
 
-unique_ptr<HeadTerm> ChoiceTerm::makeConcrete(int vertex) const
-{
-    auto concreteSub = subTerm->makeConcrete(vertex);
-    if (concreteSub == nullptr)
-    {
-        return nullptr;
-    }
-
-    return make_unique<ChoiceTerm>(UFunctionHeadTerm(move(static_cast<FunctionHeadTerm*>(concreteSub.detach()))));
-}
-
 wstring ChoiceTerm::toString() const
 {
     wstring out;
-    out.sprintf(TEXT("choice(%s)"), subTerm->evalSingle().toString().c_str());
+    out.sprintf(TEXT("choice(%s)"), subTerm->toString().c_str());
     return out;
 }
 
-TRuleHead<AtomID> ChoiceTerm::createHead(ProgramCompiler& compiler)
+void ChoiceTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
 {
-    return TRuleHead(subTerm->getOrCreateAtom(compiler), ERuleHeadType::Choice);
-}
-
-void ChoiceTerm::bindAsFacts(ProgramCompiler& compiler)
-{
-    subTerm->bindAsFacts(compiler);
+    subTerm->bindAsFacts(compiler, topology);
 }
 
 RuleStatement::RuleStatement(UHeadTerm&& head, vector<ULiteralTerm>&& body)
     : head(move(head))
     , body(move(body))
 {
-}
-
-URuleStatement RuleStatement::makeConcrete(int vertex) const
-{
-    UHeadTerm headTerm = head != nullptr ? head->makeConcrete(vertex) : nullptr;
-    if (headTerm == nullptr && head != nullptr)
-    {
-        return nullptr;
-    }
-
-    vector<ULiteralTerm> bodyLits;
-    for (auto& bodyTerm : body)
-    {
-        ULiteralTerm term = bodyTerm->makeConcrete(vertex);
-        if (term == nullptr)
-        {
-            return nullptr;
-        }
-        bodyLits.push_back(move(term));
-    }
-
-    return make_unique<RuleStatement>(move(headTerm), move(bodyLits));
 }
 
 URuleStatement RuleStatement::clone() const

@@ -3,22 +3,26 @@
 
 using namespace Vertexy;
 
-FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain): m_term(term)
+FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, const ITopologyPtr& topology)
+    : m_term(term)
     , m_domain(domain)
-    , m_index(0)
-    , m_hitEnd(false)
+    , m_topology(topology)
 {
+    vxy_assert(m_term.provider == nullptr);
 }
 
 void FunctionInstantiator::first()
 {
     m_hitEnd = false;
     m_index = 0;
+    m_subIndex = 0;
+    m_abstractCheckState = -1;
     match();
 }
 
 void FunctionInstantiator::match()
 {
+    vxy_assert(m_term.provider == nullptr);
     if (m_hitEnd)
     {
         return;
@@ -49,7 +53,7 @@ void FunctionInstantiator::match()
     }
     else
     {
-        for (; m_index < m_domain.list.size(); ++m_index)
+        for (; m_index < m_domain.list.size(); moveNextDomainAtom())
         {
             const CompilerAtom& atom = m_domain.list[m_index];
             if (atom.symbol.isNegated() && atom.isFact)
@@ -57,9 +61,36 @@ void FunctionInstantiator::match()
                 continue;
             }
 
-            if (m_term.match(atom.symbol, atom.isFact))
+            if (atom.symbol.containsAbstract())
             {
-                ++m_index;
+                checkForTermAbstracts();
+                if (m_abstractCheckState == 0)
+                {
+                    // This term contains no abstracts, so we need to ground the abstract domain atom
+                    for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
+                    {
+                        ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
+                        if (!concreteSymbol.isValid())
+                        {
+                            continue;
+                        }
+
+                        bool isFact = atom.isFact;
+                        if (m_term.match(concreteSymbol, isFact))
+                        {
+                            ++m_subIndex;
+                            return;
+                        }
+                    }
+
+                    continue;
+                }
+            }
+
+            bool isFact = atom.isFact;
+            if (m_term.match(atom.symbol, isFact))
+            {
+                moveNextDomainAtom();
                 return;
             }
         }
@@ -67,7 +98,114 @@ void FunctionInstantiator::match()
     }
 }
 
+void FunctionInstantiator::moveNextDomainAtom()
+{
+    ++m_index;
+    m_abstractCheckState = -1;
+    m_subIndex = 0;
+}
+
+void FunctionInstantiator::checkForTermAbstracts()
+{
+    if (m_abstractCheckState < 0)
+    {
+        // See if this term (now) contains abstracts
+        m_abstractCheckState = 0;
+        m_term.visit([&](const Term* term)
+        {
+            if (dynamic_cast<const VertexTerm*>(term) != nullptr)
+            {
+               m_abstractCheckState = 1;
+               return Term::EVisitResponse::Abort;
+            }
+            else if (auto varTerm = dynamic_cast<const VariableTerm*>(term))
+            {
+                if (varTerm->sharedBoundRef != nullptr && varTerm->sharedBoundRef->isAbstract())
+                {
+                    m_abstractCheckState = 1;
+                    return Term::EVisitResponse::Abort;
+                }
+            }
+            return Term::EVisitResponse::Continue;
+        });
+    }
+}
+
+
 bool FunctionInstantiator::hitEnd() const
+{
+    bool hadHit = m_hitEnd;
+    if (m_term.negated)
+    {
+        m_hitEnd = true;
+    }
+    return hadHit;
+}
+
+ExternalFunctionInstantiator::ExternalFunctionInstantiator(FunctionTerm& term)
+    : m_term(term)
+    , m_hitEnd(false)
+{
+    vxy_assert(m_term.provider != nullptr);
+}
+
+void ExternalFunctionInstantiator::first()
+{
+    m_hitEnd = false;
+
+    vector<ExternalFormulaMatchArg> matchArgs;
+    matchArgs.reserve(m_term.arguments.size());
+    for (auto& arg : m_term.arguments)
+    {
+        if (auto varArg = dynamic_cast<VariableTerm*>(arg.get()))
+        {
+            // only positive terms can bind variables
+            matchArgs.push_back(varArg->isBinder && !m_term.negated
+                ? ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef)
+                : ExternalFormulaMatchArg::makeBound(*varArg->sharedBoundRef)
+            );
+        }
+        else if (auto symArg = dynamic_cast<SymbolTerm*>(arg.get()))
+        {
+            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(symArg->sym));
+        }
+        else if (auto vertexArg = dynamic_cast<VertexTerm*>(arg.get()))
+        {
+            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(ProgramSymbol(IdentityGraphRelation::get())));
+        }
+        else
+        {
+            vxy_fail_msg("Unsupported external formula argument");
+            m_hitEnd = true;
+            return;
+        }
+    }
+
+    m_term.provider->startMatching(move(matchArgs));
+    match();
+}
+
+void ExternalFunctionInstantiator::match()
+{
+    vxy_assert(m_term.provider != nullptr);
+    if (m_hitEnd)
+    {
+        return;
+    }
+
+    bool isFact = false;
+    m_hitEnd = !m_term.provider->matchNext(isFact);
+
+    if (m_term.negated && !m_hitEnd && isFact)
+    {
+        m_hitEnd = true;
+        return;
+    }
+
+    m_term.assignedAtom = {m_term.eval(), isFact};
+}
+
+bool ExternalFunctionInstantiator::hitEnd() const
 {
     bool hadHit = m_hitEnd;
     if (m_term.negated)
@@ -99,8 +237,10 @@ void EqualityInstantiator::match()
 
     // all variables in right hand side should be fully bound now
     ProgramSymbol rhsSym = m_term.rhs->eval();
+
     // TODO: passing isFact=false seems fine here?
-    if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, false))
+    bool isFact = false;
+    if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, isFact))
     {
         m_hitEnd = true;
     }
@@ -136,7 +276,7 @@ void RelationInstantiator::match()
     // variables in non-assignment binary ops should be fully bound now
     ProgramSymbol sym = m_term.eval();
     // BinOpTerm::eval() will return 0 to indicate false.
-    if (sym.isInvalid() || sym.getInt() == 0)
+    if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))
     {
         m_hitEnd = true;
     }

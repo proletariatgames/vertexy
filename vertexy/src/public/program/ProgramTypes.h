@@ -20,7 +20,7 @@ class ProgramVariable
 {
     friend struct ProgramVariableHasher;
 public:
-    ProgramVariable(const wchar_t* name=nullptr);
+    explicit ProgramVariable(const wchar_t* name=nullptr);
     VariableUID getID() const { return m_uid; }
     const wchar_t* getName() const { return m_name; }
 
@@ -34,26 +34,98 @@ private:
     VariableUID m_uid = VariableUID(0);
 };
 
+class ProgramVertex
+{
+    friend class Program;
+private:
+    ProgramVertex() {}
+};
+
 enum class ESymbolType : uint8_t
 {
     Integer = 0,
     ID,
     Formula,
-    Abstract,
     External,
+    Abstract,
     Invalid
 };
 
 class ConstantFormula;
 class ProgramSymbol;
 
+// Structure for providing arguments to IExternalFormulaProvider::match(), where
+// some arguments may already be bound to values, and other arguments are expected to be bound.
+class ExternalFormulaMatchArg
+{
+    explicit ExternalFormulaMatchArg(const shared_ptr<ProgramSymbol>& output)
+        : m_const(false)
+        , m_inner(output)
+    {
+    }
+
+    explicit ExternalFormulaMatchArg(const ProgramSymbol& input)
+        : m_const(true)
+        , m_inner(make_shared<ProgramSymbol>(input))
+    {
+    }
+
+public:
+    static ExternalFormulaMatchArg makeUnbound(const shared_ptr<ProgramSymbol>& output)
+    {
+        return ExternalFormulaMatchArg(output);
+    }
+    static ExternalFormulaMatchArg makeBound(const ProgramSymbol& input)
+    {
+        return ExternalFormulaMatchArg(input);
+    }
+
+    bool isBound() const { return m_const; }
+    const ProgramSymbol& get() const
+    {
+        return *m_inner;
+    }
+
+    ProgramSymbol* getUnbound() const
+    {
+        vxy_assert(!isBound());
+        return m_inner.get();
+    }
+
+protected:
+    bool m_const;
+    shared_ptr<ProgramSymbol> m_inner;
+};
+
+// Base class for instantiating all values of a particular literal in a program rule
+class Instantiator
+{
+public:
+    virtual ~Instantiator() {}
+    // Find the first match/reset to first match
+    virtual void first() = 0;
+    // Find the next match
+    virtual void match() = 0;
+    // Whether we've run out of matches
+    virtual bool hitEnd() const = 0;
+};
+
 class IExternalFormulaProvider
 {
 public:
     virtual ~IExternalFormulaProvider() {}
-    // Return whether the given atom exists.
-    virtual bool instantiate(const vector<ProgramSymbol>& args) const = 0;
+
     virtual size_t hash() const = 0;
+
+    // evaluate whether this formula is true with these concrete arguments
+    virtual bool eval(const vector<ProgramSymbol>& args) const = 0;
+    // Whether this formula can instantiate variables in the specified argument slot
+    virtual bool canInstantiate(int argIndex) const = 0;
+
+    // Reset to the beginning of the list of potential matches.
+    virtual void startMatching(vector<ExternalFormulaMatchArg>&& args) = 0;
+    // Bind to the next set of arguments for this provider.
+    virtual bool matchNext(bool& isFact) = 0;
 };
 
 using IExternalFormulaProviderPtr = shared_ptr<IExternalFormulaProvider>;
@@ -69,9 +141,10 @@ public:
         m_packed = encode(ESymbolType::Invalid, 0);
     }
 
-    ProgramSymbol(const IGraphRelationPtr<int>& relation)
+    explicit ProgramSymbol(const GraphVertexRelationPtr& relation)
     {
         m_packed = encode(ESymbolType::Abstract, 0);
+        setAbstractRelation(relation);
     }
 
     ProgramSymbol(int32_t constant)
@@ -83,10 +156,14 @@ public:
         m_packed = encode(ESymbolType::ID, reinterpret_cast<intptr_t>(name));
     }
 
+    ProgramSymbol(const ProgramSymbol& other);
+
     ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
     ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
 
-    explicit ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol& operator=(const ProgramSymbol& rhs);
+
+    ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
 
     ~ProgramSymbol();
 
@@ -113,15 +190,21 @@ public:
         return reinterpret_cast<ConstantFormula*>(decode(m_packed));
     }
 
-    bool isFormula() const
-    {
-        return getType() == ESymbolType::Formula || getType() == ESymbolType::External;
-    }
+    bool isAbstract() const { return getType() == ESymbolType::Abstract; }
+    bool isInteger() const { return getType() == ESymbolType::Integer; }
+    bool isID() const { return getType() == ESymbolType::ID; }
+    bool isExternalFormula() const { return getType() == ESymbolType::External; }
+    bool isNormalFormula() const { return getType() == ESymbolType::Formula; }
+    bool isFormula() const { return isNormalFormula() || isExternalFormula(); }
 
+    bool isPositive() const
+    {
+        return !isNegated();
+    }
+    
     bool isNegated() const
     {
-        vxy_sanity(isFormula());
-        return (m_packed & 1) == 0;
+        return isFormula() ? ((m_packed & 1) == 0) : false;
     }
 
     bool isValid() const
@@ -134,6 +217,7 @@ public:
         return !isValid();
     }
 
+    bool containsAbstract() const;
     ProgramSymbol makeConcrete(int vertex) const;
 
     ProgramSymbol negatedFormula() const;
@@ -143,10 +227,10 @@ public:
         return isNegated() ? negatedFormula() : *this;
     }
 
-    const IGraphRelationPtr<int>& getAbstractRelation() const
+    const GraphVertexRelationPtr& getAbstractRelation() const
     {
         vxy_assert(getType() == ESymbolType::Abstract);
-        return *reinterpret_cast<const IGraphRelationPtr<int>*>(m_smartPtrBytes);
+        return *reinterpret_cast<const GraphVertexRelationPtr*>(m_smartPtrBytes);
     }
 
     const IExternalFormulaProviderPtr& getExternalFormulaProvider() const
@@ -198,6 +282,8 @@ public:
     wstring toString() const;
 
 private:
+    void destroySmartPointer();
+
     static uint64_t encode(ESymbolType type, intptr_t ptr)
     {
         return (static_cast<uint64_t>(type) << 56) | ptr;
@@ -208,13 +294,13 @@ private:
     }
 
     void setExternalProvider(const IExternalFormulaProviderPtr& provider);
-    void setAbstractRelation(const IGraphRelationPtr<int>& relation);
+    void setAbstractRelation(const GraphVertexRelationPtr& relation);
 
     IExternalFormulaProviderPtr* getExternalFormulaProviderPtr();
-    IGraphRelationPtr<int>* getAbstractRelationPtr();
+    GraphVertexRelationPtr* getAbstractRelationPtr();
 
     uint64_t m_packed;
-    uint8_t m_smartPtrBytes[sizeof(std::shared_ptr<int>)];
+    uint64_t m_smartPtrBytes[sizeof(std::shared_ptr<int>)/sizeof(uint64_t)];
 };
 
 // Represents a unique grounded formula call.
@@ -229,7 +315,7 @@ class ConstantFormula
 
 public:
     FormulaUID uid;
-    const wchar_t* name;
+    wstring name;
     vector<ProgramSymbol> args;
 
     static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args)
@@ -378,7 +464,6 @@ inline ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* name, vec
     vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
 }
 
-
 inline ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& provider)
 {
     setExternalProvider(provider);
@@ -390,20 +475,38 @@ inline ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated
     vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == formula);
 }
 
+inline ProgramSymbol::ProgramSymbol(const ProgramSymbol& other)
+    : m_packed(other.m_packed)
+{
+    if (other.isExternalFormula())
+    {
+        setExternalProvider(other.getExternalFormulaProvider());
+    }
+    else if (other.isAbstract())
+    {
+        setAbstractRelation(other.getAbstractRelation());
+    }
+}
+
 inline ProgramSymbol::~ProgramSymbol()
+{
+    destroySmartPointer();
+}
+
+inline void ProgramSymbol::destroySmartPointer()
 {
     switch (getType())
     {
-    case ESymbolType::Formula:
+    case ESymbolType::External:
         {
             IExternalFormulaProviderPtr* provider = getExternalFormulaProviderPtr();
             (*provider).~IExternalFormulaProviderPtr();
         }
         break;
-    case ESymbolType::External:
+    case ESymbolType::Abstract:
         {
-            IGraphRelationPtr<int>* relation = getAbstractRelationPtr();
-            (*relation).~IGraphRelationPtr<int>();
+            GraphVertexRelationPtr* relation = getAbstractRelationPtr();
+            (*relation).~GraphVertexRelationPtr();
         }
         break;
 
@@ -413,50 +516,54 @@ inline ProgramSymbol::~ProgramSymbol()
     }
 }
 
+inline ProgramSymbol& ProgramSymbol::operator=(const ProgramSymbol& rhs)
+{
+    destroySmartPointer();
+
+    m_packed = rhs.m_packed;
+    if (isExternalFormula())
+    {
+        setExternalProvider(rhs.getExternalFormulaProvider());
+    }
+    else if (isAbstract())
+    {
+        setAbstractRelation(rhs.getAbstractRelation());
+    }
+    return *this;
+}
+
 inline ProgramSymbol ProgramSymbol::negatedFormula() const
 {
     return ProgramSymbol(getFormula(), !isNegated(), getExternalFormulaProvider());
 }
 
-inline wstring ProgramSymbol::toString() const
+inline bool ProgramSymbol::containsAbstract() const
 {
     switch (getType())
     {
+    case ESymbolType::Abstract:
+        return true;
+
     case ESymbolType::Formula:
     case ESymbolType::External:
-        return isNegated() ? (TEXT("~") + getFormula()->toString()) : getFormula()->toString();
+        for (auto& arg : getFormula()->args)
+        {
+            if (arg.containsAbstract())
+            {
+                return true;
+            }
+        }
+        return false;
+
     case ESymbolType::Integer:
-        return {wstring::CtorSprintf(), TEXT("%d"), getInt()};
     case ESymbolType::ID:
-        return getID();
-    case ESymbolType::Abstract:
-        return {wstring::CtorSprintf(), TEXT("Abstract(%s)"), getAbstractRelation()->toString().c_str()};
     case ESymbolType::Invalid:
-        return TEXT("<Invalid>");
+        return false;
+
     default:
         vxy_fail_msg("unexpected symbol type");
-        return TEXT("<unexpected>");
+        return false;
     }
-}
-
-inline void ProgramSymbol::setExternalProvider(const IExternalFormulaProviderPtr& provider)
-{
-    new(m_smartPtrBytes) IExternalFormulaProviderPtr(provider);
-}
-
-inline void ProgramSymbol::setAbstractRelation(const IGraphRelationPtr<int>& relation)
-{
-    new(m_smartPtrBytes) IGraphRelationPtr<int>(relation);
-}
-
-inline IGraphRelationPtr<int>* ProgramSymbol::getAbstractRelationPtr()
-{
-    return reinterpret_cast<IGraphRelationPtr<int>*>(m_smartPtrBytes);
-}
-
-inline IExternalFormulaProviderPtr* ProgramSymbol::getExternalFormulaProviderPtr()
-{
-    return reinterpret_cast<IExternalFormulaProviderPtr*>(m_smartPtrBytes);
 }
 
 inline ProgramSymbol ProgramSymbol::makeConcrete(int vertex) const
@@ -485,37 +592,40 @@ inline ProgramSymbol ProgramSymbol::makeConcrete(int vertex) const
             concreteArgs.reserve(sig->args.size());
             for (auto& arg : sig->args)
             {
-                concreteArgs.push_back(arg.makeConcrete(vertex));
+                ProgramSymbol concreteArg = arg.makeConcrete(vertex);
+                if (!concreteArg.isValid())
+                {
+                    return {};
+                }
+                concreteArgs.push_back(move(concreteArg));
             }
 
-            return ProgramSymbol(sig->uid, sig->name, move(concreteArgs), isNegated());
+            return ProgramSymbol(sig->uid, sig->name.c_str(), move(concreteArgs), isNegated());
         }
 
     case ESymbolType::External:
         {
             auto sig = getFormula();
-
             vector<ProgramSymbol> concreteArgs;
             concreteArgs.reserve(sig->args.size());
             for (auto& arg : sig->args)
             {
-                concreteArgs.push_back(arg.makeConcrete(vertex));
+                ProgramSymbol concreteArg = arg.makeConcrete(vertex);
+                if (!concreteArg.isValid())
+                {
+                    return {};
+                }
+                concreteArgs.push_back(move(concreteArg));
             }
 
-            if (getExternalFormulaProvider()->instantiate(concreteArgs))
+            bool valid = getExternalFormulaProvider()->eval(concreteArgs);
+            if (valid == isNegated())
             {
-                return isNegated()
-                    ? ProgramSymbol()
-                    : ProgramSymbol(sig->uid, sig->name, move(concreteArgs), false);
+                return {};
             }
-            else
-            {
-                return isNegated()
-                    ? ProgramSymbol(sig->uid, sig->name, move(concreteArgs), true)
-                    : ProgramSymbol();
-            }
+
+            return ProgramSymbol(sig->uid, sig->name.c_str(), move(concreteArgs), isNegated());
         }
-
     case ESymbolType::Invalid:
     default:
         vxy_fail_msg("Unexpected symbol type");
@@ -523,18 +633,46 @@ inline ProgramSymbol ProgramSymbol::makeConcrete(int vertex) const
     }
 }
 
-// Base class for instantiating all values of a particular literal in a program rule
-class Instantiator
+inline wstring ProgramSymbol::toString() const
 {
-public:
-    virtual ~Instantiator() {}
-    // Find the first match/reset to first match
-    virtual void first() = 0;
-    // Find the next match
-    virtual void match() = 0;
-    // Whether we've run out of matches
-    virtual bool hitEnd() const = 0;
-};
+    switch (getType())
+    {
+    case ESymbolType::Formula:
+    case ESymbolType::External:
+        return isNegated() ? (TEXT("~") + getFormula()->toString()) : getFormula()->toString();
+    case ESymbolType::Integer:
+        return {wstring::CtorSprintf(), TEXT("%d"), getInt()};
+    case ESymbolType::ID:
+        return getID();
+    case ESymbolType::Abstract:
+        return {wstring::CtorSprintf(), TEXT("$(%s)"), getAbstractRelation()->toString().c_str()};
+    case ESymbolType::Invalid:
+        return TEXT("<Invalid>");
+    default:
+        vxy_fail_msg("unexpected symbol type");
+        return TEXT("<unexpected>");
+    }
+}
+
+inline void ProgramSymbol::setExternalProvider(const IExternalFormulaProviderPtr& provider)
+{
+    new(m_smartPtrBytes) IExternalFormulaProviderPtr(provider);
+}
+
+inline void ProgramSymbol::setAbstractRelation(const GraphVertexRelationPtr& relation)
+{
+    new(m_smartPtrBytes) GraphVertexRelationPtr(relation);
+}
+
+inline GraphVertexRelationPtr* ProgramSymbol::getAbstractRelationPtr()
+{
+    return reinterpret_cast<GraphVertexRelationPtr*>(m_smartPtrBytes);
+}
+
+inline IExternalFormulaProviderPtr* ProgramSymbol::getExternalFormulaProviderPtr()
+{
+    return reinterpret_cast<IExternalFormulaProviderPtr*>(m_smartPtrBytes);
+}
 
 struct CompilerAtom
 {

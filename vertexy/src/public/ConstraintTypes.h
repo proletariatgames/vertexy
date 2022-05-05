@@ -226,6 +226,8 @@ struct Literal
 		return Literal(variable, values.inverted());
 	}
 
+	bool isValid() const { return variable.isValid(); }
+
 	VarID variable;
 	ValueSet values;
 };
@@ -385,12 +387,21 @@ inline uint32_t combineHashes(uint32_t a, uint32_t c)
 	return c;
 }
 
-template<typename T>
+template<typename T, typename NEXT=eastl::hash<T>>
 struct pointer_value_hash
 {
-	bool operator()(T* val) const
+	size_t operator()(T* val) const
 	{
-		return eastl::hash<T>()(*val);
+		NEXT()(*val);
+	}
+};
+
+template<typename T>
+struct call_hash
+{
+	size_t operator()(T&& val) const
+	{
+		return val.hash();
 	}
 };
 
@@ -402,6 +413,62 @@ struct pointer_value_equality
 	{
 		return *a == *b;
 	}
+};
+
+//
+// When an argument of this type if passed into ConstraintSolver::makeGraphConstraint, any arguments
+// that do not resolve are 
+template<typename T>
+class GraphCulledVector
+{
+public:
+	GraphCulledVector() {}
+	GraphCulledVector(const GraphCulledVector& rhs)
+		: m_internal(rhs.m_internal)
+	{		
+	}
+	GraphCulledVector(GraphCulledVector&& rhs) noexcept
+		: m_internal(move(rhs.m_internal))
+	{		
+	}	
+	GraphCulledVector(std::initializer_list<T> ilist)
+		: m_internal(ilist.begin(), ilist.end())
+	{		
+	}
+	explicit GraphCulledVector(const vector<T>& rhs)
+		: m_internal(rhs)
+	{		
+	}
+	explicit GraphCulledVector(vector<T>&& rhs) noexcept
+		: m_internal(move(rhs))
+	{		
+	}
+	
+	~GraphCulledVector() {}
+
+	GraphCulledVector& operator=(const vector<T>& vec)
+	{
+		m_internal = vec;
+		return *this;
+	}
+	GraphCulledVector& operator=(vector<T>&& vec)
+	{
+		m_internal = move(vec);
+		return *this;
+	}
+	GraphCulledVector& operator=(const GraphCulledVector& rhs)
+	{
+		m_internal = rhs.m_internal;
+		return *this;
+	}
+	GraphCulledVector& operator=(GraphCulledVector&& rhs) noexcept
+	{
+		m_internal = move(rhs.m_internal);
+		return *this;
+	}	
+	const vector<T>& getInternal() const { return m_internal; }
+protected:
+	vector<T> m_internal;
 };
 
 } // namespace Vertexy
@@ -471,5 +538,11 @@ struct hash<Vertexy::Literal>
 		return varHash(lit.variable) | valHash(lit.values);
 	}
 };
+
+// to_wstring for Literal
+inline wstring to_wstring(const Vertexy::Literal& lit)
+{
+	return {wstring::CtorSprintf(), TEXT("%d=%s"), lit.variable.raw(), lit.values.toString().c_str()};
+}
 
 } // names

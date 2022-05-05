@@ -111,7 +111,7 @@ int TowersOfHanoiSolver::solveTowersGrid(int times, int numDisks, int seed, bool
 				for (int i = 1; i < numDisks; ++i)
 				{
 					// For testing Disjunctions. Equivalent clauses are commented out.
-					auto& notYourTurnClause = solver.clause({
+					auto notYourTurnClause = solver.clause({
 						// either not your turn...
 						SignedClause(moved[turn - 1], EClauseSign::Outside, vector<int>{peg}),
 						// or you were not a disk last turn...
@@ -132,11 +132,11 @@ int TowersOfHanoiSolver::solveTowersGrid(int times, int numDisks, int seed, bool
 						{
 							if (ii != jj)
 							{
-								auto& ng = solver.nogood({
+								auto ng = solver.nogood({
 									SignedClause(pegs[peg][turn - 1][i - 1], { ii }),
 									SignedClause(pegs[peg][turn][i - 1], { jj })
 								});
-								solver.disjunction(&notYourTurnClause, &ng);
+								solver.disjunction(notYourTurnClause, ng);
 
 								// clauses.push_back(SignedClause(pegs[peg][turn - 1][i - 1], { ii }));
 								// clauses.push_back(SignedClause(pegs[peg][turn][i - 1], { jj }));

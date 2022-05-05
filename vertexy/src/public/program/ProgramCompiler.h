@@ -6,6 +6,7 @@
 #include "Program.h"
 #include "program/ProgramAST.h"
 #include "rules/RuleTypes.h"
+#include "ConstraintSolver.h"
 
 namespace Vertexy
 {
@@ -13,6 +14,121 @@ namespace Vertexy
 class RuleDatabase;
 class DigraphTopology;
 
+//
+// Translates a formula with a set of arguments to its associated atom (and the solver's literal associated with that atom).
+//
+class FormulaMapper
+{
+public:
+    FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder);
+    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs) const;
+    FormulaUID getFormulaUID() const { return m_formulaUID; }
+
+    bool contains(const vector<ProgramSymbol>& concreteArgs) const
+    {
+        return m_bindMap.find(concreteArgs) != m_bindMap.end();
+    }
+    void add(const vector<ProgramSymbol>& concreteArgs, const shared_ptr<Literal>& lit);
+
+    void setAtomID(AtomID id) { m_atomId = id; }
+    AtomID getAtomID() const { return m_atomId; }
+
+private:
+    struct ArgumentHasher
+    {
+        size_t operator()(const vector<ProgramSymbol>& concreteArgs) const
+        {
+            size_t hash = 0;
+            for (auto& arg : concreteArgs)
+            {
+                combineHashes(hash, arg.hash());
+            }
+            return hash;
+        }
+    };
+
+    AtomID m_atomId;
+    RuleDatabase& m_rdb;
+    FormulaUID m_formulaUID;
+    const wchar_t* m_formulaName;
+    BindCaller* m_binder = nullptr;
+
+    mutable hash_map<vector<ProgramSymbol>, shared_ptr<Literal>, ArgumentHasher> m_bindMap;
+};
+using FormulaMapperPtr = shared_ptr<FormulaMapper>;
+
+class AbstractAtomLiteralRelation : public IGraphRelation<Literal>
+{
+public:
+    void setAtomID(AtomID atomID) { m_atomID = atomID; }
+    AtomID getAtomID() const { return m_atomID; }
+    void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
+    const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
+
+protected:
+    AbstractAtomRelationInfoPtr m_relationInfo;
+    AtomID m_atomID;
+};
+
+using AbstractMapperRelationPtr = shared_ptr<AbstractAtomLiteralRelation>;
+
+
+class FormulaGraphRelation : public AbstractAtomLiteralRelation
+{
+public:
+    FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol);
+
+    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual size_t hash() const override;
+    virtual wstring toString() const override;
+
+private:
+    FormulaMapperPtr m_formulaMapper;
+    ProgramSymbol m_symbol;
+
+    mutable vector<ProgramSymbol> m_concrete;
+};
+
+//
+// Translates the vertex->vertex relation created by an external formula into a vertex->Literal relation,
+// where the returned literal is always true if the relation exists, and always false if the relation
+// does not exist.
+//
+class ExternalFormulaGraphRelation : public AbstractAtomLiteralRelation
+{
+public:
+    ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const Literal& trueValue);
+
+    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual size_t hash() const override;
+    virtual wstring toString() const override;
+
+protected:
+    ProgramSymbol m_symbol;
+    Literal m_trueValue;
+};
+
+class HasRelationGraphRelation : public AbstractAtomLiteralRelation
+{
+public:
+    HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation, const Literal& trueValue);
+
+    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual size_t hash() const override;
+    virtual wstring toString() const override;
+
+protected:
+    IGraphRelationPtr<VertexID> m_relation;
+    Literal m_trueValue;
+};
+
+//
+// Responsible for removing all variables from rule statements, replacing them with all potential combinations.
+// Outputs finalized rules to the RuleDatabase.
+//
 class ProgramCompiler
 {
 public:
@@ -20,7 +136,13 @@ public:
 
     struct AtomDomain
     {
-        FormulaUID uid;
+        FormulaUID uid = FormulaUID(-1);
+
+        bool containsNonfacts = false;
+        bool containsAbstracts = false;
+        bool isExternal = false;
+        ITopologyPtr abstractTopology = nullptr;
+
         hash_map<ProgramSymbol, int> map;
         vector<CompilerAtom> list;
     };
@@ -28,7 +150,7 @@ public:
 
     struct RelationalRuleStatement
     {
-        RuleStatement* statement;
+        RuleStatement* statement = nullptr;
         ITopologyPtr topology;
     };
 
@@ -42,7 +164,7 @@ public:
         auto found = m_groundedAtoms.find(formula);
         if (found != m_groundedAtoms.end())
         {
-            return *found->second.get();
+            return *found->second;
         }
         return empty;
     }
@@ -57,18 +179,15 @@ public:
         }
         return false;
     }
-
-    AtomLiteral exportAtom(const ProgramSymbol& sym, bool forHead=false);
-    AnyGraphLiteralType exportGraphAtom(const ITopologyPtr& topology, const ProgramSymbol& sym, bool forHead=false);
-
-    void bindFactIfNeeded(const ProgramSymbol& sym);
+    
+    void bindFactIfNeeded(const ProgramSymbol& sym, const ITopologyPtr& topology);
 
     bool hasFailure() const { return m_failure; }
 
 protected:
     struct DepGraphNodeData
     {
-        const RelationalRuleStatement* stmt;
+        const RelationalRuleStatement* stmt = nullptr;
         bool marked = false;
         int vertex = 0;
         int outerSCCIndex = -1;
@@ -103,10 +222,25 @@ protected:
         // vector<int> depends;
         vector<int> vars;
         int numDeps = 0;
-        LiteralTerm* lit;
+        LiteralTerm* lit=nullptr;
     };
 
-    void rewriteMath(const vector<RelationalRuleStatement>& stmts);
+    struct GroundedRule
+    {
+        ERuleHeadType headType;
+        vector<ProgramSymbol> heads;
+        vector<ProgramSymbol> bodyLits;
+        ITopologyPtr topology;
+    };
+
+    struct ExportMap
+    {
+        hash_map<ProgramSymbol, AtomID> concreteExports;
+        hash_map<ProgramSymbol, AbstractMapperRelationPtr> abstractExports;
+    };
+    using UExportMap = unique_ptr<ExportMap>;
+
+    void rewriteMath(const vector<RelationalRuleStatement>& statements);
     void createDependencyGraph(const vector<RelationalRuleStatement>& stmts);
     void createComponents(const vector<RelationalRuleStatement>& stmts);
 
@@ -114,10 +248,20 @@ protected:
     void groundRule(DepGraphNodeData* statementNode);
     void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur=0);
 
-    void expandAndExportStatement(const DepGraphNodeData* stmtNode, const VariableMap& varBindings);
-    void exportStatement(const DepGraphNodeData* stmtNode, const RuleStatement* statement, const VariableMap& varBindings);
-    bool addGroundedAtom(const CompilerAtom& atom);
+    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const VariableMap& varBindings);
+    bool addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology);
 
+    void transformRules();
+    void transformRule(GroundedRule&& rule);
+    void transformChoice(GroundedRule&& rule);
+    void transformDisjunction(GroundedRule&& rule);
+    bool addTransformedRule(GroundedRule&& rule);
+    
+    void exportRules();
+    AtomLiteral exportAtom(const ProgramSymbol& sym, const ITopologyPtr& topology);
+
+    bool shouldExportAsAbstract(const GroundedRule& rule, bool& outContainsAbstracts) const;
+    
     RuleDatabase& m_rdb;
     const BindMap& m_binders;
 
@@ -127,10 +271,11 @@ protected:
     vector<vector<FunctionTerm*>> m_edges;
     vector<Component> m_components;
 
-    hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
+    vector<GroundedRule> m_groundedRules;
 
-    hash_map<ProgramSymbol, AtomLiteral> m_createdAtomVars;
-    hash_map<ProgramSymbol, BoundGraphAtomLiteral> m_createdGraphAtomVars;
+    hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
+    hash_map<FormulaUID, UExportMap> m_exportedLits;
+    hash_map<FormulaUID, FormulaMapperPtr> m_exportedFormulas;
 
     bool m_failure = false;
     bool m_foundRecursion = false;

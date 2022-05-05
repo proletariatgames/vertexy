@@ -35,6 +35,10 @@ namespace detail
         {
             term = make_unique<SymbolTerm>(ProgramSymbol(constant));
         }
+        ProgramOpArgument(ProgramVertex vert)
+        {
+            term = make_unique<VertexTerm>();
+        }
         ProgramOpArgument(const ProgramSymbol& sym)
         {
             term = make_unique<SymbolTerm>(sym);
@@ -47,8 +51,6 @@ namespace detail
         explicit ProgramOpArgument(ULiteralTerm&& term) : term(move(term))
         {
         }
-
-        operator ProgramSymbol() const;
 
         ULiteralTerm term;
     };
@@ -155,6 +157,10 @@ namespace detail
         ProgramBodyTerm(const ProgramVariable& p)
         {
             term = make_unique<VariableTerm>(p);
+        }
+        ProgramBodyTerm(ProgramVertex vert)
+        {
+            term = make_unique<VertexTerm>();
         }
         ProgramBodyTerm(ProgramFunctionTerm&& f)
         {
@@ -279,26 +285,24 @@ public:
 
     // Specialization for passing in a topology for graph instantiation of programs.
     // Note that (currently) only the first argument can be a graph-instantiated.
-    // The definition function should take a ProgramSymbol in place of this argument, which represents
-    // an (unknown) vertex on the graph.
+    // The definition function should take a ProgramVertex in place of this argument, which represents
+    // any vertex on the graph.
     template<typename R, typename... ARGS>
-    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, const ITopologyPtr&, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
+    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
     {
         auto inst = make_unique<ProgramInstance>(topo);
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
         s_currentInstance = inst.get();
 
-        static auto relation = make_shared<IdentityGraphRelation>();
-
         tuple<UProgramInstance, R> out;
         if constexpr (is_same_v<R, void>)
         {
-            fn(ProgramSymbol(relation), forward<ARGS>(args)...);
+            fn(ProgramVertex(), forward<ARGS>(args)...);
             out = make_tuple(move(inst), (void)0);
         }
         else
         {
-            R result = fn(ProgramSymbol(relation), forward<ARGS>(args)...);
+            R result = fn(ProgramVertex(), forward<ARGS>(args)...);
             out = make_tuple(move(inst), move(result));
         }
 
@@ -322,7 +326,11 @@ public:
     static void disallow(detail::ProgramBodyTerm&& body);
     static void disallow(detail::ProgramBodyTerms&& body);
 
-    static detail::ProgramRangeTerm range(ProgramSymbol min, ProgramSymbol max);
+    static detail::ProgramRangeTerm range(detail::ProgramBodyTerm min, detail::ProgramBodyTerm max);
+
+    static ExternalFormula<2> graphLink(const TopologyLink& link);
+    static detail::ProgramExternalFunctionTerm graphEdge(detail::ProgramBodyTerm&& left, detail::ProgramBodyTerm&& right);
+    static detail::ProgramExternalFunctionTerm vertex(detail::ProgramBodyTerm&& term);
 
     static FormulaUID allocateFormulaUID()
     {
@@ -358,6 +366,13 @@ public:
     inline tuple<UProgramInstance, R> operator()(ARGS&&... args)
     {
         return apply(eastl::move(args)...);
+    }
+
+    template<typename... REMARGS>
+    inline tuple<UProgramInstance, R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
+    {
+        static_assert(sizeof...(REMARGS) == sizeof...(ARGS)-1, "Incorrect number of arguments");
+        return Program::runDefinition<R, REMARGS...>(m_definition, topology, forward<REMARGS>(args)...);
     }
 
 protected:
@@ -411,6 +426,9 @@ public:
         return foldArgs(fargs, args...);
     }
 
+    FormulaUID getUID() const { return m_uid; }
+    const wchar_t* getName() const { return m_name; }
+
 private:
     template<typename T, typename... REM>
     detail::ProgramFunctionTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
@@ -433,8 +451,8 @@ template<int ARITY>
 class ExternalFormula
 {
 public:
-    ExternalFormula(const IExternalFormulaProviderPtr& provider, const wchar_t* name=nullptr)
-        : m_uid(Program::allocateFormulaUID())
+    ExternalFormula(FormulaUID uid, const IExternalFormulaProviderPtr& provider, const wchar_t* name=nullptr)
+        : m_uid(uid)
         , m_name(name)
         , m_provider(provider)
     {
@@ -779,16 +797,6 @@ inline void operator<<=(detail::ProgramHeadChoiceTerm&& head, detail::ProgramBod
     vector<ULiteralTerm> terms;
     terms.push_back(move(body.term));
     operator<<=(forward<detail::ProgramHeadChoiceTerm>(head), detail::ProgramBodyTerms(move(terms)));
-}
-
-// needed to support e.g.
-// ProgramSymbol x;
-// Formula<1> y = Program::range(0, x-1);
-inline Vertexy::detail::ProgramOpArgument::operator ProgramSymbol() const
-{
-    ProgramSymbol result = term->eval();
-    vxy_assert_msg(result.isValid(), "No variables allowed in this expression");
-    return result;
 }
 
 } // namespace Vertexy
