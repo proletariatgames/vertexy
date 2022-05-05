@@ -69,7 +69,7 @@
         </Expand>
     </Type>
     <!-- AtomID -->
-    <Type Name="Vertexy::TBoolID&lt;0&gt;">
+    <Type Name="Vertexy::AtomID">
         <DisplayString Condition="value == 0">Invalid</DisplayString>
         <DisplayString Condition="value != 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->name}</DisplayString>
         <Expand>
@@ -79,7 +79,7 @@
         </Expand>
     </Type>
     <!-- AtomLiteral -->
-    <Type Name="Vertexy::TBoolLiteral&lt;0&gt;">
+    <Type Name="Vertexy::AtomLiteral">
         <DisplayString Condition="value == 0">Invalid</DisplayString>
         <DisplayString Condition="value &lt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[-value].mPair.mFirst->name}=0</DisplayString>
         <DisplayString Condition="value &gt; 0">{Vertexy::ConstraintSolver::s_currentSolver->m_ruleDB->m_atoms[value].mPair.mFirst->name}=1</DisplayString>
@@ -102,13 +102,18 @@
     </Type>
     <!-- ProgramSymbol -->
     <Type Name="Vertexy::ProgramSymbol">
-        <DisplayString Condition="getType() == 0">{m_packed}</DisplayString>
-        <DisplayString Condition="getType() == 1">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
-        <DisplayString Condition="getType() == 2 &amp;&amp; ((m_packed&amp;1)==1)">{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="getType() == 2 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! {((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="getType() == 3">Invalid</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 0">{m_packed}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 1">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 2 &amp;&amp; ((m_packed&amp;1)==1)">{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 2 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! {((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==1)">External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 4">Abstract</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 5">Invalid</DisplayString>
         <Expand>
-            <Item Name="Signature" Condition="getType()==2">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
+            <Item Name="Signature" Condition="(m_packed >> 56)==2 || (m_packed >> 56)==3">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
+            <Item Name="Provider" Condition="(m_packed >> 56)==3">(Vertexy::IExternalFormulaProvider*)m_smartPtrBytes[0]</Item>
+            <Item Name="Relation" Condition="(m_packed >> 56)==4">(Vertexy::IGraphRelation&lt;int&gt;*)m_smartPtrBytes[0]</Item>
         </Expand>
     </Type>
 </AutoVisualizer>

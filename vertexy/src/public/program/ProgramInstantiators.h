@@ -12,16 +12,35 @@ namespace Vertexy
 class FunctionInstantiator : public Instantiator
 {
 public:
-    FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain);
+    FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, const ITopologyPtr& topology);
 
     virtual void first() override;
     virtual void match() override;
     virtual bool hitEnd() const override;
 
 protected:
+    void checkForTermAbstracts();
+    void moveNextDomainAtom();
+
     FunctionTerm& m_term;
     const ProgramCompiler::AtomDomain& m_domain;
-    int m_index;
+    const ITopologyPtr& m_topology;
+    int m_index = 0;
+    int m_subIndex = 0;
+    int m_abstractCheckState = -1;
+    mutable bool m_hitEnd = false;
+};
+
+class ExternalFunctionInstantiator : public Instantiator
+{
+public:
+    ExternalFunctionInstantiator(FunctionTerm& term);
+    virtual void first() override;
+    virtual void match() override;
+    virtual bool hitEnd() const override;
+
+protected:
+    FunctionTerm& m_term;
     mutable bool m_hitEnd;
 };
 

@@ -222,17 +222,18 @@ int TestSolvers::solveAllDifferentLarge(int times, int seed, bool printVerbose)
 
 		if (printVerbose)
 		{
-			for (auto vi : solver.getSolution())
+			for (auto var : vars)
 			{
-				VERTEXY_LOG("    %s = %d", vi.second.name.c_str(), vi.second.value);
+				VERTEXY_LOG("    %s = %d", solver.getVariableName(var).c_str(), solver.getSolvedValue(var));
 			}
 		}
 
 		solver.dumpStats(printVerbose);
 		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
-		for (auto vi : solver.getSolution())
+		for (int i = 0; i < vars.size(); ++i)
 		{
-			EATEST_VERIFY(vi.first.raw()-1 == vi.second.value);
+			VarID var = vars[i];
+			EATEST_VERIFY(solver.getSolvedValue(var) == i);
 		}
 	}
 	return nErrorCount;
@@ -343,40 +344,40 @@ int TestSolvers::solveRules_basicChoice(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	ConstraintSolver solver(TEXT("Rules:BasicChoice"), seed);
-
-	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-
-	// {b}. {c}. a <- b, c.
-	solver.getRuleDB().addFact(SignedClause{b, {1}}, ERuleHeadType::Choice);
-	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-	solver.getRuleDB().addRule(SignedClause{a, {1}}, vector{SignedClause{b, {1}}, SignedClause{c, {1}}});
-
-	int numResults = 0;
-	while (true)
-	{
-		auto result = solver.solve();
-		if (result != EConstraintSolverResult::Solved)
-		{
-			break;
-		}
-
-		++numResults;
-		if (printVerbose)
-		{
-			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-		}
-		EATEST_VERIFY(solver.getSolvedValue(a) == (solver.getSolvedValue(b) && solver.getSolvedValue(c)));
-	}
-
-	// a=0 b=0 c=0
-	// a=0 b=1 c=0
-	// a=0 b=0 c=1
-	// a=1 b=1 c=1
-	EATEST_VERIFY(numResults == 4);
-	EATEST_VERIFY(!solver.getStats().nonTightRules);
+	// ConstraintSolver solver(TEXT("Rules:BasicChoice"), seed);
+	//
+	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+	//
+	// // {b}. {c}. a <- b, c.
+	// solver.getRuleDB().addFact(SignedClause{b, {1}}, ERuleHeadType::Choice);
+	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+	// solver.getRuleDB().addRule(SignedClause{a, {1}}, vector{SignedClause{b, {1}}, SignedClause{c, {1}}});
+	//
+	// int numResults = 0;
+	// while (true)
+	// {
+	// 	auto result = solver.solve();
+	// 	if (result != EConstraintSolverResult::Solved)
+	// 	{
+	// 		break;
+	// 	}
+	//
+	// 	++numResults;
+	// 	if (printVerbose)
+	// 	{
+	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+	// 	}
+	// 	EATEST_VERIFY(solver.getSolvedValue(a) == (solver.getSolvedValue(b) && solver.getSolvedValue(c)));
+	// }
+	//
+	// // a=0 b=0 c=0
+	// // a=0 b=1 c=0
+	// // a=0 b=0 c=1
+	// // a=1 b=1 c=1
+	// EATEST_VERIFY(numResults == 4);
+	// EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -385,42 +386,42 @@ int TestSolvers::solveRules_basicDisjunction(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-
-	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-
-	// a | b <- c. {c}.
-	solver.getRuleDB().addRule(
-		TRuleHead{vector{SignedClause{a, {1}}, SignedClause{b, {1}}}, ERuleHeadType::Disjunction},
-		SignedClause{c, {1}}
-	);
-	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-
-	int numResults = 0;
-	while (true)
-	{
-		auto result = solver.solve();
-		if (result != EConstraintSolverResult::Solved)
-		{
-			break;
-		}
-
-		++numResults;
-		if (printVerbose)
-		{
-			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-		}
-		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) != solver.getSolvedValue(b)));
-		EATEST_VERIFY((solver.getSolvedValue(a) || solver.getSolvedValue(b)) == solver.getSolvedValue(c));
-	}
-
-	// a=0 b=0 c=0
-	// a=1 b=0 c=1
-	// a=0 b=1 c=1
-	EATEST_VERIFY(numResults == 3);
-	EATEST_VERIFY(!solver.getStats().nonTightRules);
+	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	//
+	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+	//
+	// // a | b <- c. {c}.
+	// solver.getRuleDB().addRule(
+	// 	RuleHead{vector{SignedClause{a, {1}}, SignedClause{b, {1}}}, ERuleHeadType::Disjunction},
+	// 	SignedClause{c, {1}}
+	// );
+	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+	//
+	// int numResults = 0;
+	// while (true)
+	// {
+	// 	auto result = solver.solve();
+	// 	if (result != EConstraintSolverResult::Solved)
+	// 	{
+	// 		break;
+	// 	}
+	//
+	// 	++numResults;
+	// 	if (printVerbose)
+	// 	{
+	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+	// 	}
+	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) != solver.getSolvedValue(b)));
+	// 	EATEST_VERIFY((solver.getSolvedValue(a) || solver.getSolvedValue(b)) == solver.getSolvedValue(c));
+	// }
+	//
+	// // a=0 b=0 c=0
+	// // a=1 b=0 c=1
+	// // a=0 b=1 c=1
+	// EATEST_VERIFY(numResults == 3);
+	// EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -429,41 +430,41 @@ int TestSolvers::solveRules_basicCycle(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
-
-	auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-
-	// a <- b. b <- a. b <- c. {c}.
-	solver.getRuleDB().addRule(SignedClause{a, {1}}, SignedClause{b, {1}});
-	solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{a, {1}});
-	solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{c, {1}});
-	solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-
-	int numResults = 0;
-	while (true)
-	{
-		auto result = solver.solve();
-		if (result != EConstraintSolverResult::Solved)
-		{
-			break;
-		}
-
-		++numResults;
-		if (printVerbose)
-		{
-			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-		}
-		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
-		EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
-	}
-
-	// a=1 b=1 c=1
-	// a=0 b=0 c=0
-	EATEST_VERIFY(numResults == 2);
-	EATEST_VERIFY(solver.getStats().nonTightRules);
+	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	// VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+	//
+	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
+	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
+	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
+	//
+	// // a <- b. b <- a. b <- c. {c}.
+	// solver.getRuleDB().addRule(SignedClause{a, {1}}, SignedClause{b, {1}});
+	// solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{a, {1}});
+	// solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{c, {1}});
+	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
+	//
+	// int numResults = 0;
+	// while (true)
+	// {
+	// 	auto result = solver.solve();
+	// 	if (result != EConstraintSolverResult::Solved)
+	// 	{
+	// 		break;
+	// 	}
+	//
+	// 	++numResults;
+	// 	if (printVerbose)
+	// 	{
+	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+	// 	}
+	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
+	// 	EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
+	// }
+	//
+	// // a=1 b=1 c=1
+	// // a=0 b=0 c=0
+	// EATEST_VERIFY(numResults == 2);
+	// EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -472,44 +473,44 @@ int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
-
-	vector domain = {0,1,2,3};
-	auto a = solver.makeVariable(TEXT("a"), domain);
-	auto b = solver.makeVariable(TEXT("b"), domain);
-	auto c = solver.makeVariable(TEXT("c"), domain);
-
-	vector pos = {1,2,3};
-
-	// a <- b. b <- a. b <- c. {c}.
-	solver.getRuleDB().addRule(SignedClause{a, pos}, SignedClause{b, pos});
-	solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{a, pos});
-	solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{c, pos});
-	solver.getRuleDB().addFact(SignedClause{c, pos}, ERuleHeadType::Choice);
-
-	int numResults = 0;
-	while (true)
-	{
-		auto result = solver.solve();
-		if (result != EConstraintSolverResult::Solved)
-		{
-			break;
-		}
-
-		++numResults;
-		if (printVerbose)
-		{
-			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-		}
-		EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
-		EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
-	}
-
-	// a!=0 b!=0 c!=0
-	// a=0 b=0 c=0
-	EATEST_VERIFY(numResults == 28);
-	EATEST_VERIFY(solver.getStats().nonTightRules);
+	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	// VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+	//
+	// vector domain = {0,1,2,3};
+	// auto a = solver.makeVariable(TEXT("a"), domain);
+	// auto b = solver.makeVariable(TEXT("b"), domain);
+	// auto c = solver.makeVariable(TEXT("c"), domain);
+	//
+	// vector pos = {1,2,3};
+	//
+	// // a <- b. b <- a. b <- c. {c}.
+	// solver.getRuleDB().addRule(SignedClause{a, pos}, SignedClause{b, pos});
+	// solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{a, pos});
+	// solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{c, pos});
+	// solver.getRuleDB().addFact(SignedClause{c, pos}, ERuleHeadType::Choice);
+	//
+	// int numResults = 0;
+	// while (true)
+	// {
+	// 	auto result = solver.solve();
+	// 	if (result != EConstraintSolverResult::Solved)
+	// 	{
+	// 		break;
+	// 	}
+	//
+	// 	++numResults;
+	// 	if (printVerbose)
+	// 	{
+	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
+	// 	}
+	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
+	// 	EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
+	// }
+	//
+	// // a!=0 b!=0 c!=0
+	// // a=0 b=0 c=0
+	// EATEST_VERIFY(numResults == 28);
+	// EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -586,7 +587,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 
 		VXY_FORMULA(on_path, 1);
 		// on_path(X) is only true if there is a path reaching node X and a path leaving node X.
-		on_path(X) <<= path(X, Y) && path(Y, Z);
+		on_path(Y) <<= path(X, Y) && path(Y, Z);
 		// Disallow any node that is not on the path. (~ is logical NOT, i.e. "on_path(X) does not exist")
 		Program::disallow(node(X) && ~on_path(X));
 
@@ -650,6 +651,88 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 				if (printVerbose) { VERTEXY_LOG("%s", solver.getVariableName(pathVars[x][y]).c_str()); }
 				timesVisited[x][y]++;
 				// check each node was only visited once.
+				EATEST_VERIFY(timesVisited[x][y] == 1);
+			}
+		}
+	}
+
+	solver.dumpStats(true);
+	return nErrorCount;
+}
+
+int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	struct HamiltonianOutput
+	{
+		FormulaResult<2> path;
+	};
+
+	auto topology = make_shared<DigraphTopology>();
+	for (int i = 0; i < 4; ++i) topology->addVertex();
+
+	topology->addEdge(0, 1);
+	topology->addEdge(0, 2);
+	topology->addEdge(1, 2);
+	topology->addEdge(1, 3);
+	topology->addEdge(2, 0);
+	topology->addEdge(2, 3);
+	topology->addEdge(3, 0);
+
+	auto hamiltonian = Program::define([](ProgramVertex vertex)
+	{
+		VXY_VARIABLE(X);
+		VXY_VARIABLE(Y);
+
+		VXY_FORMULA(path, 2);
+
+		path(vertex, X).choice() <<= Program::graphEdge(vertex, X);
+		path(X, vertex).choice() <<= Program::graphEdge(X, vertex);
+
+		Program::disallow(path(X, vertex) && path(Y, vertex) && X != Y);
+		Program::disallow(path(vertex, X) && path(vertex, Y) && X != Y);
+
+		VXY_FORMULA(on_path, 1);
+		on_path(vertex) <<= path(X, vertex) && path(vertex, Y);
+		Program::disallow(~on_path(vertex));
+
+		VXY_FORMULA(reach, 1);
+		reach(0);
+		reach(vertex) <<= reach(X) && path(X, vertex);
+		Program::disallow(~reach(vertex));
+
+		return HamiltonianOutput{path};
+	});
+
+	ConstraintSolver solver(TEXT("hamiltonianProgram"), seed);
+
+	auto inst = hamiltonian(ITopology::adapt(topology));
+
+	VarID pathVars[4][4];
+	get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	{
+		// Create a boolean solver variable to hold the result of this path(x,y).
+		wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
+		VarID var = solver.makeBoolean(varName);
+
+		// Store it and return it as the variable to bind to.
+		pathVars[x.getInt()][y.getInt()] = var;
+		return var;
+	});
+
+	solver.addProgram(move(inst));
+	solver.solve();
+
+	int timesVisited[4][4] = {0};
+	for (int x = 0; x < 4; ++x)
+	{
+		for (int y = 0; y < 4; ++y)
+		{
+			if (pathVars[x][y].isValid() && solver.getSolvedValue(pathVars[x][y]) != 0)
+			{
+				if (printVerbose) { VERTEXY_LOG("%s", solver.getVariableName(pathVars[x][y]).c_str()); }
+				timesVisited[x][y]++;
 				EATEST_VERIFY(timesVisited[x][y] == 1);
 			}
 		}

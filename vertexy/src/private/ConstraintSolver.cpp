@@ -112,6 +112,11 @@ ConstraintSolver::ConstraintSolver(const wstring& name, int seed, const shared_p
 	m_variableToDecisionLevel.push_back(0);
 	m_variablePropagators.push_back(nullptr);
 	m_variableToGraphs.push_back({});
+
+	// Literals that are always true/false
+	m_trueLiteral = Literal(makeBoolean(TEXT("TRUE")), SolverVariableDomain(0,1).getBitsetForValue(1));
+	m_falseLiteral = Literal(m_trueLiteral.variable, SolverVariableDomain(0,1).getBitsetForValue(0));
+	m_variableDB.setInitialValue(m_trueLiteral.variable, m_trueLiteral.values);
 }
 
 ConstraintSolver::~ConstraintSolver()
@@ -203,7 +208,7 @@ IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 {
 	m_constraints.push_back(unique_ptr<IConstraint>(move(constraint)));
 	m_constraintIsChild.push_back(false);
-
+	
 	if (constraint->needsBacktracking())
 	{
 		m_backtrackingConstraints.push_back(static_cast<IBacktrackingSolverConstraint*>(constraint));
@@ -219,32 +224,32 @@ IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 	return m_constraints.back().get();
 }
 
-AllDifferentConstraint& ConstraintSolver::allDifferent(const vector<VarID>& variables, bool useWeakPropagation)
+AllDifferentConstraint* ConstraintSolver::allDifferent(const vector<VarID>& variables, bool useWeakPropagation)
 {
 	return makeConstraint<AllDifferentConstraint>(variables, useWeakPropagation);
 }
 
-CardinalityConstraint& ConstraintSolver::cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues)
+CardinalityConstraint* ConstraintSolver::cardinality(const vector<VarID>& variables, const hash_map<int, tuple<int, int>>& cardinalitiesForValues)
 {
 	return makeConstraint<CardinalityConstraint>(variables, cardinalitiesForValues);
 }
 
-TableConstraint& ConstraintSolver::table(const TableConstraintDataPtr& data, const vector<VarID>& variables)
+TableConstraint* ConstraintSolver::table(const TableConstraintDataPtr& data, const vector<VarID>& variables)
 {
 	return makeConstraint<TableConstraint>(data, variables);
 }
 
-ClauseConstraint& ConstraintSolver::clause(const vector<SignedClause>& clauses)
+ClauseConstraint* ConstraintSolver::clause(const vector<SignedClause>& clauses)
 {
 	return makeConstraint<ClauseConstraint>(clauses);
 }
 
-ClauseConstraint& ConstraintSolver::nogood(const vector<SignedClause>& clauses)
+ClauseConstraint* ConstraintSolver::nogood(const vector<SignedClause>& clauses)
 {
 	return makeConstraint<ClauseConstraint>(ENoGood::NoGood, clauses);
 }
 
-SumConstraint& ConstraintSolver::sum(const VarID sum, const vector<VarID>& vars)
+SumConstraint* ConstraintSolver::sum(const VarID sum, const vector<VarID>& vars)
 {
 	stack<VarID> varStack;
 	for (auto var : vars)
@@ -273,7 +278,7 @@ SumConstraint& ConstraintSolver::sum(const VarID sum, const vector<VarID>& vars)
 	return makeConstraint<SumConstraint>(sum, var1, var2);
 }
 
-IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<SignedClause>& body)
+IffConstraint* ConstraintSolver::iff(const SignedClause& head, const vector<SignedClause>& body)
 {
 	if (REPLACE_IFF_WITH_CLAUSES)
 	{
@@ -295,7 +300,7 @@ IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<Sign
 			negClauses.push_back(body[i].inverted());
 		}
 		nogood(negClauses);
-		return *((IffConstraint*)(nullptr));
+		return nullptr;
 	}
 	else
 	{
@@ -303,17 +308,17 @@ IffConstraint& ConstraintSolver::iff(const SignedClause& head, const vector<Sign
 	}
 }
 
-OffsetConstraint& ConstraintSolver::offset(VarID sum, VarID term, int delta)
+OffsetConstraint* ConstraintSolver::offset(VarID sum, VarID term, int delta)
 {
 	return makeConstraint<OffsetConstraint>(sum, term, delta);
 }
 
-InequalityConstraint& ConstraintSolver::inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide)
+InequalityConstraint* ConstraintSolver::inequality(VarID leftHandSide, EConstraintOperator op, VarID rightHandSide)
 {
 	return makeConstraint<InequalityConstraint>(leftHandSide, op, rightHandSide);
 }
 
-DisjunctionConstraint& ConstraintSolver::disjunction(IConstraint* consA, IConstraint* consB)
+DisjunctionConstraint* ConstraintSolver::disjunction(IConstraint* consA, IConstraint* consB)
 {
 	return makeConstraint<DisjunctionConstraint>(consA, consB);
 }
@@ -778,22 +783,6 @@ int ConstraintSolver::getSolvedValue(VarID varID) const
 	return m_variableDomains[varID.raw()].getValueForIndex(m_variableDB.getSolvedValue(varID));
 }
 
-bool ConstraintSolver::isAtomTrue(AtomID atomID) const
-{
-	return visit([&](auto&& typedAtom)
-	{
-		using T = decay_t<decltype(typedAtom)>;
-		if constexpr (is_same_v<T, Literal>)
-		{
-			return m_variableDB.getPotentialValues(typedAtom.variable).isSubsetOf(typedAtom.values);
-		}
-		else
-		{
-			return typedAtom;
-		}
-	}, m_atomValues[atomID.value]);
-}
-
 vector<int> ConstraintSolver::getPotentialValues(VarID varID) const
 {
 	vector<int> out;
@@ -944,8 +933,8 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 			m_variableDB.clearLastSolvedValues();
 		}
 
-		auto& solutionCons = makeConstraint<ClauseConstraint>(currentSolutionLits);
-		if (!solutionCons.initialize(&m_variableDB, nullptr))
+		auto solutionCons = makeConstraint<ClauseConstraint>(currentSolutionLits);
+		if (!solutionCons->initialize(&m_variableDB, nullptr))
 		{
 			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
 			return m_currentStatus;
@@ -999,22 +988,6 @@ bool ConstraintSolver::finalizeRules()
 
 		// do we have any strongly-connected components in the rule dependency graph?
 		m_stats.nonTightRules = !m_ruleDB->isTight();
-
-		// store away atom lookups
-		m_atomValues.resize(m_ruleDB->getNumAtoms());
-		for (int i = 1; i < m_ruleDB->getNumAtoms(); ++i)
-		{
-			auto atomInfo = m_ruleDB->getAtom(AtomID(i));
-			if (atomInfo->isVariable())
-			{
-				m_atomValues[i] = atomInfo->equivalence;
-			}
-			else
-			{
-				vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
-				m_atomValues[i] = atomInfo->status == RuleDatabase::ETruthStatus::True;
-			}
-		}
 	}
 
 	return true;
@@ -1461,11 +1434,11 @@ void ConstraintSolver::sanityCheckExplanation(SolverTimestamp modificationTime, 
 
 ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, const ConstraintGraphRelationInfo* relationInfo)
 {
-	ClauseConstraint& learnedCons = relationInfo != nullptr
-		                                ? makeConstraintForGraph<ClauseConstraint>(*relationInfo, explanation, /*bLearned=*/true)
-		                                : makeConstraint<ClauseConstraint>(explanation, /*bLearned=*/true);
+	ClauseConstraint* learnedCons = relationInfo != nullptr
+		? makeConstraintForGraph<ClauseConstraint>(*relationInfo, explanation, /*bLearned=*/true)
+		: makeConstraint<ClauseConstraint>(explanation, /*bLearned=*/true);
 
-	learnedCons.setStepLearned(m_stats.stepCount);
+	learnedCons->setStepLearned(m_stats.stepCount);
 
 	//
 	// Place the newly learned constraint in the appropriate pool. We place constraints with a low LBD
@@ -1475,40 +1448,40 @@ ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, co
 	// Note that learned constraints with one variable are not stored - these are simply propagated.
 	//
 
-	if (learnedCons.getNumLiterals() > 1)
+	if (learnedCons->getNumLiterals() > 1)
 	{
-		learnedCons.computeLbd(m_variableDB);
-		learnedCons.incrementActivity(m_constraintConflictIncr);
+		learnedCons->computeLbd(m_variableDB);
+		learnedCons->incrementActivity(m_constraintConflictIncr);
 
 		static ConstraintHashFuncs hasher;
-		const uint32_t hash = hasher(&learnedCons);
+		const uint32_t hash = hasher(learnedCons);
 
-		auto foundExisting = m_learnedConstraintSet.find_by_hash(&learnedCons, hash);
+		auto foundExisting = m_learnedConstraintSet.find_by_hash(learnedCons, hash);
 		if (foundExisting != m_learnedConstraintSet.end())
 		{
-			VERTEXY_WARN("Duplicate clause %d created for %d", learnedCons.getID(), (*foundExisting)->getID());
+			VERTEXY_WARN("Duplicate clause %d created for %d", learnedCons->getID(), (*foundExisting)->getID());
 		}
 
-		m_learnedConstraintSet.insert(hash, nullptr, &learnedCons);
+		m_learnedConstraintSet.insert(hash, nullptr, learnedCons);
 
-		bool canPromoteToGraph = (GRAPH_LEARNING_ENABLED && learnedCons.isPromotableToGraph());
-		if (learnedCons.getLBD() <= MAX_PERMANENT_CONSTRAINT_LBD || canPromoteToGraph)
+		bool canPromoteToGraph = (GRAPH_LEARNING_ENABLED && learnedCons->isPromotableToGraph());
+		if (learnedCons->getLBD() <= MAX_PERMANENT_CONSTRAINT_LBD || canPromoteToGraph)
 		{
-			learnedCons.setPermanent();
-			m_permanentLearnedConstraints.push_back(&learnedCons);
+			learnedCons->setPermanent();
+			m_permanentLearnedConstraints.push_back(learnedCons);
 
 			// Once a constraint learned from a graph is promoted to permanent pool, we
 			// instantiate it over the whole graph.
 			if (canPromoteToGraph)
 			{
-				vxy_sanity(m_constraintsToPromoteToGraph.find(&learnedCons) == m_constraintsToPromoteToGraph.end());
-				m_constraintsToPromoteToGraph[&learnedCons] = 0;
+				vxy_sanity(m_constraintsToPromoteToGraph.find(learnedCons) == m_constraintsToPromoteToGraph.end());
+				m_constraintsToPromoteToGraph[learnedCons] = 0;
 			}
 		}
 		else
 		{
-			vxy_assert(!learnedCons.isPermanent());
-			m_temporaryLearnedConstraints.push_back(&learnedCons);
+			vxy_assert(!learnedCons->isPermanent());
+			m_temporaryLearnedConstraints.push_back(learnedCons);
 		}
 	}
 
@@ -1516,14 +1489,14 @@ ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, co
 	// Let various heuristics know that we encountered a conflict/learned a new constraint.
 	//
 
-	m_restartPolicy.onClauseLearned(learnedCons);
+	m_restartPolicy.onClauseLearned(*learnedCons);
 	for (auto heuristic : m_heuristicStack)
 	{
 		heuristic->onClauseLearned();
 	}
 
 	++m_stats.numConstraintsLearned;
-	return &learnedCons;
+	return learnedCons;
 }
 
 WatcherHandle ConstraintSolver::addVariableWatch(VarID varID, EVariableWatchType watchType, IVariableWatchSink* sink)

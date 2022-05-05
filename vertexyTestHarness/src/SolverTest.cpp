@@ -18,6 +18,7 @@
 #include "ds/ESTree.h"
 #include "program/ProgramCompiler.h"
 #include "program/ProgramDSL.h"
+#include "rules/RuleDatabase.h"
 #include "topology/DigraphTopology.h"
 #include "topology/GridTopology.h"
 
@@ -234,23 +235,23 @@ int test_ruleSCCs()
 	auto c = rdb.createAtom(TEXT("c"));
 	auto d = rdb.createAtom(TEXT("d"));
 	auto e = rdb.createAtom(TEXT("e"));
-
-	rdb.addRule(a, b.neg());
-	rdb.addRule(b, a.neg());
-	rdb.addRule(c, a.pos());
-	rdb.addRule(c, vector{b.pos(), d.pos()});
-	rdb.addRule(d, vector{b.pos(), c.pos()});
-	rdb.addRule(d, e.pos());
-	rdb.addRule(e, vector{b.pos(), a.neg()});
-	rdb.addRule(e, vector{c.pos(), d.pos()});
-
+	
+	rdb.addRule(a.pos(), vector{b.neg()});
+	rdb.addRule(b.pos(), vector{a.neg()});
+	rdb.addRule(c.pos(), vector{a.pos()});
+	rdb.addRule(c.pos(), vector{b.pos(), d.pos()});
+	rdb.addRule(d.pos(), vector{b.pos(), c.pos()});
+	rdb.addRule(d.pos(), vector{e.pos()});
+	rdb.addRule(e.pos(), vector{b.pos(), a.neg()});
+	rdb.addRule(e.pos(), vector{c.pos(), d.pos()});
+	
 	rdb.finalize();
-
-	EATEST_VERIFY(rdb.getAtom(a)->scc < 0);
-	EATEST_VERIFY(rdb.getAtom(b)->scc < 0);
-	EATEST_VERIFY(rdb.getAtom(c)->scc >= 0);
-	EATEST_VERIFY(rdb.getAtom(d)->scc == rdb.getAtom(c)->scc);
-	EATEST_VERIFY(rdb.getAtom(e)->scc == rdb.getAtom(c)->scc);
+	
+	EATEST_VERIFY(rdb.getAtom(a)->asConcrete()->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(b)->asConcrete()->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(c)->asConcrete()->scc >= 0);
+	EATEST_VERIFY(rdb.getAtom(d)->asConcrete()->scc == rdb.getAtom(c)->asConcrete()->scc);
+	EATEST_VERIFY(rdb.getAtom(e)->asConcrete()->scc == rdb.getAtom(c)->asConcrete()->scc);
 	return nErrorCount;
 }
 
@@ -268,7 +269,7 @@ int main(int argc, char* argv[])
 {
 	using namespace EA::UnitTest;
 	using namespace VertexyTests;
-
+	
 	TestApplication Suite("Solver Tests", argc, argv);
 	Suite.AddTest("ValueBitset", test_ValueBitset);
 	Suite.AddTest("Digraph", test_Digraph);
@@ -283,7 +284,8 @@ int main(int argc, char* argv[])
 	Suite.AddTest("Rules-BasicDisjunction", []() { return TestSolvers::solveRules_basicDisjunction(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-BasicCycle", []() { return TestSolvers::solveRules_basicCycle(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveRules_incompleteCycle(FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveProgram_hamiltonian(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-Hamiltonian", []() { return TestSolvers::solveProgram_hamiltonian(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-HamiltonianGraph", []() { return TestSolvers::solveProgram_hamiltonianGraph(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Sum-Basic", []() { return TestSolvers::solveSumBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Sudoku", []() { return SudokuSolver::solve(NUM_TIMES, SUDOKU_STARTING_HINTS, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersGrid(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
