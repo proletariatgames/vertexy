@@ -599,15 +599,8 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 						}
 					}
 
-					//vxy_assert(numReachableSources >= 1);
-					if (numReachableSources == 0)
-					{
-						bool success = db->constrainToValues(source, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); });
-						vxy_assert(!success);
-						failure = true;
-						return ETopologySearchResponse::Abort;
-					}
-					else if (numReachableSources == 1)
+					vxy_assert(numReachableSources >= 1);
+					if (numReachableSources == 1)
 					{
 						if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); }))
 						{
@@ -778,26 +771,7 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 			continue;
 		}
 
-		auto determination = determineReachabilityHelper(db, it->second, vertexIndex, it->first);
-		if (determination != EReachabilityDetermination::DefinitelyUnreachable)
-		{
-			return determination;
-		}
-		//if (it->second.minReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.minReachability->getDistance(vertexIndex)))
-		//{
-		//	if (definitelyIsSource(db, it->first))
-		//	{
-		//		return EReachabilityDetermination::DefinitelyReachable;
-		//	}
-		//	else
-		//	{
-		//		return EReachabilityDetermination::PossiblyReachable;
-		//	}
-		//}
-		//else if (it->second.maxReachability->isReachable(vertexIndex) && isValidDistance(db, it->second.maxReachability->getDistance(vertexIndex)))
-		//{
-		//	return EReachabilityDetermination::PossiblyReachable;
-		//}
+		return determineReachabilityHelper(db, it->second, vertexIndex, it->first);
 	}
 
 	return EReachabilityDetermination::DefinitelyUnreachable;

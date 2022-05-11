@@ -121,7 +121,7 @@ int MazeSolver::solveSimple(int times, int numCols, int seed, bool printVerbose)
 
 	auto edgeNodeToEdgeVarRel = make_shared<TVertexToDataGraphRelation<VarID>>(stepEdgeData);
 
-	solver.makeConstraint<ShortestPathConstraint>(tileData, cell_Entrance, cell_Exit, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+	solver.makeConstraint<ShortestPathConstraint>(tileData, cell_Entrance, cell_Exit, stepEdgeData, edge_Solid, EConstraintOperator::LessThan, shortestPathDistance);
 
 
 	//
@@ -706,15 +706,15 @@ void MazeSolver::print(const shared_ptr<TTopologyVertexData<VarID>>& cells, cons
 	for (int x = 0; x < numCols; ++x)
 	{
 		out.append_sprintf(TEXT("%d"), x);
-		if (x < 10)
+		if (x < 9)
 		{
 			out += TEXT(" ");
 		}
-		if (x < 100)
+		if (x < 99)
 		{
 			out += TEXT(" ");
 		}
-		if (PRINT_EDGES && x < 1000)
+		if (PRINT_EDGES && x < 999)
 		{
 			out += TEXT(" ");
 		}
