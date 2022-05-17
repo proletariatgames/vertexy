@@ -192,7 +192,7 @@ protected:
     bool m_matched = false;
 };
 
-// Provider for Program::graphConnection
+// Provider for Program::graphEdge
 class GraphEdgeProvider : public IExternalFormulaProvider
 {
 public:
@@ -256,7 +256,6 @@ public:
     virtual void startMatching(vector<ExternalFormulaMatchArg>&& args) override
     {
         vxy_assert(args.size() == 2);
-        vxy_assert(args[0].isBound() || args[1].isBound());
 
         m_matchResult = move(args);
         m_nextEdge = 0;
@@ -285,16 +284,22 @@ public:
         {
             return matchRightSide(isFact);
         }
+        else if (rightBound)
+        {
+            return matchLeftSide(isFact);
+        }
         else
         {
-            vxy_assert(rightBound);
-            return matchLeftSide(isFact);
+            return matchBothSides();
         }
     }
 
     const wchar_t* getName() const { return m_name.c_str(); }
 
 protected:
+    using IncomingEdgeRelation = TVertexEdgeToVertexGraphRelation<ITopology, true>;
+    using OutgoingEdgeRelation = TVertexEdgeToVertexGraphRelation<ITopology, false>;
+    
     bool matchRightSide(bool& isFact)
     {
         const ProgramSymbol& left = m_matchResult[0].get();
@@ -305,7 +310,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[1].getUnbound() = ProgramSymbol(make_shared<TVertexEdgeToVertexGraphRelation<ITopology, false>>(m_topology, m_nextEdge));
+            *m_matchResult[1].getUnbound() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, m_nextEdge));
             ++m_nextEdge;
             return true;
         }
@@ -342,7 +347,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[0].getUnbound() = ProgramSymbol(make_shared<TVertexEdgeToVertexGraphRelation<ITopology, true>>(m_topology, m_nextEdge));
+            *m_matchResult[0].getUnbound() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, m_nextEdge));
             ++m_nextEdge;
             return true;
         }
@@ -362,6 +367,29 @@ protected:
 
         if (m_nextEdge >= count)
         {
+            return false;
+        }
+
+        ++m_nextEdge;
+        return true;
+    }
+
+    bool matchBothSides()
+    {
+        int layout = m_nextEdge / m_maxInEdgeCount;
+        int localEdge = m_nextEdge - (layout * m_maxInEdgeCount);
+        
+        switch (layout)
+        {
+        case 0:
+            *m_matchResult[0].getUnbound() = ProgramSymbol(IdentityGraphRelation::get());
+            *m_matchResult[1].getUnbound() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, localEdge));
+            break;
+        case 1:
+            *m_matchResult[0].getUnbound() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, localEdge));
+            *m_matchResult[1].getUnbound() = ProgramSymbol(IdentityGraphRelation::get());
+            break;
+        default:
             return false;
         }
 

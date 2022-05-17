@@ -1332,7 +1332,7 @@ void ConstraintSolver::notifyVariableModification(VarID variable, IConstraint* c
 
 	if (LOG_VARIABLE_PROPAGATIONS)
 	{
-		VERTEXY_LOG("    %s -> %s", m_variableDB.getVariableName(variable).c_str(), m_variableDB.getPotentialValues(variable).toString().c_str());
+		VERTEXY_LOG("    %s[%d] -> %s", m_variableDB.getVariableName(variable).c_str(), variable.raw(), m_variableDB.getPotentialValues(variable).toString().c_str());
 	}
 }
 

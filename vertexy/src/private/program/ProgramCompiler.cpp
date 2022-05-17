@@ -556,6 +556,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             vxy_assert(!bodySym.isInteger() || bodySym.getInt() > 0);
             if (bodySym.isAbstract())
             {
+                // TODO: Equality terms between two identical abstracts could be discarded here.
                 bodyTerms.push_back(bodySym);
             }
         }
@@ -574,6 +575,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     //
 
     bool isNormalRule = true;
+    
     vector<ProgramSymbol> headSymbols; // Head symbols + the index of the "vertex" argument.
     if (stmt->head != nullptr)
     {
@@ -603,24 +605,55 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             auto found = domain->map.find(sym);
             return found != domain->map.end() && domain->list[found->second].isFact;
         };
-        
-        // Remove any heads that are already facts in the database.
-        if (stmt->head->getHeadType() == ERuleHeadType::Disjunction)
+
+        bool headHasAbstracts = false;
+        bool headHasIdentityAbstract = false;
+
+        int j = 0;
+        for (int i = 0; i < headSymbols.size(); ++i)
         {
-            // if one of the atoms in the disjunction is true, that means the rest cannot be true.
-            if (containsPredicate(headSymbols.begin(), headSymbols.end(), isAtomFact))
+            if (isAtomFact(headSymbols[i]))
             {
-                return;
+                // if one of the atoms in the disjunction is true, that means the rest cannot be true.
+                if (stmt->head->getHeadType() == ERuleHeadType::Disjunction)
+                {
+                    return;
+                }
+                // Otherwise, if this is already a fact, no need to include.
+                continue;
             }
+
+            // Check whether this is an abstract formula. If so, we should only ground it if it 
+            // includes an identity relation as one of its arguments.
+            if (headSymbols[i].containsAbstract())
+            {
+                headHasAbstracts = true;
+                if (!headHasIdentityAbstract)
+                {
+                    for (auto& arg : headSymbols[i].getFormula()->args)
+                    {
+                        if (arg.isAbstract() && arg.getAbstractRelation()->equals(*IdentityGraphRelation::get()))
+                        {
+                            headHasIdentityAbstract = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            headSymbols[j++] = headSymbols[i];
         }
-        else
+        headSymbols.resize(j);
+        
+        if (headSymbols.empty())
         {
-            headSymbols.erase(remove_if(headSymbols.begin(), headSymbols.end(), isAtomFact), headSymbols.end());
-            // This is already a fact, so no need to include.
-            if (headSymbols.empty())
-            {
-                return;
-            }
+            // If all heads are facts, no need to include this statement.
+            return;
+        }
+
+        // If this head is abstract, it needs to include an identity term.
+        if (headHasAbstracts && !headHasIdentityAbstract)
+        {
+            return;
         }
     }
 
@@ -643,7 +676,10 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 DepGraphNodeData& destNode = m_depGraphData.get(destVertex);
                 destNode.marked = true;
 
-                // If this is part of the same component, we need to recurse
+                // If this is part of the same component we need to re-process the component, because
+                // new potential heads have been discovered.
+                // TODO: Currently we reprocess every atom in the domain, instead of only new atoms, causing
+                // duplicate clauses to be generated.
                 if (destNode.outerSCCIndex == stmtNode->outerSCCIndex && destNode.innerSCCIndex == stmtNode->innerSCCIndex)
                 {
                     m_foundRecursion = true;
@@ -801,14 +837,14 @@ void ProgramCompiler::exportRules()
                 vxy_assert(headSym.isFormula());
                 vxy_assert(headSym.isPositive());
 
-                headLiteral = exportAtom(headSym, rule.topology);
+                headLiteral = exportAtom(headSym, rule.topology, true);
             }
             
             vector<AtomLiteral> exportedBody;
             exportedBody.reserve(rule.bodyLits.size());
             for (auto& bodySym : rule.bodyLits)
             {
-                exportedBody.push_back(exportAtom(bodySym, rule.topology));
+                exportedBody.push_back(exportAtom(bodySym, rule.topology, false));
             }
 
             if (LOG_RULE_INSTANTIATION)
@@ -886,7 +922,7 @@ bool ProgramCompiler::shouldExportAsAbstract(const GroundedRule& rule, bool& out
     return false;
 }
 
-AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopologyPtr& topology)
+AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopologyPtr& topology, bool forHead)
 {
     // Abstract symbols are for relation/equality terms
     if (symbol.isAbstract())
@@ -923,7 +959,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     
     // See if we already created a literal for this abstract formula term...
     auto& exportMap = m_exportedLits[symbol.getFormula()->uid]->abstractExports;
-    auto foundExport = exportMap.find(symbol.absolute());
+    auto foundExport = exportMap.find(make_tuple(symbol.absolute(), forHead));
     if (foundExport != exportMap.end())
     {
         auto& relationInfo = foundExport->second->getRelationInfo();                            
@@ -962,13 +998,13 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     else
     {
         vxy_assert(symbol.isNormalFormula());
-        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, symbol.absolute());
+        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, symbol.absolute(), forHead);
     }
     relationInfo->literalRelation = litRelation;
 
     litRelation->setAtomID(formulaMapper->getAtomID());
     litRelation->setRelationInfo(relationInfo);
-    exportMap[symbol.absolute()] = litRelation;
+    exportMap[make_tuple(symbol.absolute(), forHead)] = litRelation;
     
     return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), relationInfo);
 }
@@ -1215,12 +1251,17 @@ FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wch
 {
 }
 
-Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete) const
+Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, bool createIfNotFound) const
 {
     size_t argHash = ArgumentHasher()(concrete);
     auto found = m_bindMap.find_by_hash(concrete, argHash);
     if (found == m_bindMap.end())
     {
+        if (!createIfNotFound)
+        {
+            return {};
+        }
+        
         if (m_binder != nullptr)
         {
             Literal lit = m_binder->call(m_rdb, concrete);
@@ -1258,9 +1299,10 @@ void FormulaMapper::add(const vector<ProgramSymbol>& concreteArgs, const shared_
     m_bindMap.insert({concreteArgs, lit});
 }
 
-FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol)
+FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm)
     : m_formulaMapper(bindMapper)
     , m_symbol(symbol)
+    , m_headTerm(headTerm)
 {
     vxy_assert(symbol.isNormalFormula());
     vxy_assert(symbol.isPositive());
@@ -1282,8 +1324,8 @@ bool FormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) cons
         }
     }
 
-    out = m_formulaMapper->getLiteral(m_concrete);
-    return out.variable.isValid();
+    out = m_formulaMapper->getLiteral(m_concrete, m_headTerm);
+    return out.isValid();
 }
 
 bool FormulaGraphRelation::equals(const IGraphRelation<Literal>& rhs) const

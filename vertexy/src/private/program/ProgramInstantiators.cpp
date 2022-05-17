@@ -61,34 +61,34 @@ void FunctionInstantiator::match()
                 continue;
             }
 
-            if (atom.symbol.containsAbstract())
-            {
-                checkForTermAbstracts();
-                if (m_abstractCheckState == 0)
-                {
-                    // This term contains no abstracts, so we need to ground the abstract domain atom
-                    for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
-                    {
-                        ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
-                        if (!concreteSymbol.isValid())
-                        {
-                            continue;
-                        }
-
-                        bool isFact = atom.isFact;
-                        if (m_term.match(concreteSymbol, isFact))
-                        {
-                            ++m_subIndex;
-                            return;
-                        }
-                    }
-
-                    continue;
-                }
-            }
+            // if (atom.symbol.containsAbstract())
+            // {
+            //     checkForTermAbstracts();
+            //     if (m_abstractCheckState == 0)
+            //     {
+            //         // This term contains no abstracts, so we need to ground the abstract domain atom
+            //         for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
+            //         {
+            //             ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
+            //             if (!concreteSymbol.isValid())
+            //             {
+            //                 continue;
+            //             }
+            //
+            //             bool isFact = atom.isFact;
+            //             if (m_term.match(concreteSymbol, isFact))
+            //             {
+            //                 ++m_subIndex;
+            //                 return;
+            //             }
+            //         }
+            //
+            //         continue;
+            //     }
+            // }
 
             bool isFact = atom.isFact;
-            if (m_term.match(atom.symbol, isFact))
+            if (m_term.match(atom.symbol, false, isFact))
             {
                 moveNextDomainAtom();
                 return;
@@ -237,12 +237,23 @@ void EqualityInstantiator::match()
 
     // all variables in right hand side should be fully bound now
     ProgramSymbol rhsSym = m_term.rhs->eval();
-
-    // TODO: passing isFact=false seems fine here?
-    bool isFact = false;
-    if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, isFact))
+    if (rhsSym.isAbstract())
     {
-        m_hitEnd = true;
+        // If the right hand side is abstract, we may need to create an abstract relation.
+        ProgramSymbol sym = m_term.eval();
+        if (sym.isInvalid())
+        {
+            m_hitEnd = true;
+        }
+    }
+    else
+    {
+        // TODO: passing isFact=false seems fine here?
+        bool isFact = false;
+        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, false, isFact))
+        {
+            m_hitEnd = true;
+        }
     }
 }
 

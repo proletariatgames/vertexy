@@ -70,7 +70,7 @@ bool LiteralTerm::createVariableReps(VariableMap& bound)
     return foundNewBindings;
 }
 
-bool LiteralTerm::match(const ProgramSymbol& sym, bool& isFact)
+bool LiteralTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
 {
     ProgramSymbol evalSym = eval();
     if (evalSym.isValid() && sym == evalSym)
@@ -128,7 +128,7 @@ void VariableTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool
     outVars.push_back(make_pair(const_cast<VariableTerm*>(this), canEstablish));
 }
 
-bool VariableTerm::match(const ProgramSymbol& sym, bool& isFact)
+bool VariableTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
 {
     abstractToConst = ProgramSymbol();
     if (isBinder)
@@ -146,16 +146,20 @@ bool VariableTerm::match(const ProgramSymbol& sym, bool& isFact)
     }
     else if (sharedBoundRef->isAbstract())
     {
-        if (sym.isAbstract())
-        {
-            // abstractToConst = sym;
-        }
-        else
+        // We can unify an abstract with a concrete symbol, by creating a relation that will only
+        // be satisfied if the abstract is resolved to the concrete symbol.
+        if (!sym.isAbstract())
         {
             auto rel = make_shared<TManyToOneGraphRelation<ITopology::VertexID>>();
-            rel->add(sharedBoundRef->getAbstractRelation());
             rel->add(make_shared<ConstantGraphRelation<int>>(sym.getInt()));
+            rel->add(sharedBoundRef->getAbstractRelation());
             abstractToConst = ProgramSymbol(rel);
+        }
+        // Recursive terms are allowed to unify different abstracts with each other, since
+        // we don't know what abstract heads for this term may be ultimately defined.
+        else if (!inRecursiveTerm)
+        {
+            return false;
         }
 
         isFact = false;
@@ -212,7 +216,7 @@ UTerm VertexTerm::clone() const
     return make_unique<VertexTerm>();
 }
 
-bool VertexTerm::match(const ProgramSymbol& sym, bool& isFact)
+bool VertexTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
 {
     return sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get());
 }
@@ -235,23 +239,9 @@ void FunctionTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool
 {
     if (provider != nullptr)
     {
-        // We can only establish if we have at least one non-variable argument.
-        bool hasPartialArgs = false;
-        if (canEstablish && !negated) // skip work if unnecessary
-        {
-            for (auto& arg : arguments)
-            {
-                if (!arg->contains<VariableTerm>())
-                {
-                    hasPartialArgs = true;
-                    break;
-                }
-            }
-        }
-
         for (int i = 0; i < arguments.size(); ++i)
         {
-            arguments[i]->collectVars(outVars, canEstablish && !negated && hasPartialArgs && provider->canInstantiate(i));
+            arguments[i]->collectVars(outVars, canEstablish && !negated && provider->canInstantiate(i));
         }
     }
     else
@@ -320,9 +310,10 @@ UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopolo
     }
 }
 
-bool FunctionTerm::match(const ProgramSymbol& sym, bool& isFact)
+bool FunctionTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
 {
     vxy_assert(provider == nullptr); // should be handled by ExternalFunctionInstantiator instead
+    vxy_assert(!inRecursiveTerm); // function symbol being used as a function argument?
 
     if (sym.getType() != ESymbolType::Formula)
     {
@@ -334,7 +325,7 @@ bool FunctionTerm::match(const ProgramSymbol& sym, bool& isFact)
 
     for (int i = 0; i < arguments.size(); ++i)
     {
-        if (!arguments[i]->match(cformula->args[i], isFact))
+        if (!arguments[i]->match(cformula->args[i], recursive, isFact))
         {
             return false;
         }
@@ -626,7 +617,11 @@ ProgramSymbol BinaryOpTerm::eval() const
             ? resolvedRHS.getAbstractRelation()
             : make_shared<ConstantGraphRelation<int>>(resolvedRHS.getInt());
 
-        if (op == EBinaryOperatorType::Inequality && leftRel->equals(*rightRel))
+        if (op == EBinaryOperatorType::Equality && leftRel->equals(*rightRel))
+        {
+            return ProgramSymbol(1);            
+        }        
+        else if (op == EBinaryOperatorType::Inequality && leftRel->equals(*rightRel))
         {
             return ProgramSymbol(0);
         }
