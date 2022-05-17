@@ -445,7 +445,7 @@ bool ReachabilityConstraint::EdgeWatcher::onVariableNarrowed(IVariableDatabase* 
 bool ReachabilityConstraint::propagate(IVariableDatabase* db)
 {
 	vxy_assert(!m_edgeChangeFailure);
-	ValueGuard<bool> guardEdgeChangeFailure(m_edgeChangeFailure, false);
+	TValueGuard<bool> guardEdgeChangeFailure(m_edgeChangeFailure, false);
 
 	// Process edges first, adding/removing edges from the Min/Max graph, respectively
 	for (VarID edgeVar : m_edgeProcessList)
@@ -462,8 +462,8 @@ bool ReachabilityConstraint::propagate(IVariableDatabase* db)
 	// Batch-update reachability for all edge changes. This will trigger OnReachabilityChanged callbacks.
 	{
 		vxy_assert(!m_edgeChangeFailure);
-		ValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
-		ValueGuard<IVariableDatabase*> guardDb(m_edgeChangeDb, db);
+		TValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
+		TValueGuard<IVariableDatabase*> guardDb(m_edgeChangeDb, db);
 
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
@@ -679,8 +679,8 @@ void ReachabilityConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, Va
 	vxy_assert(!m_edgeChangeFailure);
 	vxy_assert(m_edgeChangeDb == nullptr);
 
-	ValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
-	ValueGuard<IVariableDatabase*> guardDb(m_edgeChangeDb, db);
+	TValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
+	TValueGuard<IVariableDatabase*> guardDb(m_edgeChangeDb, db);
 
 	int nodeIndex = m_variableToSourceEdgeIndex[variable];
 
@@ -779,7 +779,7 @@ void ReachabilityConstraint::backtrack(const IVariableDatabase* db, SolverDecisi
 	m_edgeProcessList.clear();
 	m_vertexProcessList.clear();
 
-	ValueGuard<bool> backtrackGuard(m_backtracking, true);
+	TValueGuard<bool> backtrackGuard(m_backtracking, true);
 
 	while (!m_backtrackData.empty() && m_backtrackData.back().level > level)
 	{
@@ -967,7 +967,7 @@ vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExp
 vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
 {
 	vxy_assert(!m_explainingSourceRequirement);
-	ValueGuard<bool> guard(m_explainingSourceRequirement, true);
+	TValueGuard<bool> guard(m_explainingSourceRequirement, true);
 
 	VarID sourceVar = params.propagatedVariable;
 	int sourceVertex = m_variableToSourceVertexIndex[sourceVar];

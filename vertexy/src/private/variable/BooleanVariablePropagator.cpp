@@ -23,7 +23,7 @@ bool BooleanVariablePropagator::trigger(VarID variable, const ValueSet& prevValu
 	vxy_assert(!m_anyPendingDelete);
 
 	sanityCheck(currentValue.isSingleton());
-	ValueGuard<bool> guard(m_iterating, true);
+	TValueGuard<bool> guard(m_iterating, true);
 
 	bool result = true;
 	bool remove = false;

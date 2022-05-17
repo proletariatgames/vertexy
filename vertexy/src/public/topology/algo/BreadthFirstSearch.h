@@ -66,7 +66,7 @@ public:
 		// Ensure this isn't reentrant
 		static bool isIterating = false;
 		vxy_assert(!isIterating);
-		ValueGuard<bool> iterationGuard(isIterating, true);
+		TValueGuard<bool> iterationGuard(isIterating, true);
 
 		vxy_assert(topology.isValidVertex(startVertex));
 

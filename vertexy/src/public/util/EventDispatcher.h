@@ -58,7 +58,7 @@ public:
 	template <typename... Args>
 	void broadcast(Args&&... args) const
 	{
-		ValueGuard<bool> guard(m_broadcasting, true);
+		TValueGuard<bool> guard(m_broadcasting, true);
 		for (auto it = m_handlers.begin(); it != m_handlers.end(); ++it)
 		{
 			if (it->callback != nullptr)

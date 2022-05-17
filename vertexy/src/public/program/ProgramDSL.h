@@ -459,7 +459,7 @@ public:
     }
 
     template<typename... ARGS>
-    detail::ProgramBodyTerm operator()(ARGS&&... args)
+    detail::ProgramExternalFunctionTerm operator()(ARGS&&... args)
     {
         vector<detail::ProgramBodyTerm> fargs;
         fargs.reserve(ARITY);
@@ -469,15 +469,15 @@ public:
 
 private:
     template<typename T, typename... REM>
-    detail::ProgramBodyTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
+    detail::ProgramExternalFunctionTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
     {
         outArgs.push_back(move(arg));
         return foldArgs(outArgs, rem...);
     }
 
-    detail::ProgramBodyTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs)
+    detail::ProgramExternalFunctionTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs)
     {
-        return detail::ProgramBodyTerm(detail::ProgramExternalFunctionTerm(m_uid, m_name, m_provider, move(outArgs)));
+        return detail::ProgramExternalFunctionTerm(m_uid, m_name, m_provider, move(outArgs));
     }
 
     FormulaUID m_uid;

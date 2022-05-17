@@ -282,22 +282,26 @@ using ExplainerFunction = function<vector<Literal>(const NarrowingExplanationPar
 using WatcherHandle = uint32_t;
 constexpr WatcherHandle INVALID_WATCHER_HANDLE = -1;
 
+//
+// Utility class to change a variable value, restoring it to its original value once this object
+// has left scope. E.g.
+//	TValueGuard<bool> guard(insideCriticalArea, true);
 template <typename T>
-class ValueGuard
+class TValueGuard
 {
 public:
-	ValueGuard() = delete;
-	ValueGuard(const ValueGuard&) = delete;
-	ValueGuard& operator=(const ValueGuard&) = delete;
+	TValueGuard() = delete;
+	TValueGuard(const TValueGuard&) = delete;
+	TValueGuard& operator=(const TValueGuard&) = delete;
 
-	ValueGuard(T& destination, const T& newValue)
+	TValueGuard(T& destination, const T& newValue)
 		: m_dest(destination)
 		, m_oldVal(destination)
 	{
 		destination = newValue;
 	}
 
-	~ValueGuard()
+	~TValueGuard()
 	{
 		m_dest = m_oldVal;
 	}
@@ -353,6 +357,10 @@ inline int indexOfPredicate(InputIterator first, InputIterator last, Predicate p
 	return it == last ? -1 : idx;
 }
 
+// Utility function to combine two hashes values into one.
+// Can be chained together, e.g.
+//		int h = hash_combine(a, b);
+//		h = hash_combine(h, c);
 inline uint32_t combineHashes(uint32_t a, uint32_t c)
 {
 	uint32_t b = 0x9e3779b9;
@@ -387,15 +395,18 @@ inline uint32_t combineHashes(uint32_t a, uint32_t c)
 	return c;
 }
 
+// Used for hash_map/etc where the key is a pointer.
+// Pass this as the hash function to hash the thing pointed at, rather than the pointer itself.
 template<typename T, typename NEXT=eastl::hash<T>>
 struct pointer_value_hash
 {
 	size_t operator()(T* val) const
 	{
-		NEXT()(*val);
+		return NEXT()(*val);
 	}
 };
 
+// Used for hash_map/etc where the key type has a "size_t hash() const" function.
 template<typename T>
 struct call_hash
 {
@@ -405,6 +416,8 @@ struct call_hash
 	}
 };
 
+// Used for equality of containers of pointers, where you want to call operator== on the
+// object being pointed at, rather than comparing the pointer values themselves.
 template<typename T>
 struct pointer_value_equality
 {
@@ -417,7 +430,11 @@ struct pointer_value_equality
 
 //
 // When an argument of this type if passed into ConstraintSolver::makeGraphConstraint, any arguments
-// that do not resolve are 
+// that do not resolve for a particular vertex are removed from the array for that vertex's constraint.
+//
+// !!NOTE!! Currently, using GraphCulledVector to define a graph constraint disables graph-based learning for any
+// conflicts the constraint is involved in!
+//
 template<typename T>
 class GraphCulledVector
 {
@@ -425,7 +442,7 @@ public:
 	GraphCulledVector() {}
 	GraphCulledVector(const GraphCulledVector& rhs)
 		: m_internal(rhs.m_internal)
-	{		
+	{
 	}
 	GraphCulledVector(GraphCulledVector&& rhs) noexcept
 		: m_internal(move(rhs.m_internal))

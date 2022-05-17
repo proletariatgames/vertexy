@@ -47,7 +47,7 @@ bool GenericVariablePropagator::trigger(VarID variable, const ValueSet& prevValu
 	}
 
 	bool result = true;
-	ValueGuard<bool> guard(m_iterating, true);
+	TValueGuard<bool> guard(m_iterating, true);
 
 	for (int segment = 0; segment < int(EVariableWatchType::NUM_WATCH_TYPES); ++segment)
 	{
