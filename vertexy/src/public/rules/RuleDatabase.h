@@ -182,7 +182,7 @@ public:
         virtual ALiteral getLiteral(RuleDatabase& rdb, bool inverted=false) override;
         virtual ITopologyPtr getTopology() const override { return topology; }
 
-        GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo);
+        GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo); 
 
         ITopologyPtr topology;
         shared_ptr<AbstractBodyMapper> bodyMapper;
@@ -402,7 +402,7 @@ protected:
 class BoundBodyInstantiatorRelation : public IGraphRelation<Literal>
 {
 public:
-    BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const AbstractAtomRelationInfoPtr& headRelation);
+    BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations);
 
     virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
     virtual size_t hash() const override;
@@ -411,7 +411,8 @@ public:
 
 protected:    
     shared_ptr<AbstractBodyMapper> m_mapper;
-    AbstractAtomRelationInfoPtr m_headRelation;
+    vector<GraphVertexRelationPtr> m_headRelations;
+    wstring m_name;
     mutable vector<int> m_concrete;
 };
 

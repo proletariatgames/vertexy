@@ -21,7 +21,7 @@ class FormulaMapper
 {
 public:
     FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder);
-    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs) const;
+    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, bool createIfNotFound) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
 
     bool contains(const vector<ProgramSymbol>& concreteArgs) const
@@ -76,7 +76,7 @@ using AbstractMapperRelationPtr = shared_ptr<AbstractAtomLiteralRelation>;
 class FormulaGraphRelation : public AbstractAtomLiteralRelation
 {
 public:
-    FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol);
+    FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm);
 
     virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
     virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
@@ -86,6 +86,7 @@ public:
 private:
     FormulaMapperPtr m_formulaMapper;
     ProgramSymbol m_symbol;
+    bool m_headTerm;
 
     mutable vector<ProgramSymbol> m_concrete;
 };
@@ -236,7 +237,7 @@ protected:
     struct ExportMap
     {
         hash_map<ProgramSymbol, AtomID> concreteExports;
-        hash_map<ProgramSymbol, AbstractMapperRelationPtr> abstractExports;
+        hash_map<tuple<ProgramSymbol,bool/*ForHead*/>, AbstractMapperRelationPtr> abstractExports;
     };
     using UExportMap = unique_ptr<ExportMap>;
 
@@ -258,7 +259,7 @@ protected:
     bool addTransformedRule(GroundedRule&& rule);
     
     void exportRules();
-    AtomLiteral exportAtom(const ProgramSymbol& sym, const ITopologyPtr& topology);
+    AtomLiteral exportAtom(const ProgramSymbol& sym, const ITopologyPtr& topology, bool forHead);
 
     bool shouldExportAsAbstract(const GroundedRule& rule, bool& outContainsAbstracts) const;
     

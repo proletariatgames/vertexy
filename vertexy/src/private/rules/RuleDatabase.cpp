@@ -30,9 +30,9 @@ bool RuleDatabase::finalize()
     bool hasAbstracts = false;
 
     //
-    // First go through each body, creating a boolean variable representing whether the body is satisfied,
-    // and constraint that variable so it is true IFF all literals are true, and false IFF any literal is false.
-    // Additionally, for each head attached to this body, constrain the head to be true if the body variable is true.
+    // First create nogoods for each body, specifying the nogood "body is true but head is false".
+    // We do this in an initial first pass so that graph relations have a chance to create literals
+    // for all possible head atoms.
     //
     for (auto& bodyInfo : m_bodies)
     {
@@ -44,6 +44,39 @@ bool RuleDatabase::finalize()
         if (bodyInfo->asAbstract() != nullptr)
         {
             hasAbstracts = true;
+        }
+
+        for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
+        {
+            if (isLiteralAssumed(*ith))
+            {
+                continue;
+            }
+
+            AtomInfo* headAtomInfo = getAtom((*ith).id());
+            ALiteral headLit = headAtomInfo->getLiteral(*this, ith->inverted());
+
+            if (headAtomInfo->asAbstract() != nullptr)
+            {
+                hasAbstracts = true;
+            }
+
+            // nogood(-H, B)
+            m_nogoodBuilder.add(headLit, headAtomInfo->getTopology());
+            m_nogoodBuilder.add(bodyInfo->getLiteral(*this), bodyInfo->getTopology());
+            m_nogoodBuilder.emit(m_solver, false);
+        }
+    }
+    
+    //
+    // Now go through each body, constrain the body so it is true if all literals in the body are true, and false
+    // if any literal in the body is false.
+    //
+    for (auto& bodyInfo : m_bodies)
+    {
+        if (bodyInfo->status != ETruthStatus::Undetermined)
+        {
+            continue;
         }
 
         m_nogoodBuilder.reserve(bodyInfo->atomLits.size()+1);
@@ -84,30 +117,10 @@ bool RuleDatabase::finalize()
             m_nogoodBuilder.emit(m_solver, false);
         }
 
-        for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
-        {
-            if (isLiteralAssumed(*ith))
-            {
-                continue;
-            }
-
-            AtomInfo* headAtomInfo = getAtom((*ith).id());
-            ALiteral headLit = headAtomInfo->getLiteral(*this, ith->inverted());
-
-            if (headAtomInfo->asAbstract() != nullptr)
-            {
-                hasAbstracts = true;
-            }
-
-            // nogood(-H, B)
-            m_nogoodBuilder.add(headLit, headAtomInfo->getTopology());
-            m_nogoodBuilder.add(bodyInfo->getLiteral(*this), bodyInfo->getTopology());
-            m_nogoodBuilder.emit(m_solver, false);
-        }
-
         if (bodyInfo->isNegativeConstraint)
         {
-            // body can't be true
+            // Body can't be true. Instead of making a constraint for this, we simply set the
+            // values of the variables representing the body to disallow "true".
             if (auto concreteBody = bodyInfo->asConcrete())
             {
                 if (!db->constrainToValues(concreteBody->equivalence.inverted(), nullptr))
@@ -1338,7 +1351,7 @@ GraphLiteralRelationPtr RuleDatabase::AbstractBodyInfo::makeRelationForAbstractH
 {
     vxy_assert(bodyMapper != nullptr);
     vxy_assert(headRelInfo != nullptr);
-    return make_shared<BoundBodyInstantiatorRelation>(bodyMapper, headRelInfo);
+    return make_shared<BoundBodyInstantiatorRelation>(bodyMapper, headRelInfo->argumentRelations);
 }
 
 /**
@@ -1700,18 +1713,25 @@ wstring AbstractBodyMapper::litToString(const AtomLiteral& lit) const
     return out;
 }
 
-BoundBodyInstantiatorRelation::BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const AbstractAtomRelationInfoPtr& headRelation)
+BoundBodyInstantiatorRelation::BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations)
     : m_mapper(mapper)
-    , m_headRelation(headRelation)
+    , m_headRelations(headRelations)
 {
+    m_name = TEXT("BodyMapper(");
+    for (int i = 0; i < m_headRelations.size(); ++i)
+    {
+        if (i > 0) m_name += TEXT(", ");
+        m_name += m_headRelations[i]->toString();
+    }
+    m_name += TEXT(")");
 }
 
 bool BoundBodyInstantiatorRelation::getRelation(VertexID sourceVertex, Literal& out) const
 {
-    m_concrete.resize(m_headRelation->argumentRelations.size());
+    m_concrete.resize(m_headRelations.size());
     for (int i = 0; i < m_concrete.size(); ++i)
     {            
-        if (!m_headRelation->argumentRelations[i]->getRelation(sourceVertex, m_concrete[i]))
+        if (!m_headRelations[i]->getRelation(sourceVertex, m_concrete[i]))
         {
             return false;
         }
@@ -1723,7 +1743,12 @@ bool BoundBodyInstantiatorRelation::getRelation(VertexID sourceVertex, Literal& 
 
 size_t BoundBodyInstantiatorRelation::hash() const
 {
-    return m_headRelation->literalRelation->hash();
+    int hash = 0;
+    for (auto& rel : m_headRelations)
+    {
+        hash = combineHashes(hash, rel->hash());
+    }
+    return hash;
 }
 
 bool BoundBodyInstantiatorRelation::equals(const IGraphRelation<Literal>& rhs) const
@@ -1734,9 +1759,7 @@ bool BoundBodyInstantiatorRelation::equals(const IGraphRelation<Literal>& rhs) c
 
 wstring BoundBodyInstantiatorRelation::toString() const
 {
-    wstring out;
-    out.sprintf(TEXT("BodyMapper(%s)"), m_headRelation->literalRelation->toString().c_str());
-    return out;
+    return m_name;
 }
 
 BodyInstantiatorRelation::BodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper)

@@ -72,7 +72,7 @@ class LiteralTerm : public Term
 public:
     virtual ProgramSymbol eval() const = 0;
     virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology);
-    virtual bool match(const ProgramSymbol& sym, bool& isFact);
+    virtual bool match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact);
     virtual size_t hash() const = 0;
     virtual bool operator==(const LiteralTerm& rhs) const = 0;
     bool operator !=(const LiteralTerm& rhs) const { return !operator==(rhs); }
@@ -95,7 +95,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
     virtual UTerm clone() const override;
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
-    virtual bool match(const ProgramSymbol& sym, bool& isFact) override;
+    virtual bool match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact) override;
     virtual size_t hash() const override
     {
         return eastl::hash<ProgramVariable>()(var);
@@ -138,7 +138,7 @@ public:
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
     virtual UTerm clone() const override;
-    virtual bool match(const ProgramSymbol& sym, bool& isFact) override;
+    virtual bool match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact) override;
     virtual ProgramSymbol eval() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
     virtual size_t hash() const override { return 0; }
@@ -194,7 +194,7 @@ public:
     virtual ProgramSymbol eval() const override;
     virtual UTerm clone() const override;
     virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
-    virtual bool match(const ProgramSymbol& sym, bool& isFact) override;
+    virtual bool match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact) override;
     virtual wstring toString() const override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
