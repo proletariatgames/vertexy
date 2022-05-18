@@ -153,17 +153,28 @@ void ExternalFunctionInstantiator::first()
 {
     m_hitEnd = false;
 
+    bool allArgumentsBound = true;
+    bool anyAbstractArguments = false;
+    
     vector<ExternalFormulaMatchArg> matchArgs;
     matchArgs.reserve(m_term.arguments.size());
     for (auto& arg : m_term.arguments)
     {
         if (auto varArg = dynamic_cast<VariableTerm*>(arg.get()))
         {
-            // only positive terms can bind variables
-            matchArgs.push_back(varArg->isBinder && !m_term.negated
-                ? ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef)
-                : ExternalFormulaMatchArg::makeBound(*varArg->sharedBoundRef)
-            );
+            if (varArg->isBinder)
+            {
+                allArgumentsBound = false;
+                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef));
+            }
+            else
+            {
+                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(*varArg->sharedBoundRef));
+                if (varArg->sharedBoundRef->isAbstract())
+                {
+                    anyAbstractArguments = true;
+                }
+            }
         }
         else if (auto symArg = dynamic_cast<SymbolTerm*>(arg.get()))
         {
@@ -171,7 +182,7 @@ void ExternalFunctionInstantiator::first()
         }
         else if (auto vertexArg = dynamic_cast<VertexTerm*>(arg.get()))
         {
-            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(ProgramSymbol(IdentityGraphRelation::get())));
+            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(vertexArg->eval()));
         }
         else
         {
@@ -181,7 +192,11 @@ void ExternalFunctionInstantiator::first()
         }
     }
 
-    m_term.provider->startMatching(move(matchArgs));
+    m_needsAbstractRelation = (allArgumentsBound && anyAbstractArguments);
+    if (!m_needsAbstractRelation)
+    {
+        m_term.provider->startMatching(move(matchArgs));
+    }
     match();
 }
 
@@ -193,22 +208,29 @@ void ExternalFunctionInstantiator::match()
         return;
     }
 
-    bool isFact = false;
-    m_hitEnd = !m_term.provider->matchNext(isFact);
-
-    if (m_term.negated && !m_hitEnd && isFact)
+    if (m_needsAbstractRelation)
     {
-        m_hitEnd = true;
-        return;
+        m_term.assignedAtom = {m_term.eval(), false};
     }
+    else
+    {
+        bool isFact = false;
+        m_hitEnd = !m_term.provider->matchNext(isFact);
 
-    m_term.assignedAtom = {m_term.eval(), isFact};
+        if (m_term.negated && !m_hitEnd && isFact)
+        {
+            m_hitEnd = true;
+            return;
+        }
+
+        m_term.assignedAtom = {m_term.eval(), isFact};
+    }
 }
 
 bool ExternalFunctionInstantiator::hitEnd() const
 {
     bool hadHit = m_hitEnd;
-    if (m_term.negated)
+    if (m_term.negated || m_needsAbstractRelation)
     {
         m_hitEnd = true;
     }

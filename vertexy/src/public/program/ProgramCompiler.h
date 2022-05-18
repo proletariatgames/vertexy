@@ -7,6 +7,7 @@
 #include "program/ProgramAST.h"
 #include "rules/RuleTypes.h"
 #include "ConstraintSolver.h"
+#include "rules/RuleDatabase.h"
 
 namespace Vertexy
 {
@@ -28,7 +29,6 @@ public:
     {
         return m_bindMap.find(concreteArgs) != m_bindMap.end();
     }
-    void add(const vector<ProgramSymbol>& concreteArgs, const shared_ptr<Literal>& lit);
 
     void setAtomID(AtomID id) { m_atomId = id; }
     AtomID getAtomID() const { return m_atomId; }
@@ -53,7 +53,7 @@ private:
     const wchar_t* m_formulaName;
     BindCaller* m_binder = nullptr;
 
-    mutable hash_map<vector<ProgramSymbol>, shared_ptr<Literal>, ArgumentHasher> m_bindMap;
+    mutable hash_map<vector<ProgramSymbol>, Literal, ArgumentHasher> m_bindMap;
 };
 using FormulaMapperPtr = shared_ptr<FormulaMapper>;
 
@@ -86,7 +86,7 @@ public:
 private:
     FormulaMapperPtr m_formulaMapper;
     ProgramSymbol m_symbol;
-    bool m_headTerm;
+    bool m_isHeadTerm;
 
     mutable vector<ProgramSymbol> m_concrete;
 };
@@ -139,8 +139,7 @@ public:
     {
         FormulaUID uid = FormulaUID(-1);
 
-        bool containsNonfacts = false;
-        bool containsAbstracts = false;
+        bool isAbstract = false;
         bool isExternal = false;
         ITopologyPtr abstractTopology = nullptr;
 
@@ -173,6 +172,15 @@ public:
     bool hasAtom(const ProgramSymbol& sym) const
     {
         vxy_assert(!sym.isNegated());
+        if (sym.isExternalFormula())
+        {
+            if (!sym.containsAbstract())
+            {
+                return sym.getExternalFormulaProvider()->eval(sym.getFormula()->args);
+            }
+            return true;
+        }
+        
         auto found = m_groundedAtoms.find(sym.getFormula()->uid);
         if (found != m_groundedAtoms.end())
         {
@@ -184,6 +192,8 @@ public:
     void bindFactIfNeeded(const ProgramSymbol& sym, const ITopologyPtr& topology);
 
     bool hasFailure() const { return m_failure; }
+
+    ConstraintSolver& getSolver() const { return m_rdb.getSolver(); }
 
 protected:
     struct DepGraphNodeData
@@ -220,7 +230,6 @@ protected:
     struct LitNode
     {
         vector<int> provides;
-        // vector<int> depends;
         vector<int> vars;
         int numDeps = 0;
         LiteralTerm* lit=nullptr;

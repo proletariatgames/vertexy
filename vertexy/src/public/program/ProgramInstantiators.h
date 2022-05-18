@@ -41,6 +41,7 @@ public:
 
 protected:
     FunctionTerm& m_term;
+    bool m_needsAbstractRelation = false;
     mutable bool m_hitEnd;
 };
 

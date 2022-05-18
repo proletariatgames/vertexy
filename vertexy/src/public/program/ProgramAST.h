@@ -15,6 +15,7 @@ class Instantiator;
 using UInstantiator = unique_ptr<Instantiator>;
 
 class VariableTerm;
+class VertexTerm;
 
 class Term
 {

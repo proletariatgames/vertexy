@@ -400,17 +400,18 @@ inline uint32_t combineHashes(uint32_t a, uint32_t c)
 template<typename T, typename NEXT=eastl::hash<T>>
 struct pointer_value_hash
 {
-	size_t operator()(T* val) const
+	template<typename PTR_TYPE>
+	size_t operator()(const PTR_TYPE& val) const
 	{
 		return NEXT()(*val);
 	}
 };
 
 // Used for hash_map/etc where the key type has a "size_t hash() const" function.
-template<typename T>
 struct call_hash
 {
-	size_t operator()(T&& val) const
+	template<typename T>
+	size_t operator()(const T& val) const
 	{
 		return val.hash();
 	}
@@ -418,7 +419,6 @@ struct call_hash
 
 // Used for equality of containers of pointers, where you want to call operator== on the
 // object being pointed at, rather than comparing the pointer values themselves.
-template<typename T>
 struct pointer_value_equality
 {
 	template<typename PTR_TYPE_1, typename PTR_TYPE_2>
@@ -560,6 +560,20 @@ struct hash<Vertexy::Literal>
 inline wstring to_wstring(const Vertexy::Literal& lit)
 {
 	return {wstring::CtorSprintf(), TEXT("%d=%s"), lit.variable.raw(), lit.values.toString().c_str()};
+}
+
+// to_wstring for vectors
+template<typename T>
+inline wstring to_wstring(const vector<T>& vec)
+{
+	wstring out = TEXT("[");
+	for (int i = 0; i < vec.size(); ++i)
+	{
+		if (i > 0) out += TEXT(", ");
+		out += eastl::to_wstring(vec[i]);
+	}
+	out += TEXT("]");
+	return out;
 }
 
 } // names

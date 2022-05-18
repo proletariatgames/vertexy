@@ -285,6 +285,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("Rules-BasicDisjunction", []() { return TestSolvers::solveRules_basicDisjunction(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-BasicCycle", []() { return TestSolvers::solveRules_basicCycle(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-BasicIncomplete", []() { return TestSolvers::solveRules_incompleteCycle(FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Rules-BasicGraph", []() { return TestSolvers::solveProgram_graphTests(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-Hamiltonian", []() { return TestSolvers::solveProgram_hamiltonian(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Rules-HamiltonianGraph", []() { return TestSolvers::solveProgram_hamiltonianGraph(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Sum-Basic", []() { return TestSolvers::solveSumBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
