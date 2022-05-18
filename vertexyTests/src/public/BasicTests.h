@@ -26,6 +26,7 @@ public:
 	static int solveRules_basicDisjunction(int seed, bool printVerbose = true);
 	static int solveRules_basicCycle(int seed, bool printVerbose = true);
 	static int solveRules_incompleteCycle(int seed, bool printVerbose = true);
+	static int solveProgram_graphTests(int seed, bool printVerbose = true);
 	static int solveProgram_hamiltonian(int seed, bool printVerbose = true);
 	static int solveProgram_hamiltonianGraph(int seed, bool printVerbose = true);
 };

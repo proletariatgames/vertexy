@@ -218,6 +218,13 @@ UTerm VertexTerm::clone() const
 
 bool VertexTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
 {
+    if (sym.isInteger())
+    {
+        // TODO: bounds-check topology vertices?
+        isFact = false;
+        return true;
+    }
+    
     return sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get());
 }
 
@@ -574,7 +581,11 @@ ProgramSymbol BinaryOpTerm::eval() const
         return {};
     }
     vxy_assert_msg(
-        resolvedLHS.getType() == ESymbolType::Integer || resolvedRHS.getType() == ESymbolType::Abstract,
+        resolvedLHS.getType() == ESymbolType::Integer || resolvedLHS.getType() == ESymbolType::Abstract,
+        "can only apply binary operators on integer or abstract symbols"
+    );
+    vxy_assert_msg(
+        resolvedRHS.getType() == ESymbolType::Integer || resolvedRHS.getType() == ESymbolType::Abstract,
         "can only apply binary operators on integer or abstract symbols"
     );
 

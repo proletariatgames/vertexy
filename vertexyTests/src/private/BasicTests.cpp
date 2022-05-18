@@ -6,6 +6,8 @@
 #include "ConstraintSolver.h"
 #include "EATest/EATest.h"
 #include "program/ProgramDSL.h"
+#include "topology/GridTopology.h"
+#include "topology/IPlanarTopology.h"
 #include "util/SolverDecisionLog.h"
 #include "variable/SolverVariableDomain.h"
 
@@ -515,6 +517,111 @@ int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
 	return nErrorCount;
 }
 
+// Simple test of graph relations and negative (~) literals
+int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	static constexpr int WIDTH = 5;
+	auto topology = make_shared<PlanarGridTopology>(WIDTH, 1);
+
+	struct Output
+	{
+		FormulaResult<2> graphEdgeTest;
+		FormulaResult<1> rightTest;
+		FormulaResult<1> negRightTest;
+	};
+	
+	auto prog = Program::define([](ProgramVertex vertex)
+	{
+		VXY_VARIABLE(X);
+		VXY_VARIABLE(Y);
+		
+		VXY_FORMULA(graphEdgeTest, 2);
+		graphEdgeTest(vertex, Y) <<= Program::graphEdge(vertex, Y);
+		
+		auto right = Program::graphLink(PlanarGridTopology::moveRight());
+		
+		VXY_FORMULA(rightTest, 1);
+		rightTest(vertex) <<= right(vertex, X);
+
+		VXY_FORMULA(negRightTest, 1);
+		negRightTest(vertex) <<= ~rightTest(vertex);
+
+		return Output {graphEdgeTest, rightTest, negRightTest};
+	});
+
+	ConstraintSolver solver(TEXT("graphTests"), seed);
+
+	auto inst = prog(ITopology::adapt(topology));
+
+	struct GraphEdgeVars { VarID left, right; };
+	vector<GraphEdgeVars> graphEdgeTestVars;
+	graphEdgeTestVars.resize(WIDTH, {VarID::INVALID, VarID::INVALID});
+	vector<VarID> rightTestVars;
+	rightTestVars.resize(WIDTH, VarID::INVALID);
+	vector<VarID> negRightTestVars;
+	negRightTestVars.resize(WIDTH, VarID::INVALID);
+	
+	get<Output>(inst).graphEdgeTest.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
+	{
+		int x = _x.getInt(), y = _y.getInt();
+		VarID* dest = y < x ? &graphEdgeTestVars[x].left : &graphEdgeTestVars[x].right; 
+		EATEST_VERIFY(!dest->isValid());
+		VarID var = solver.makeBoolean(get<Output>(inst).graphEdgeTest.toString(x,y));
+		*dest = var;
+		return var;
+	});
+	get<Output>(inst).rightTest.bind([&](const ProgramSymbol& _x)
+	{
+		int x = _x.getInt();
+		EATEST_VERIFY(!rightTestVars[x].isValid());
+		VarID var = solver.makeBoolean(get<Output>(inst).rightTest.toString(x));
+		rightTestVars[x] = var;
+		return var;
+	});
+	get<Output>(inst).negRightTest.bind([&](const ProgramSymbol& _x)
+	{
+		int x = _x.getInt();
+		EATEST_VERIFY(!negRightTestVars[x].isValid());
+		VarID var = solver.makeBoolean(get<Output>(inst).negRightTest.toString(x));
+		negRightTestVars[x] = var;
+		return var;
+	});
+	
+	solver.addProgram(move(inst));
+	solver.solve();
+	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+
+	for (int i = 0; i < WIDTH; ++i)
+	{
+		EATEST_VERIFY(rightTestVars[i].isValid());
+		VarID lvar = graphEdgeTestVars[i].left;
+		VarID rvar = graphEdgeTestVars[i].right;
+		EATEST_VERIFY(lvar.isValid() || i == 0);
+		EATEST_VERIFY(rvar.isValid() || i == WIDTH-1);
+		
+		int gtL = lvar.isValid() ? solver.getSolvedValue(graphEdgeTestVars[i].left) : 1;
+		int gtR = rvar.isValid() ? solver.getSolvedValue(graphEdgeTestVars[i].right) : 1;
+		EATEST_VERIFY(gtL == 1);
+		EATEST_VERIFY(gtR == 1);
+
+		int sr = solver.getSolvedValue(rightTestVars[i]);
+		int nsr = solver.getSolvedValue(negRightTestVars[i]);
+		EATEST_VERIFY((i < WIDTH-1 && sr == 1) || (i==WIDTH-1 && sr == 0));
+		EATEST_VERIFY(sr != nsr);
+		if (printVerbose)
+		{
+			VERTEXY_LOG("graphEdgeTestVars(%d)   = %d, %d", i, gtL, gtR);
+			VERTEXY_LOG("rightTestVars(%d)       = %d", i, sr);
+			VERTEXY_LOG("negRightTestVars(%d)    = %d", i, nsr);
+		}
+	}
+	
+	solver.dumpStats(printVerbose);
+	return nErrorCount;
+}
+
 int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
@@ -636,6 +743,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 	// report a solution once all added programs have been solved.
 	solver.addProgram(move(inst));
 	solver.solve();
+	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 
 	// Print out all path(X,Y) that are true, and count the number of times each node was visited.
 	int timesVisited[4][4] = {0};
@@ -656,7 +764,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 		}
 	}
 
-	solver.dumpStats(true);
+	solver.dumpStats(printVerbose);
 	return nErrorCount;
 }
 
@@ -705,7 +813,7 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 		return HamiltonianOutput{path};
 	});
 
-	ConstraintSolver solver(TEXT("hamiltonianProgram"), seed);
+	ConstraintSolver solver(TEXT("hamiltonianProgram-Graph"), seed);
 
 	auto inst = hamiltonian(ITopology::adapt(topology));
 
@@ -723,6 +831,7 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 
 	solver.addProgram(move(inst));
 	solver.solve();
+	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 
 	int timesVisited[4][4] = {0};
 	for (int x = 0; x < 4; ++x)
@@ -738,6 +847,6 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 		}
 	}
 
-	solver.dumpStats(true);
+	solver.dumpStats(printVerbose);
 	return nErrorCount;
 }

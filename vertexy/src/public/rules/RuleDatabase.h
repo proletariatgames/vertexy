@@ -32,7 +32,14 @@ public:
     struct AtomInfo
     {
         AtomInfo() {}
-        AtomInfo(AtomID id) : id(id) {}
+        explicit AtomInfo(AtomID id) : id(id) {}
+
+        AtomInfo(const AtomInfo&) = delete;
+        AtomInfo(AtomInfo&&) = delete;
+
+        AtomInfo& operator=(const AtomInfo&) = delete;
+        AtomInfo& operator=(AtomInfo&&) = delete;
+        
         virtual ~AtomInfo() {}
 
         virtual const AbstractAtomInfo* asAbstract() const { return nullptr; }
@@ -67,8 +74,8 @@ public:
     struct ConcreteAtomInfo : public AtomInfo
     {
         ConcreteAtomInfo() {}
-        ConcreteAtomInfo(AtomID id, const shared_ptr<Literal>& bindDestination)
-            : AtomInfo(id)
+        ConcreteAtomInfo(AtomID inID, const shared_ptr<Literal>& bindDestination)
+            : AtomInfo(inID)
             , bindDestination(bindDestination)
         {
         }
@@ -93,8 +100,8 @@ public:
     struct AbstractAtomInfo : public AtomInfo
     {
         AbstractAtomInfo() {}
-        AbstractAtomInfo(AtomID id, const ITopologyPtr& topology)
-            : AtomInfo(id)
+        AbstractAtomInfo(AtomID inID, const ITopologyPtr& topology)
+            : AtomInfo(inID)
             , topology(topology)
         {
         }
@@ -105,12 +112,16 @@ public:
         virtual bool synchronize(RuleDatabase& rdb) const override;
 
         // Set of relations where this atom was in the head of a rule
-        using RelationSet = hash_map<AbstractAtomRelationInfoPtr, ETruthStatus>;
+        using RelationSetHasher = pointer_value_hash<AbstractAtomRelationInfo, call_hash>;
+        using RelationSet = hash_map<AbstractAtomRelationInfoPtr, ETruthStatus, RelationSetHasher, pointer_value_equality>;
         RelationSet abstractLiterals;
         // The topology used for making this atom concrete
         ITopologyPtr topology;
         // number of literals marked ETruthStatus::Undecided. If all get marked true, then the entire atom gets marked true.
         int numUndeterminedLiterals = 0;
+        // When we need a "~atom" relation for an atom that doesn't exist, we create a new
+        // variable that is forced to false. This is shared by all NotAtom relations created for this atom.
+        shared_ptr<Literal> falseLiteralPtr;
     };
 
     struct ConcreteBodyInfo;
@@ -123,13 +134,19 @@ public:
 
         virtual ~BodyInfo() {}
 
+        BodyInfo(const BodyInfo&) = delete;
+        BodyInfo(BodyInfo&&) = delete;
+
+        BodyInfo& operator=(const BodyInfo&) = delete;
+        BodyInfo& operator=(BodyInfo&&) = delete;
+        
         virtual const ConcreteBodyInfo* asConcrete() const { return nullptr; }
         virtual const AbstractBodyInfo* asAbstract() const { return nullptr; }
 
         ConcreteBodyInfo* asConcrete() { return const_cast<ConcreteBodyInfo*>(const_cast<const BodyInfo*>(this)->asConcrete()); }
         AbstractBodyInfo* asAbstract() { return const_cast<AbstractBodyInfo*>(const_cast<const BodyInfo*>(this)->asAbstract()); }
 
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool inverted=false) = 0;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
         bool isChoiceBody() const { return status == ETruthStatus::Undetermined; }
@@ -154,13 +171,13 @@ public:
     struct ConcreteBodyInfo : public BodyInfo
     {
         ConcreteBodyInfo() {}
-        explicit ConcreteBodyInfo(int id, const vector<AtomLiteral>& bodyLits)
-            : BodyInfo(id, bodyLits)
+        explicit ConcreteBodyInfo(int inID, const vector<AtomLiteral>& bodyLits)
+            : BodyInfo(inID, bodyLits)
         {
         }
 
         virtual const ConcreteBodyInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool inverted=false) override;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) override;
         virtual ITopologyPtr getTopology() const override { return nullptr; }
 
         // the strongly connected component ID this belongs to.
@@ -172,14 +189,14 @@ public:
     struct AbstractBodyInfo : public BodyInfo
     {
         AbstractBodyInfo() {}
-        explicit AbstractBodyInfo(int id, const vector<AtomLiteral>& bodyLits, const ITopologyPtr& topology)
-            : BodyInfo(id, bodyLits)
+        explicit AbstractBodyInfo(int inID, const vector<AtomLiteral>& bodyLits, const ITopologyPtr& topology)
+            : BodyInfo(inID, bodyLits)
             , topology(topology)
         {
         }
 
         virtual const AbstractBodyInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool inverted=false) override;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) override;
         virtual ITopologyPtr getTopology() const override { return topology; }
 
         GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo); 
@@ -241,7 +258,7 @@ protected:
         void reserve(int n) { m_literals.reserve(n); }
         bool empty() const { return m_literals.empty(); }
         void add(const ALiteral& lit, const ITopologyPtr& topology);
-        void emit(ConstraintSolver& solver, bool cullUnresolved);
+        void emit(RuleDatabase& rdb);
 
     protected:
         void recurseTopology(ConstraintSolver& solver, const vector<int>& indices, int pos, vector<Literal>& appendLits);
@@ -266,8 +283,6 @@ protected:
         vector<hash_map<Literal, AtomID>> abstractAtomMappings;
     };
 
-    static ALiteral invertLiteral(const ALiteral& lit);
-    static GraphLiteralRelationPtr invertRelation(const GraphLiteralRelationPtr& rel);
     static bool isConcreteLiteral(const ALiteral& lit);
     
     bool markAtomFalse(AtomInfo* atom);
@@ -370,7 +385,8 @@ class AbstractBodyMapper
 public:
     AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::AbstractBodyInfo* bodyInfo, const AbstractAtomRelationInfoPtr& headRelationInfo=nullptr);
     Literal getForHead(const vector<int>& concreteHeadArgs);
-    bool getForVertex(ITopology::VertexID vertex, Literal& outLit);
+    bool getForVertex(ITopology::VertexID vertex, bool allowCreation, Literal& outLit);
+    const RuleDatabase::AbstractBodyInfo* getBodyInfo() const { return m_bodyInfo; }
 
 protected:
     Literal makeForArgs(const vector<int>& args, size_t argHash);
@@ -386,7 +402,7 @@ protected:
             size_t hash = 0;
             for (auto& arg : concreteArgs)
             {
-                combineHashes(hash, eastl::hash<int>()(arg));
+                hash = combineHashes(hash, eastl::hash<int>()(arg));
             }
             return hash;
         }
@@ -420,14 +436,33 @@ protected:
 class BodyInstantiatorRelation : public IGraphRelation<Literal>
 {
 public:
-    BodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper);
+    BodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, bool allowCreation);
 
     virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
     virtual size_t hash() const override;
     virtual wstring toString() const override { return TEXT("BodyInstantiator"); }
 
 protected:
-    shared_ptr<AbstractBodyMapper> m_mapper;    
+    shared_ptr<AbstractBodyMapper> m_mapper;
+    bool m_allowCreation;
+};
+
+class AtomWrapperRelation : public IGraphRelation<Literal>
+{
+public:
+    AtomWrapperRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation, bool invert, const shared_ptr<Literal>& falseLitPtr);
+
+    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual size_t hash() const override;
+    virtual wstring toString() const override;
+    const GraphLiteralRelationPtr& getInner() const { return m_atomRelation; }
+    bool inverted() const { return m_invert; }
+
+protected:
+    ConstraintSolver& m_solver;
+    GraphLiteralRelationPtr m_atomRelation;
+    bool m_invert;
+    shared_ptr<Literal> m_falseLitPtr;
 };
 
 } // namespace Vertexy

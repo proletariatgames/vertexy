@@ -268,7 +268,7 @@ public:
         case ESymbolType::Abstract:
             return getAbstractRelation()->equals(*rhs.getAbstractRelation());
         case ESymbolType::External:
-            return getExternalFormulaProvider() == rhs.getExternalFormulaProvider();
+            return m_packed == rhs.m_packed && getExternalFormulaProvider() == rhs.getExternalFormulaProvider();
         default:
             return m_packed == rhs.m_packed;
         }

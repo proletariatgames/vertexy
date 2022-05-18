@@ -43,6 +43,32 @@ struct AbstractAtomRelationInfo
     GraphLiteralRelationPtr literalRelation;
     // The set of relations used to map this abstract literal to its body
     vector<GraphVertexRelationPtr> argumentRelations;
+
+    size_t hash() const { return literalRelation->hash(); }
+    bool operator==(const AbstractAtomRelationInfo& rhs) const
+    {
+        if (this == &rhs)
+        {
+            return true;
+        }
+        if (!literalRelation->equals(*rhs.literalRelation))
+        {
+            return false;
+        }
+        if (argumentRelations.size() != rhs.argumentRelations.size())
+        {
+            return false;
+        }
+        for (int i = 0; i < argumentRelations.size(); ++i)
+        {
+            if (argumentRelations[i]->equals(*rhs.argumentRelations[i]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
 };
 using AbstractAtomRelationInfoPtr = shared_ptr<AbstractAtomRelationInfo>;
 
