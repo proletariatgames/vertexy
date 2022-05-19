@@ -14,6 +14,7 @@ file(GLOB VERTEXY_SOURCES
 	"src/private/decision/*.cpp"
 	"src/private/ds/*.cpp"
 	"src/private/learning/*.cpp"
+	"src/private/prefab/*.cpp"
 	"src/private/restart/*.cpp"
 	"src/private/util/*.cpp"
 	"src/private/topology/*.cpp"
