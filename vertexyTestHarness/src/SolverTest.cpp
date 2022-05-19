@@ -9,6 +9,7 @@
 #include <EASTL/set.h>
 #include <Sudoku.h>
 #include <TowersOfHanoi.h>
+#include <PrefabTest.h>
 
 #include "ConstraintSolver.h"
 #include "KnightTourSolver.h"
@@ -267,6 +268,7 @@ int main(int argc, char* argv[])
 	using namespace VertexyTests;
 
 	TestApplication Suite("Solver Tests", argc, argv);
+	/*
 	Suite.AddTest("ValueBitset", test_ValueBitset);
 	Suite.AddTest("Digraph", test_Digraph);
 	Suite.AddTest("RuleSCCs", test_ruleSCCs);
@@ -290,6 +292,8 @@ int main(int argc, char* argv[])
 	Suite.AddTest("NQueens-AllDifferent", []() { return NQueensSolvers::solveUsingAllDifferent(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Maze", []() { return MazeSolver::solve(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	*/
+	Suite.AddTest("PrefabTest-Basic", []() { return PrefabTestSolver::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	//Suite.AddTest("Maze", []() { return MazeSolver::solve(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	return Suite.Run();
 }
