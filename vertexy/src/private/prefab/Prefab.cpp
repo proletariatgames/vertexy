@@ -14,6 +14,9 @@ Prefab::Prefab(int inID, PrefabManager* inManager, vector<vector<int>> inTiles)
 	manager = inManager;
 	tiles = inTiles;
 
+	// Ensure that this prefab is created with a manager
+	vxy_assert(manager != nullptr);
+
 	// Instantiate the positions
 	for (int x = 0; x < tiles.size(); x++)
 	{
