@@ -479,8 +479,9 @@ Vertexy::detail::ProgramExternalFunctionTerm Program::vertex(detail::ProgramBody
 Vertexy::detail::ProgramRangeTerm Program::range(detail::ProgramBodyTerm min, detail::ProgramBodyTerm max)
 {
     // TODO: validate arguments
-    int minV = min.term->eval().getInt();
-    int maxV = max.term->eval().getInt();
+    static LiteralTerm::AbstractOverrideMap tempMap;
+    int minV = min.term->eval(tempMap).getInt();
+    int maxV = max.term->eval(tempMap).getInt();
     vxy_assert_msg(maxV >= minV, "invalid range");
     return detail::ProgramRangeTerm(minV, maxV);
 }

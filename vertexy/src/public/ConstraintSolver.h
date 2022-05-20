@@ -744,22 +744,28 @@ protected:
 	}
 
 	// GraphCulledVector specialization removes elements of the array that do not resolve.
-	// NOTE: Constraints made with GraphCulledVectors disable graph-based learning!
+	// NOTE: If any elements of the array do not resolve, the constraint will not participate in graph-based learning!
 	template<typename T>
 	auto translateGraphConsArgument(const GraphCulledVector<T>& argArray, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
-		relationInfo.isValid = false;
-		
-		using ElementType = decltype(translateGraphConsArgument(argArray.getInternal()[0], relationInfo, success));
+		using ElementType = decltype(translateGraphConsArgument(argArray.getInternal()[0].first, relationInfo, success));
 		vector<ElementType> translatedArray;
 		translatedArray.reserve(argArray.getInternal().size());
-		for (auto& arg : argArray.getInternal())
+		for (auto& argEntry : argArray)
 		{
 			bool innerSuccess = true;
-			auto translatedArg = translateGraphConsArgument(arg, relationInfo, innerSuccess);
+			auto translatedArg = translateGraphConsArgument(argEntry.first, relationInfo, innerSuccess);
 			if (innerSuccess)
 			{
 				translatedArray.push_back(translatedArg);
+			}
+			else
+			{
+				relationInfo.isValid = false;
+				if (argEntry.second)
+				{
+					success = false;
+				}
 			}
 		}
 		return translatedArray;

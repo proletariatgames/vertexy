@@ -94,7 +94,7 @@ bool RuleDatabase::finalize()
             }
 
             auto atomLit = getAtom(bodyLit.id())->getLiteral(*this, bodyLit.inverted());
-            m_nogoodBuilder.add(atomLit, getAtom(bodyLit.id())->getTopology());
+            m_nogoodBuilder.add(atomLit, false, getAtom(bodyLit.id())->getTopology());
         }
 
         vxy_assert(!m_nogoodBuilder.empty());
@@ -103,7 +103,7 @@ bool RuleDatabase::finalize()
         // For all literal Bv1...BvN in the body:
         // nogood(-B, Bv1, Bv2, Bv3, ... BvN)
         //
-        m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, false), bodyInfo->getTopology());
+        m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, false), true, bodyInfo->getTopology());
         m_nogoodBuilder.emit(*this);
 
         //
@@ -118,8 +118,8 @@ bool RuleDatabase::finalize()
                 continue;
             }
 
-            m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), bodyInfo->getTopology());
-            m_nogoodBuilder.add(getAtom(itv->id())->getLiteral(*this, *itv), getAtom(itv->id())->getTopology());
+            m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), true, bodyInfo->getTopology());
+            m_nogoodBuilder.add(getAtom(itv->id())->getLiteral(*this, *itv), true, getAtom(itv->id())->getTopology());
             m_nogoodBuilder.emit(*this);
         }
         
@@ -137,8 +137,8 @@ bool RuleDatabase::finalize()
             AtomInfo* headAtomInfo = getAtom((*ith).id());
             ALiteral headLit = headAtomInfo->getLiteral(*this, *ith);
             
-            m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, true), bodyInfo->getTopology());
-            m_nogoodBuilder.add(headLit, headAtomInfo->getTopology());
+            m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, true), true, bodyInfo->getTopology());
+            m_nogoodBuilder.add(headLit, true, headAtomInfo->getTopology());
             m_nogoodBuilder.emit(*this);
         }
 
@@ -196,14 +196,14 @@ bool RuleDatabase::finalize()
 
         if (auto concreteAtom = atomInfo->asConcrete())
         {
-            m_nogoodBuilder.add(concreteAtom->getConcreteLiteral(*this, true), concreteAtom->getTopology());
+            m_nogoodBuilder.add(concreteAtom->getConcreteLiteral(*this, true), true, concreteAtom->getTopology());
             for (auto supportBodyInfo : concreteAtom->supports)
             {
                 // we should've been marked trivially true if one of our supports was,
                 // or it should've been removed as a support if it is trivially false.
                 vxy_assert(supportBodyInfo->status == ETruthStatus::Undetermined);
                 // if the body is false, it cannot support us
-                m_nogoodBuilder.add(supportBodyInfo->getLiteral(*this, false, false), supportBodyInfo->getTopology());
+                m_nogoodBuilder.add(supportBodyInfo->getLiteral(*this, false, false), true, supportBodyInfo->getTopology());
             }
             m_nogoodBuilder.emit(*this);
         }
@@ -221,7 +221,7 @@ bool RuleDatabase::finalize()
                     continue;
                 }
                 
-                m_nogoodBuilder.add(make_shared<InvertLiteralGraphRelation>(absLit.first->literalRelation), abstractAtom->getTopology());
+                m_nogoodBuilder.add(make_shared<InvertLiteralGraphRelation>(absLit.first->literalRelation), true, abstractAtom->getTopology());
                 for (auto bodyInfo : abstractAtom->supports)
                 {
                     vxy_assert(bodyInfo->status != ETruthStatus::False);
@@ -235,13 +235,13 @@ bool RuleDatabase::finalize()
                     if (auto abstractBody = bodyInfo->asAbstract())
                     {
                         auto bodyRel = abstractBody->makeRelationForAbstractHead(*this, absLit.first);                        
-                        m_nogoodBuilder.add(bodyRel, bodyInfo->getTopology());
+                        m_nogoodBuilder.add(bodyRel, false, bodyInfo->getTopology());
                     }
                     else
                     {
                         auto concreteBody = bodyInfo->asConcrete();
                         vxy_assert(concreteBody->equivalence.isValid());
-                        m_nogoodBuilder.add(concreteBody->equivalence, bodyInfo->getTopology());
+                        m_nogoodBuilder.add(concreteBody->equivalence, false, bodyInfo->getTopology());
                     }
                 }
                 m_nogoodBuilder.emit(*this);
@@ -348,7 +348,7 @@ void RuleDatabase::addRule(const AtomLiteral& head, const vector<AtomLiteral>& b
 
         if (isFact)
         {
-            markAtomTrue(head);
+            markAtomTrue(head, false);
         }
     }
     else
@@ -575,7 +575,7 @@ bool RuleDatabase::markAtomFalse(AtomInfo* atom)
     return setAtomStatus(atom, ETruthStatus::False);
 }
 
-bool RuleDatabase::markAtomTrue(const AtomLiteral& atomLit)
+bool RuleDatabase::markAtomTrue(const AtomLiteral& atomLit, bool propagateAbstract)
 {
     auto atomInfo = getAtom(atomLit.id());
     if (atomInfo->asConcrete() != nullptr)
@@ -599,7 +599,14 @@ bool RuleDatabase::markAtomTrue(const AtomLiteral& atomLit)
             if (foundLit->second == ETruthStatus::Undetermined)
             {
                 foundLit->second = ETruthStatus::True;
+                
+                vxy_assert(absAtomInfo->numUndeterminedLiterals > 0);
                 absAtomInfo->numUndeterminedLiterals--;
+
+                if (propagateAbstract && absAtomInfo->numUndeterminedLiterals == 0)
+                {
+                    return setAtomStatus(atomInfo, ETruthStatus::True);   
+                }
             }
             else
             {
@@ -665,7 +672,7 @@ bool RuleDatabase::propagateFacts()
     // mark any atoms that have no supports as false.
     for (auto& atom : m_atoms)
     {
-        if (!atom->isExternal && atom->asAbstract() == nullptr)
+        if (!atom->isExternal)
         {
             if (atom->supports.empty())
             {
@@ -675,12 +682,27 @@ bool RuleDatabase::propagateFacts()
                 }
             }
             
-            auto absAtom = atom->asAbstract();
-            if (absAtom != nullptr && absAtom->numUndeterminedLiterals == 0)
+            if (auto absAtom = atom->asAbstract())
             {
-                if (!setAtomStatus(absAtom, ETruthStatus::True))
+                if (absAtom->numUndeterminedLiterals == 0)
                 {
-                    return false;
+                    if (!setAtomStatus(absAtom, ETruthStatus::True))
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    for (auto& absLit : absAtom->abstractLiterals)
+                    {
+                        if (absLit.second != ETruthStatus::Undetermined)
+                        {
+                            if (!absAtom->synchronizeLiteral(*this, absLit.first, absLit.second))
+                            {
+                                return false;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -746,7 +768,6 @@ bool RuleDatabase::emptyAtomQueue()
         vxy_assert(atom->enqueued);
         atom->enqueued = false;
 
-        vxy_assert(atom->status != ETruthStatus::Undetermined);
         if (!atom->synchronize(*this))
         {
             return false;
@@ -804,7 +825,7 @@ bool RuleDatabase::emptyBodyQueue()
             for (auto it = body->heads.begin(), itEnd = body->heads.end(); it != itEnd; ++it)
             {
                 vxy_assert(it->sign());
-                if (!markAtomTrue(*it))
+                if (!markAtomTrue(*it, true))
                 {
                     return false;
                 }
@@ -1277,18 +1298,44 @@ bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb) const
 
 RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit)
 {
-    auto rel = atomLit.getRelationInfo()->literalRelation;
-
-    if (falseLiteralPtr == nullptr)
-    {
-        falseLiteralPtr = make_shared<Literal>();
-    }
-    return make_shared<AtomWrapperRelation>(rdb.getSolver(), rel, !atomLit.sign(), falseLiteralPtr);
+    return atomLit.sign() ? atomLit.getRelationInfo()->literalRelation : atomLit.getRelationInfo()->getInverseRelation();
 }
 
 bool RuleDatabase::AbstractAtomInfo::synchronize(RuleDatabase& rdb) const
 {
     // vxy_fail_msg("NYI");
+    return true;
+}
+
+bool RuleDatabase::AbstractAtomInfo::synchronizeLiteral(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& litRelation, ETruthStatus status)
+{
+    vxy_assert(status != ETruthStatus::Undetermined);
+    for (int vertex = 0; vertex < topology->getNumVertices(); ++vertex)
+    {
+        Literal lit;
+        if (!litRelation->literalRelation->getRelation(vertex, lit))
+        {
+            continue;
+        }
+
+        if (status == ETruthStatus::True)
+        {
+            if (!rdb.m_solver.getVariableDB()->constrainToValues(lit, nullptr))
+            {
+                rdb.m_conflict = true;
+                return false;
+            }
+        }
+        else
+        {
+            if (!rdb.m_solver.getVariableDB()->excludeValues(lit, nullptr))
+            {
+                rdb.m_conflict = true;
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 
@@ -1377,56 +1424,42 @@ GraphLiteralRelationPtr RuleDatabase::AbstractBodyInfo::makeRelationForAbstractH
  *
  */
 
-void RuleDatabase::NogoodBuilder::add(const ALiteral& litToAdd, const ITopologyPtr& topology)
+void RuleDatabase::NogoodBuilder::add(const ALiteral& litToAdd, bool required, const ITopologyPtr& topology)
 {
     auto concreteMatch = [&](const ALiteral& lit, VarID matchVar)
     {
-        return visit([&](auto&& typedLit)
+        if (auto concreteLit = get_if<Literal>(&lit))
         {
-            using Type = decay_t<decltype(typedLit)>;
-            if constexpr (is_same_v<Type, Literal>)
-            {
-                return typedLit.variable == matchVar;
-            }
-            return false;
-        }, lit);
+            return concreteLit->variable == matchVar;
+        }
+        return false;
     };
 
     // If adding a concrete literal, check if an existing concrete literal already exists.
     // If so, merge the input values into it. Otherwise, we'll add the literal to our list.
-    bool merged = visit([&](auto&& typedLitToAdd)
+    if (auto concreteLit = get_if<Literal>(&litToAdd))
     {
-        using Type = decay_t<decltype(typedLitToAdd)>;
-        if constexpr (is_same_v<Type, Literal>)
+        required = true;
+        
+        auto found = find_if(m_literals.begin(), m_literals.end(), [&](auto&& checkLit)
         {
-            auto found = find_if(m_literals.begin(), m_literals.end(), [&](auto&& checkLit)
+            return concreteMatch(checkLit.first, concreteLit->variable);
+        });
+
+        if (found != m_literals.end())
+        {
+            size_t offset = found - m_literals.begin();
+            if (m_topologies[offset] != nullptr && m_topologies[offset] != topology)
             {
-                return concreteMatch(checkLit, typedLitToAdd.variable);
-            });
-            if (found != m_literals.end())
-            {
-                size_t offset = found - m_literals.begin();
-                if (m_topologies[offset] != nullptr && m_topologies[offset] != topology)
-                {
-                    m_topologies[offset] = nullptr;
-                }
-                get<Literal>(*found).values.include(typedLitToAdd.values);
-                return true;
+                m_topologies[offset] = nullptr;
             }
+            get<Literal>(found->first).values.include(concreteLit->values);
+            return;
         }
-        else
-        {
-            vxy_assert(topology != nullptr);
-        }
-        return false;
-    }, litToAdd);
-
-
-    if (!merged)
-    {
-        m_literals.push_back(litToAdd);
-        m_topologies.push_back(topology);
     }
+
+    m_literals.push_back(make_pair(litToAdd, required));
+    m_topologies.push_back(topology);
 }
 
 void RuleDatabase::NogoodBuilder::emit(RuleDatabase& rdb)
@@ -1438,21 +1471,17 @@ void RuleDatabase::NogoodBuilder::emit(RuleDatabase& rdb)
         return;
     }
 
-    auto isAbstract = [&](const ALiteral& lit)
+    auto isAbstract = [&](const pair<ALiteral, bool>& lit)
     {
-        return visit([](auto&& typedLit)
-        {
-            using Type = decay_t<decltype(typedLit)>;
-            return !is_same_v<Type, Literal>;
-        }, lit);
+        return get_if<GraphLiteralRelationPtr>(&lit.first) != nullptr;
     };
 
     if (!containsPredicate(m_literals.begin(), m_literals.end(), isAbstract))
     {
         vector<Literal> concreteLits;
-        for (auto& alit : m_literals)
+        for (auto& alitEntry : m_literals)
         {
-            concreteLits.push_back(get<Literal>(alit));
+            concreteLits.push_back(get<Literal>(alitEntry.first));
         }
         solver.makeConstraint<ClauseConstraint>(concreteLits);
     }
@@ -1460,7 +1489,7 @@ void RuleDatabase::NogoodBuilder::emit(RuleDatabase& rdb)
     {
         ITopologyPtr topology = m_topologies[0];
 
-        vector<GraphLiteralRelationPtr> abstractLits;
+        GraphCulledVector<GraphLiteralRelationPtr> abstractLits;
         for (int i = 0; i < m_literals.size(); ++i)
         {
             if (m_topologies[i] != nullptr && m_topologies[i] != topology)
@@ -1468,98 +1497,30 @@ void RuleDatabase::NogoodBuilder::emit(RuleDatabase& rdb)
                 topology = nullptr;
             }
 
-            auto& alit = m_literals[i];
-            visit([&](auto&& typedLit)
+            auto& alitEntry = m_literals[i];
+            if (auto concreteLit = get_if<Literal>(&alitEntry.first))
             {
-                using Type = decay_t<decltype(typedLit)>;
-                if constexpr (is_same_v<Type, Literal>)
-                {
-                    abstractLits.push_back(make_shared<ConstantGraphRelation<Literal>>(typedLit));
-                }
-                else
-                {
-                    abstractLits.push_back(typedLit);
-                }
-            }, alit);
+                abstractLits.push_back(make_pair(make_shared<ConstantGraphRelation<Literal>>(*concreteLit), true));
+            }
+            else
+            {
+                abstractLits.push_back(make_pair(get<GraphLiteralRelationPtr>(alitEntry.first), alitEntry.second));   
+            }
         }
 
         if (topology != nullptr)
         {
-            solver.makeGraphConstraint<ClauseConstraint>(topology, abstractLits);
+            solver.makeGraphConstraint<ClauseConstraint>(topology, abstractLits);    
         }
         else
         {
             // Graph constraint, but conflicting topologies.
             // Theoretically this can be supported, but I don't think it's possible to create right now.
             vxy_fail();
-            // VERTEXY_WARN("Conflicting topologies in rule definition -- resorting to combinatoric grounding");
-            //
-            // vector<int> sortedIndices(m_literals.size());
-            // for (int i = 0; i != m_literals.size(); ++i) { sortedIndices.push_back(i); }
-            // sort(sortedIndices.begin(), sortedIndices.end(), [&](int left, int right)
-            // {
-            //    return m_topologies[left].get() < m_topologies[right].get();
-            // });
-            //
-            // vector<Literal> appendLits;
-            // recurseTopology(solver, sortedIndices, 0, appendLits);
         }
     }
 
     m_literals.clear();
-}
-
-// For when rules are added that have conflicting topologies in the body literals.
-// We manually instantiate (non-relational) constraints for every combinatorial vertex combination.
-void RuleDatabase::NogoodBuilder::recurseTopology(ConstraintSolver& solver, const vector<int>& indices, int pos, vector<Literal>& appendLits)
-{
-    if (pos == indices.size())
-    {
-        solver.makeConstraint<ClauseConstraint>(appendLits);
-    }
-    else
-    {
-        ITopologyPtr topology = m_topologies[indices[pos]];
-        if (topology == nullptr)
-        {
-            int cpos = pos;
-            do
-            {
-                appendLits.push_back(get<Literal>(m_literals[indices[cpos++]]));
-            } while (cpos < indices.size() && m_topologies[indices[cpos]] == nullptr);
-
-            recurseTopology(solver, indices, cpos, appendLits);
-            appendLits.resize(pos);
-        }
-        else
-        {
-            for (int nodeIdx = 0; nodeIdx < topology->getNumVertices(); ++nodeIdx)
-            {
-                int cpos = pos;
-                bool failed = false;
-                do
-                {
-                    auto relation = get<GraphLiteralRelationPtr>(m_literals[indices[cpos++]]);
-                    Literal relLit;
-                    if (relation->getRelation(nodeIdx, relLit))
-                    {
-                        appendLits.push_back(relLit);
-                    }
-                    else
-                    {
-                        failed = true;
-                        break;
-                    }
-                } while (cpos < indices.size() && m_topologies[indices[cpos]] == topology);
-
-                if (!failed)
-                {
-                    recurseTopology(solver, indices, cpos, appendLits);
-                }
-                appendLits.resize(pos);
-            }
-        }
-    }
 }
 
 AbstractBodyMapper::AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::AbstractBodyInfo* bodyInfo, const AbstractAtomRelationInfoPtr& headRelationInfo)
@@ -1569,28 +1530,17 @@ AbstractBodyMapper::AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::Ab
 {
 }
 
-Literal AbstractBodyMapper::getForHead(const vector<int>& concreteHeadArgs)
+bool AbstractBodyMapper::getForHead(const vector<int>& concreteHeadArgs, Literal& outLiteral)
 {
     size_t argHash = ArgumentHasher()(concreteHeadArgs);
     auto found = m_bindMap.find_by_hash(concreteHeadArgs, argHash);
     if (found == m_bindMap.end())
     {
-        // At this point we will have established all concrete bodies, since we process body-oriented constraints 
-        // before we process atom-oriented constraints.
-        // We create an always false atom here, so that the graph relationships can still be encoded.
-        wstring name = TEXT("graphBody-alwaysFalse[");
-        for (int i = 0; i < concreteHeadArgs.size(); ++i)
-        {
-            if (i > 0) name += TEXT(", ");
-            name += eastl::to_wstring(concreteHeadArgs[i]);
-        }    
-        name += TEXT("]");
-        
-        VarID varID = m_rdb.getSolver().makeBoolean(name, {0});
-        Literal lit(varID, SolverVariableDomain(0,1).getBitsetForValue(1));
-        found = m_bindMap.insert(argHash, nullptr, {concreteHeadArgs, move(lit)}).first;
+        return false;
     }
-    return found->second;
+    
+    outLiteral = found->second;
+    return true;
 }
 
 Literal AbstractBodyMapper::makeForArgs(const vector<int>& args, size_t argHash)
@@ -1751,8 +1701,7 @@ bool BoundBodyInstantiatorRelation::getRelation(VertexID sourceVertex, Literal& 
         }
     }
 
-    out = m_mapper->getForHead(m_concrete);
-    return true;
+    return m_mapper->getForHead(m_concrete, out);
 }
 
 size_t BoundBodyInstantiatorRelation::hash() const

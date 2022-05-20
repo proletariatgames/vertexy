@@ -254,11 +254,13 @@ protected:
     void createDependencyGraph(const vector<RelationalRuleStatement>& stmts);
     void createComponents(const vector<RelationalRuleStatement>& stmts);
 
+    using AbstractOverrideMap = LiteralTerm::AbstractOverrideMap;
+    
     void ground();
     void groundRule(DepGraphNodeData* statementNode);
-    void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur=0);
+    void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, int cur=0);
 
-    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const VariableMap& varBindings);
+    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& parentMap, const VariableMap& varBindings);
     bool addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology);
 
     void transformRules();

@@ -123,6 +123,8 @@ public:
 
 	virtual wstring toString() const override { return eastl::to_wstring(m_val); }
 
+	const T& getConstant() const { return m_val; }
+	
 protected:
 	T m_val;
 };
