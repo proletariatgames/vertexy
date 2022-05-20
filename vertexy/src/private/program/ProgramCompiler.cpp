@@ -515,31 +515,35 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     {
         VERTEXY_LOG("Instantiating %s", statementNode->stmt->statement->toString().c_str());
     }
-    instantiateRule(statementNode, bound, instantiators);
+
+    AbstractOverrideMap overrideMap;
+    instantiateRule(statementNode, bound, instantiators, overrideMap);
 }
 
-void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, int cur)
+void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, int cur)
 {
     if (cur == nodes.size())
     {
-        addGroundedRule(stmtNode, stmtNode->stmt->statement, varBindings);
+        addGroundedRule(stmtNode, stmtNode->stmt->statement, parentMap, varBindings);
     }
     else
     {
         auto& inst = nodes[cur];
-        for (inst->first(); !inst->hitEnd(); inst->match())
+        AbstractOverrideMap thisMap = parentMap;
+        for (inst->first(thisMap); !inst->hitEnd(); inst->match(thisMap))
         {
-            instantiateRule(stmtNode, varBindings, nodes, cur+1);
+            instantiateRule(stmtNode, varBindings, nodes, thisMap, cur+1);
+            thisMap = parentMap;
         }
     }
 }
 
-void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const VariableMap& varBindings)
+void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const VariableMap& varBindings)
 {
     vector<ProgramSymbol> bodyTerms;
     for (auto& bodyTerm : stmt->body)
     {
-        ProgramSymbol bodySym = bodyTerm->eval();
+        ProgramSymbol bodySym = bodyTerm->eval(overrideMap);
         vxy_assert(bodySym.isValid());
         if (bodySym.isFormula())
         {
@@ -547,17 +551,17 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             vxy_assert_msg(fnTerm != nullptr, "not a function, but got a function symbol?");
             vxy_assert(fnTerm->negated == bodySym.isNegated());
 
-            if (fnTerm->negated && !fnTerm->recursive && !fnTerm->assignedAtom.symbol.containsAbstract() &&
-                !hasAtom(fnTerm->assignedAtom.symbol.negatedFormula()))
+            if (fnTerm->negated && !fnTerm->recursive && !bodySym.containsAbstract() &&
+                !hasAtom(bodySym.negatedFormula()))
             {
                 // can't possibly be true, so no need to include.
                 continue;
             }
 
             // Only non-fact atoms need to be included in the rule body
-            if (!fnTerm->assignedAtom.isFact)
+            if (!fnTerm->assignedToFact)
             {
-                bodyTerms.push_back(fnTerm->assignedAtom.symbol);
+                bodyTerms.push_back(bodySym);
             }
 
             if (bodySym.containsAbstract())
@@ -603,7 +607,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     vector<ProgramSymbol> headSymbols;
     if (stmt->head != nullptr)
     {
-        headSymbols = stmt->head->eval(isNormalRule);
+        headSymbols = stmt->head->eval(overrideMap, isNormalRule);
         vxy_assert(!isNormalRule || headSymbols.size() == 1);
 
         auto isAtomFact = [&](const ProgramSymbol& sym)
@@ -741,7 +745,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
 
     if (areFacts && stmt->head != nullptr)
     {
-        stmt->head->bindAsFacts(*this, stmtNode->stmt->topology);
+        stmt->head->bindAsFacts(*this, overrideMap, stmtNode->stmt->topology);
     }
 }
 

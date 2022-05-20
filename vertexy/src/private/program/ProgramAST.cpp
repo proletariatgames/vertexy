@@ -70,21 +70,16 @@ bool LiteralTerm::createVariableReps(VariableMap& bound)
     return foundNewBindings;
 }
 
-bool LiteralTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
+bool LiteralTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact, AbstractOverrideMap& overrideMap)
 {
-    ProgramSymbol evalSym = eval();
-    if (evalSym.isValid() && sym == evalSym)
-    {
-        assignedAtom = {sym, isFact};
-        return true;
-    }
-
-    return false;
+    ProgramSymbol evalSym = eval(overrideMap);
+    return evalSym.isValid() && sym == evalSym;
 }
 
 wstring LiteralTerm::toString() const
 {
-    return eval().toString();
+    static AbstractOverrideMap temp;
+    return eval(temp).toString();
 }
 
 VariableTerm::VariableTerm(ProgramVariable param)
@@ -128,9 +123,8 @@ void VariableTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool
     outVars.push_back(make_pair(const_cast<VariableTerm*>(this), canEstablish));
 }
 
-bool VariableTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
+bool VariableTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact, AbstractOverrideMap& overrideMap)
 {
-    abstractToConst = ProgramSymbol();
     if (isBinder)
     {
         // if this is the term where the variable first appears in, we take on whatever symbol was handed to us.
@@ -150,10 +144,15 @@ bool VariableTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& i
         // be satisfied if the abstract is resolved to the concrete symbol.
         if (!sym.isAbstract())
         {
-            auto rel = make_shared<TManyToOneGraphRelation<ITopology::VertexID>>();
-            rel->add(make_shared<ConstantGraphRelation<int>>(sym.getInt()));
-            rel->add(sharedBoundRef->getAbstractRelation());
-            abstractToConst = ProgramSymbol(rel);
+            auto found = overrideMap.find(sharedBoundRef.get());
+            if (found != overrideMap.end())
+            {
+                return found->second == sym.getInt();
+            }
+            else
+            {
+                overrideMap.insert({sharedBoundRef.get(), sym.getInt()});
+            }
         }
         // Recursive terms are allowed to unify different abstracts with each other, since
         // we don't know what abstract heads for this term may be ultimately defined.
@@ -168,9 +167,10 @@ bool VariableTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& i
     return false;
 }
 
-ProgramSymbol VariableTerm::eval() const
+ProgramSymbol VariableTerm::eval(const AbstractOverrideMap& overrideMap) const
 {
-    return abstractToConst.isValid() ? abstractToConst : *sharedBoundRef;
+    auto found = overrideMap.find(sharedBoundRef.get());
+    return found != overrideMap.end() ? ProgramSymbol(found->second) : *sharedBoundRef;
 }
 
 SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
@@ -216,7 +216,7 @@ UTerm VertexTerm::clone() const
     return make_unique<VertexTerm>();
 }
 
-bool VertexTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
+bool VertexTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact, AbstractOverrideMap&)
 {
     if (sym.isInteger())
     {
@@ -228,7 +228,7 @@ bool VertexTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isF
     return sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get());
 }
 
-ProgramSymbol VertexTerm::eval() const
+ProgramSymbol VertexTerm::eval(const AbstractOverrideMap&) const
 {
     return ProgramSymbol(IdentityGraphRelation::get());
 }
@@ -288,13 +288,13 @@ void FunctionTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor
     }
 }
 
-ProgramSymbol FunctionTerm::eval() const
+ProgramSymbol FunctionTerm::eval(const AbstractOverrideMap& overrideMap) const
 {
     vector<ProgramSymbol> resolvedArgs;
     resolvedArgs.reserve(arguments.size());
     for (auto& arg : arguments)
     {
-        ProgramSymbol argSym = arg->eval();
+        ProgramSymbol argSym = arg->eval(overrideMap);
         if (argSym.isInvalid())
         {
             return {};
@@ -317,7 +317,7 @@ UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopolo
     }
 }
 
-bool FunctionTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact)
+bool FunctionTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& isFact, AbstractOverrideMap& overrideMap)
 {
     vxy_assert(provider == nullptr); // should be handled by ExternalFunctionInstantiator instead
     vxy_assert(!inRecursiveTerm); // function symbol being used as a function argument?
@@ -332,13 +332,13 @@ bool FunctionTerm::match(const ProgramSymbol& sym, bool inRecursiveTerm, bool& i
 
     for (int i = 0; i < arguments.size(); ++i)
     {
-        if (!arguments[i]->match(cformula->args[i], recursive, isFact))
+        if (!arguments[i]->match(cformula->args[i], recursive, isFact, overrideMap))
         {
             return false;
         }
     }
 
-    assignedAtom = {eval(), isFact};
+    assignedToFact = isFact;
     return true;
 }
 
@@ -463,9 +463,9 @@ UTerm UnaryOpTerm::clone() const
     return make_unique<UnaryOpTerm>(op, ULiteralTerm(move(clonedChild)));
 }
 
-ProgramSymbol UnaryOpTerm::eval() const
+ProgramSymbol UnaryOpTerm::eval(const AbstractOverrideMap& overrideMap) const
 {
-    auto sym = child->eval();
+    auto sym = child->eval(overrideMap);
     if (sym.isInvalid())
     {
         return {};
@@ -567,15 +567,15 @@ void BinaryOpTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool
     rhs->collectVars(outVars, false);
 }
 
-ProgramSymbol BinaryOpTerm::eval() const
+ProgramSymbol BinaryOpTerm::eval(const AbstractOverrideMap& overrideMap) const
 {
-    ProgramSymbol resolvedLHS = lhs->eval();
+    ProgramSymbol resolvedLHS = lhs->eval(overrideMap);
     if (resolvedLHS.isInvalid())
     {
         return {};
     }
 
-    ProgramSymbol resolvedRHS = rhs->eval();
+    ProgramSymbol resolvedRHS = rhs->eval(overrideMap);
     if (resolvedRHS.isInvalid())
     {
         return {};
@@ -717,12 +717,12 @@ FunctionHeadTerm::FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, vect
 {
 }
 
-ProgramSymbol FunctionHeadTerm::evalSingle() const
+ProgramSymbol FunctionHeadTerm::evalSingle(const AbstractOverrideMap& overrideMap) const
 {
     vector<ProgramSymbol> resolvedArgs;
     for (auto& arg : arguments)
     {
-        ProgramSymbol argSym = arg->eval();
+        ProgramSymbol argSym = arg->eval(overrideMap);
         if (argSym.isInvalid())
         {
             vxy_fail_msg("Expected a valid argument for head term");
@@ -734,15 +734,15 @@ ProgramSymbol FunctionHeadTerm::evalSingle() const
     return ProgramSymbol(functionUID, functionName, resolvedArgs, false);  
 }
 
-vector<ProgramSymbol> FunctionHeadTerm::eval(bool& isNormalRule)
+vector<ProgramSymbol> FunctionHeadTerm::eval(const AbstractOverrideMap& overrideMap, bool& isNormalRule)
 {
     isNormalRule = true;
-    return {evalSingle()};
+    return {evalSingle(overrideMap)};
 }
 
-void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
+void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ITopologyPtr& topology)
 {
-    auto evaluated = evalSingle();
+    auto evaluated = evalSingle(overrideMap);
     vxy_assert(evaluated.isValid());
     compiler.bindFactIfNeeded(evaluated, topology);
 }
@@ -857,7 +857,7 @@ UTerm DisjunctionTerm::clone() const
     return make_unique<DisjunctionTerm>(move(clonedChildren));
 }
 
-vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
+vector<ProgramSymbol> DisjunctionTerm::eval(const AbstractOverrideMap& overrideMap, bool& isNormalRule)
 {
     isNormalRule = false;
 
@@ -866,7 +866,7 @@ vector<ProgramSymbol> DisjunctionTerm::eval(bool& isNormalRule)
 
     for (auto& child : children)
     {
-        auto childSym = child->evalSingle();
+        auto childSym = child->evalSingle(overrideMap);
         if (!childSym.isValid())
         {
             return {};
@@ -897,11 +897,11 @@ wstring DisjunctionTerm::toString() const
     return out;
 }
 
-void DisjunctionTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
+void DisjunctionTerm::bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ITopologyPtr& topology)
 {
     for (auto& child : children)
     {
-        child->bindAsFacts(compiler, topology);
+        child->bindAsFacts(compiler, overrideMap, topology);
     }
 }
 
@@ -941,10 +941,10 @@ UTerm ChoiceTerm::clone() const
     return make_unique<ChoiceTerm>(UFunctionHeadTerm(move(cloned)));
 }
 
-vector<ProgramSymbol> ChoiceTerm::eval(bool& isNormalRule)
+vector<ProgramSymbol> ChoiceTerm::eval(const AbstractOverrideMap& overrideMap, bool& isNormalRule)
 {
     isNormalRule = false;
-    return {subTerm->evalSingle()};
+    return {subTerm->evalSingle(overrideMap)};
 }
 
 wstring ChoiceTerm::toString() const
@@ -954,9 +954,9 @@ wstring ChoiceTerm::toString() const
     return out;
 }
 
-void ChoiceTerm::bindAsFacts(ProgramCompiler& compiler, const ITopologyPtr& topology)
+void ChoiceTerm::bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ITopologyPtr& topology)
 {
-    subTerm->bindAsFacts(compiler, topology);
+    subTerm->bindAsFacts(compiler, overrideMap, topology);
 }
 
 RuleStatement::RuleStatement(UHeadTerm&& head, vector<ULiteralTerm>&& body)

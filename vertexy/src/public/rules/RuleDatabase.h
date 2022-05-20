@@ -111,6 +111,8 @@ public:
         virtual ITopologyPtr getTopology() const override { return topology; }
         virtual bool synchronize(RuleDatabase& rdb) const override;
 
+        bool synchronizeLiteral(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& litRelation, ETruthStatus status);
+
         // Set of relations where this atom was in the head of a rule
         using RelationSetHasher = pointer_value_hash<AbstractAtomRelationInfo, call_hash>;
         using RelationSet = hash_map<AbstractAtomRelationInfoPtr, ETruthStatus, RelationSetHasher, pointer_value_equality>;
@@ -119,9 +121,6 @@ public:
         ITopologyPtr topology;
         // number of literals marked ETruthStatus::Undecided. If all get marked true, then the entire atom gets marked true.
         int numUndeterminedLiterals = 0;
-        // When we need a "~atom" relation for an atom that doesn't exist, we create a new
-        // variable that is forced to false. This is shared by all NotAtom relations created for this atom.
-        shared_ptr<Literal> falseLiteralPtr;
     };
 
     struct ConcreteBodyInfo;
@@ -257,12 +256,11 @@ protected:
         void clear() { m_literals.clear(); }
         void reserve(int n) { m_literals.reserve(n); }
         bool empty() const { return m_literals.empty(); }
-        void add(const ALiteral& lit, const ITopologyPtr& topology);
+        void add(const ALiteral& lit, bool required, const ITopologyPtr& topology);
         void emit(RuleDatabase& rdb);
 
     protected:
-        void recurseTopology(ConstraintSolver& solver, const vector<int>& indices, int pos, vector<Literal>& appendLits);
-        vector<ALiteral> m_literals;
+        vector<pair<ALiteral,bool/*required*/>> m_literals;
         vector<ITopologyPtr> m_topologies;
     };
 
@@ -286,7 +284,7 @@ protected:
     static bool isConcreteLiteral(const ALiteral& lit);
     
     bool markAtomFalse(AtomInfo* atom);
-    bool markAtomTrue(const AtomLiteral& atomLit);
+    bool markAtomTrue(const AtomLiteral& atomLit, bool propagateAbstract);
     bool setAtomStatus(AtomInfo* atom, ETruthStatus status);
     
     bool setBodyStatus(BodyInfo* body, ETruthStatus status);
@@ -384,7 +382,7 @@ class AbstractBodyMapper
 {
 public:
     AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::AbstractBodyInfo* bodyInfo, const AbstractAtomRelationInfoPtr& headRelationInfo=nullptr);
-    Literal getForHead(const vector<int>& concreteHeadArgs);
+    bool getForHead(const vector<int>& concreteHeadArgs, Literal& outLiteral);
     bool getForVertex(ITopology::VertexID vertex, bool allowCreation, Literal& outLit);
     const RuleDatabase::AbstractBodyInfo* getBodyInfo() const { return m_bodyInfo; }
 

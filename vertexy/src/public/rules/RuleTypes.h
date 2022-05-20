@@ -69,6 +69,18 @@ struct AbstractAtomRelationInfo
 
         return true;
     }
+
+    GraphLiteralRelationPtr getInverseRelation() const
+    {
+        if (invRelation == nullptr)
+        {
+            invRelation = make_shared<InvertLiteralGraphRelation>(literalRelation);
+        }
+        return invRelation;
+    }
+
+private:
+    mutable GraphLiteralRelationPtr invRelation;
 };
 using AbstractAtomRelationInfoPtr = shared_ptr<AbstractAtomRelationInfo>;
 

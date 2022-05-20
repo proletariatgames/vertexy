@@ -11,16 +11,16 @@ FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramComp
     vxy_assert(m_term.provider == nullptr);
 }
 
-void FunctionInstantiator::first()
+void FunctionInstantiator::first(AbstractOverrideMap& overrideMap)
 {
     m_hitEnd = false;
     m_index = 0;
     m_subIndex = 0;
     m_abstractCheckState = -1;
-    match();
+    match(overrideMap);
 }
 
-void FunctionInstantiator::match()
+void FunctionInstantiator::match(AbstractOverrideMap& overrideMap)
 {
     vxy_assert(m_term.provider == nullptr);
     if (m_hitEnd)
@@ -32,7 +32,7 @@ void FunctionInstantiator::match()
     {
         // all variables should be fully bound at this point, because positive literals are always earlier in
         // the dependency list. Therefore, we can eval safely.
-        ProgramSymbol matched = m_term.eval();
+        ProgramSymbol matched = m_term.eval(overrideMap);
         if (matched.isInvalid())
         {
             m_hitEnd = true;
@@ -49,7 +49,7 @@ void FunctionInstantiator::match()
             m_hitEnd = true;
         }
 
-        m_term.assignedAtom = CompilerAtom{matched, hasFact};
+        m_term.assignedToFact = hasFact;
     }
     else
     {
@@ -60,7 +60,7 @@ void FunctionInstantiator::match()
             {
                 continue;
             }
-
+            
             // if (atom.symbol.containsAbstract())
             // {
             //     checkForTermAbstracts();
@@ -88,7 +88,7 @@ void FunctionInstantiator::match()
             // }
 
             bool isFact = atom.isFact;
-            if (m_term.match(atom.symbol, false, isFact))
+            if (m_term.match(atom.symbol, false, isFact, overrideMap))
             {
                 moveNextDomainAtom();
                 return;
@@ -131,7 +131,6 @@ void FunctionInstantiator::checkForTermAbstracts()
     }
 }
 
-
 bool FunctionInstantiator::hitEnd() const
 {
     bool hadHit = m_hitEnd;
@@ -149,7 +148,7 @@ ExternalFunctionInstantiator::ExternalFunctionInstantiator(FunctionTerm& term)
     vxy_assert(m_term.provider != nullptr);
 }
 
-void ExternalFunctionInstantiator::first()
+void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap)
 {
     m_hitEnd = false;
 
@@ -169,8 +168,9 @@ void ExternalFunctionInstantiator::first()
             }
             else
             {
-                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(*varArg->sharedBoundRef));
-                if (varArg->sharedBoundRef->isAbstract())
+                ProgramSymbol boundVarVal = varArg->eval(overrideMap);
+                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundVarVal));
+                if (boundVarVal.isAbstract())
                 {
                     anyAbstractArguments = true;
                 }
@@ -182,7 +182,7 @@ void ExternalFunctionInstantiator::first()
         }
         else if (auto vertexArg = dynamic_cast<VertexTerm*>(arg.get()))
         {
-            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(vertexArg->eval()));
+            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(vertexArg->eval(overrideMap)));
         }
         else
         {
@@ -197,10 +197,10 @@ void ExternalFunctionInstantiator::first()
     {
         m_term.provider->startMatching(move(matchArgs));
     }
-    match();
+    match(overrideMap);
 }
 
-void ExternalFunctionInstantiator::match()
+void ExternalFunctionInstantiator::match(AbstractOverrideMap&)
 {
     vxy_assert(m_term.provider != nullptr);
     if (m_hitEnd)
@@ -210,7 +210,7 @@ void ExternalFunctionInstantiator::match()
 
     if (m_needsAbstractRelation)
     {
-        m_term.assignedAtom = {m_term.eval(), false};
+        m_term.assignedToFact = false;
     }
     else
     {
@@ -223,7 +223,7 @@ void ExternalFunctionInstantiator::match()
             return;
         }
 
-        m_term.assignedAtom = {m_term.eval(), isFact};
+        m_term.assignedToFact = isFact;
     }
 }
 
@@ -244,13 +244,13 @@ EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, const ProgramComp
     vxy_assert(term.op == EBinaryOperatorType::Equality);
 }
 
-void EqualityInstantiator::first()
+void EqualityInstantiator::first(AbstractOverrideMap& overrideMap)
 {
     m_hitEnd = false;
-    match();
+    match(overrideMap);
 }
 
-void EqualityInstantiator::match()
+void EqualityInstantiator::match(AbstractOverrideMap& overrideMap)
 {
     if (m_hitEnd)
     {
@@ -258,11 +258,11 @@ void EqualityInstantiator::match()
     }
 
     // all variables in right hand side should be fully bound now
-    ProgramSymbol rhsSym = m_term.rhs->eval();
+    ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap);
     if (rhsSym.isAbstract())
     {
         // If the right hand side is abstract, we may need to create an abstract relation.
-        ProgramSymbol sym = m_term.eval();
+        ProgramSymbol sym = m_term.eval(overrideMap);
         if (sym.isInvalid())
         {
             m_hitEnd = true;
@@ -272,7 +272,7 @@ void EqualityInstantiator::match()
     {
         // TODO: passing isFact=false seems fine here?
         bool isFact = false;
-        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, false, isFact))
+        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, false, isFact, overrideMap))
         {
             m_hitEnd = true;
         }
@@ -293,13 +293,13 @@ RelationInstantiator::RelationInstantiator(BinaryOpTerm& term, const ProgramComp
     vxy_assert(isRelationOp(m_term.op));
 }
 
-void RelationInstantiator::first()
+void RelationInstantiator::first(AbstractOverrideMap& overrideMap)
 {
     m_hitEnd = false;
-    match();
+    match(overrideMap);
 }
 
-void RelationInstantiator::match()
+void RelationInstantiator::match(AbstractOverrideMap& overrideMap)
 {
     if (m_hitEnd)
     {
@@ -307,7 +307,7 @@ void RelationInstantiator::match()
     }
 
     // variables in non-assignment binary ops should be fully bound now
-    ProgramSymbol sym = m_term.eval();
+    ProgramSymbol sym = m_term.eval(overrideMap);
     // BinOpTerm::eval() will return 0 to indicate false.
     if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))
     {

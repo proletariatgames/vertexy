@@ -432,12 +432,13 @@ struct pointer_value_equality
 // When an argument of this type if passed into ConstraintSolver::makeGraphConstraint, any arguments
 // that do not resolve for a particular vertex are removed from the array for that vertex's constraint.
 //
-// !!NOTE!! Currently, using GraphCulledVector to define a graph constraint disables graph-based learning for any
-// conflicts the constraint is involved in!
+// !!NOTE!! Currently, using GraphCulledVector disables graph-based learning for any
+// individual constraints where elements are culled from the vector. 
 //
 template<typename T>
 class GraphCulledVector
 {
+	using ElementVec = vector<pair<T,bool>>;
 public:
 	GraphCulledVector() {}
 	GraphCulledVector(const GraphCulledVector& rhs)
@@ -447,32 +448,29 @@ public:
 	GraphCulledVector(GraphCulledVector&& rhs) noexcept
 		: m_internal(move(rhs.m_internal))
 	{		
-	}	
-	GraphCulledVector(std::initializer_list<T> ilist)
-		: m_internal(ilist.begin(), ilist.end())
+	}
+	explicit GraphCulledVector(const ElementVec& vec)
+		: m_internal(vec)
 	{		
 	}
-	explicit GraphCulledVector(const vector<T>& rhs)
-		: m_internal(rhs)
-	{		
-	}
-	explicit GraphCulledVector(vector<T>&& rhs) noexcept
-		: m_internal(move(rhs))
-	{		
+	explicit GraphCulledVector(ElementVec&& vec)
+		: m_internal(move(vec))
+	{
 	}
 	
 	~GraphCulledVector() {}
 
-	GraphCulledVector& operator=(const vector<T>& vec)
+	template<typename Iterator>
+	static GraphCulledVector allOptional(Iterator beginIt, Iterator endIt)
 	{
-		m_internal = vec;
-		return *this;
+		GraphCulledVector out;
+		for (Iterator it = beginIt; it != endIt; ++it)
+		{
+			out.push_back(make_pair(*it, false));
+		}
+		return out;
 	}
-	GraphCulledVector& operator=(vector<T>&& vec)
-	{
-		m_internal = move(vec);
-		return *this;
-	}
+	
 	GraphCulledVector& operator=(const GraphCulledVector& rhs)
 	{
 		m_internal = rhs.m_internal;
@@ -482,10 +480,38 @@ public:
 	{
 		m_internal = move(rhs.m_internal);
 		return *this;
-	}	
-	const vector<T>& getInternal() const { return m_internal; }
+	}
+
+	GraphCulledVector& operator=(const ElementVec& rhs)
+	{
+		m_internal = rhs;
+		return *this;
+	}
+	GraphCulledVector& operator=(ElementVec&& rhs) noexcept
+	{
+		m_internal = move(rhs);
+		return *this;
+	}
+	
+	const ElementVec& getInternal() const { return m_internal; }
+
+	void push_back_optional(const T& optional) { push_back(make_pair(optional, false)); }
+	void push_back_optional(T&& optional) { push_back(make_pair(move(optional), false)); }
+	void push_back_required(const T& required) { push_back(make_pair(required, true)); }
+	void push_back_required(T&& required) { push_back(make_pair(move(required), true)); }
+	
+	void push_back(const pair<T, bool>& element) { m_internal.push_back(element); }
+	void push_back(pair<T,bool>&& element) { m_internal.push_back(move(element)); }
+
+	typename ElementVec::iterator begin() { return m_internal.begin(); }
+	typename ElementVec::iterator end() { return m_internal.end(); }
+	typename ElementVec::const_iterator begin() const { return m_internal.cbegin(); }
+	typename ElementVec::const_iterator end() const { return m_internal.cend(); }
+	typename ElementVec::const_iterator cbegin() const { return m_internal.cbegin(); }
+	typename ElementVec::const_iterator cend() const { return m_internal.cend(); }
+	
 protected:
-	vector<T> m_internal;
+	ElementVec m_internal;
 };
 
 } // namespace Vertexy

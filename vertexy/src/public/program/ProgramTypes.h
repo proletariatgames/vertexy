@@ -101,11 +101,13 @@ protected:
 class Instantiator
 {
 public:
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, int>;
+    
     virtual ~Instantiator() {}
     // Find the first match/reset to first match
-    virtual void first() = 0;
+    virtual void first(AbstractOverrideMap& overrideMap) = 0;
     // Find the next match
-    virtual void match() = 0;
+    virtual void match(AbstractOverrideMap& overrideMap) = 0;
     // Whether we've run out of matches
     virtual bool hitEnd() const = 0;
 };
