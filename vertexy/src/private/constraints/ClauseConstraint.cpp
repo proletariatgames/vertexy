@@ -42,12 +42,35 @@ ClauseConstraint* ClauseConstraint::ClauseConstraintFactory::construct(const Con
 	{
 		return nullptr;
 	}
+
+	const vector<Literal>* resolvedLits = &lits;
+	if (params.getGraphRelationInfo().getGraph() != nullptr)
+	{
+		// We may need to merge clauses, because disparate relations may end up resolving to the same variable.
+		static vector<Literal> mergedLits;
+
+		mergedLits.clear();
+		mergedLits.reserve(lits.size());
+		for (const auto& lit : lits)
+		{
+			auto found = find_if(mergedLits.begin(), mergedLits.end(), [&](auto&& t) { return t.variable == lit.variable; });
+			if (found != mergedLits.end())
+			{
+				found->values.include(lit.values);
+			}
+			else
+			{
+				mergedLits.push_back(lit);
+			}
+		}
+		resolvedLits = &mergedLits;
+	}
 	
-	vxy_assert(lits.size() < 0xFFFF);
+	vxy_assert(resolvedLits->size() < 0xFFFF);
 	int baseSize = sizeof(ClauseConstraint);
-	int clauseSize = baseSize + sizeof(Literal) * lits.size();
+	int clauseSize = baseSize + sizeof(Literal) * resolvedLits->size();
 	auto buffer = reinterpret_cast<ClauseConstraint*>(new uint8_t[clauseSize]);
-	return new(buffer) ClauseConstraint(params, lits, isLearned);
+	return new(buffer) ClauseConstraint(params, *resolvedLits, isLearned);
 }
 
 ClauseConstraint::ClauseConstraint(const ConstraintFactoryParams& params, const vector<Literal>& literals, bool isLearned)

@@ -138,7 +138,7 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 	outRelations.reset(m_sourceGraph, minGraphVertex);
 
 	// create the relations!
-	outRelations.reserve(literals.size());
+	outRelations.reserve(literals.size(), 0);
 	for (int i = 0; i != literals.size(); ++i)
 	{
 		bool isEdge = isEdgeNode[i];
@@ -153,17 +153,17 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 				{
 					// no path specified in graph
 					// TODO: assert?
-					outRelations.clear();
+					outRelations.invalidate();
 					return false;
 				}
 
 				auto linkRel = make_shared<TTopologyLinkGraphRelation<VarID>>(m_sourceGraph, m_sourceGraphData, link);
-				outRelations.addRelation(m_sourceGraphData->get(vertex), linkRel);
+				outRelations.addVariableRelation(m_sourceGraphData->get(vertex), linkRel);
 			}
 			else
 			{
 				auto selfRel = make_shared<TVertexToDataGraphRelation<VarID>>(m_sourceGraph, m_sourceGraphData);
-				outRelations.addRelation(m_sourceGraphData->get(vertex), selfRel);
+				outRelations.addVariableRelation(m_sourceGraphData->get(vertex), selfRel);
 			}
 		}
 		else
@@ -187,7 +187,7 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 			if (nodeEdgeIndex < 0)
 			{
 				vxy_assert_msg(false, "Edge node %d has source graph node origin %d, but can't find edgeIndex in source graph!", edgeNode, edgeOrigin);
-				outRelations.clear();
+				outRelations.invalidate();
 				return false;
 			}
 
@@ -200,21 +200,21 @@ bool ReachabilityConstraint::getGraphRelations(const vector<Literal>& literals, 
 				if (!m_sourceGraph->getTopologyLink(minGraphVertex, edgeOrigin, link))
 				{
 					vxy_assert_msg(false, "expected link between vertices %d -> %d", minGraphVertex, edgeOrigin);
-					outRelations.clear();
+					outRelations.invalidate();
 					return false;
 				}
 
 				auto linkRel = make_shared<TopologyLinkIndexGraphRelation>(m_sourceGraph, link);
-				outRelations.addRelation(m_edgeGraphData->get(edgeNode), linkRel->map(nodeToEdgeVarRel));
+				outRelations.addVariableRelation(m_edgeGraphData->get(edgeNode), linkRel->map(nodeToEdgeVarRel));
 			}
 			else
 			{
-				outRelations.addRelation(m_edgeGraphData->get(edgeNode), nodeToEdgeVarRel);
+				outRelations.addVariableRelation(m_edgeGraphData->get(edgeNode), nodeToEdgeVarRel);
 			}
 		}
 	}
 
-	vxy_assert(outRelations.relations.size() == literals.size());
+	vxy_assert(outRelations.getVariableRelations().size() == literals.size());
 	return true;
 }
 

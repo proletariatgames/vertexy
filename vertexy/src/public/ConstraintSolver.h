@@ -651,31 +651,16 @@ protected:
 		vxy_assert(arg.relation == nullptr);
 	}
 
-	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<VarID, VarID>& arg)
-	{
-		if (arg.relation) { relationInfo.addRelation(arg.value, arg.relation); }
-	}
-
-	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, VarID>& arg)
-	{
-		if (arg.relation) { relationInfo.addRelation(arg.value.variable, arg.relation); }
-	}
-
-	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, SignedClause>& arg)
-	{
-		if (arg.relation) { relationInfo.addRelation(arg.value.variable, arg.relation); }
-	}
-
-	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<Literal, Literal>& arg)
-	{
-		if (arg.relation) { relationInfo.addRelation(arg.value.variable, arg.relation); }
-	}
+	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<VarID, VarID>& arg);
+	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, VarID>& arg);
+	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, SignedClause>& arg);
+	void addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<Literal, Literal>& arg);
 
 	// translate an argument
 	template <typename T>
 	auto translateGraphConsArgument(const T& arg, ConstraintGraphRelationInfo& relationInfo, bool& success)
 	{
-		auto translatedArg = GraphArgumentTransformer::transformGraphArgument(relationInfo.sourceGraphVertex, arg);
+		auto translatedArg = GraphArgumentTransformer::transformGraphArgument(relationInfo.getSourceGraphVertex(), arg);
 		if (translatedArg.isValid)
 		{
 			addRelation(relationInfo, translatedArg);
@@ -698,7 +683,7 @@ protected:
 		}
 
 		auto& graphCons = m_graphConstraints[id.raw()-1];
-		cons = graphCons->get(relationInfo.sourceGraphVertex);
+		cons = graphCons->get(relationInfo.getSourceGraphVertex());
 
 		if (cons == nullptr)
 		{
@@ -740,7 +725,7 @@ protected:
 			}
 			else
 			{
-				relationInfo.isValid = false;
+				relationInfo.invalidate();
 				if (argEntry.second)
 				{
 					success = false;
