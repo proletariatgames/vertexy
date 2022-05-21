@@ -12,51 +12,66 @@ namespace Vertexy
 template <typename T>
 class IGraphRelation;
 
+template<typename T>
+using IGraphRelationPtr = shared_ptr<const IGraphRelation<T>>;
+
 template <typename T>
 class TTopologyVertexData;
 
 class ITopology;
 
-using ConstraintGraphRelation = variant<
-	shared_ptr<const IGraphRelation<VarID>>,
-	shared_ptr<const IGraphRelation<SignedClause>>,
-	shared_ptr<const IGraphRelation<Literal>>
->;
-
 /** Stores information about the graph relationships between variables in a constraint */
 class ConstraintGraphRelationInfo
 {
 public:
-	ConstraintGraphRelationInfo();
-	ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex);
-
-	void clear();
-	void reset(const shared_ptr<ITopology>& graph, int sourceVertex);
-
-	void reserve(int numRelations)
-	{
-		relations.reserve(numRelations);
-	}
-
-	void addRelation(VarID var, const ConstraintGraphRelation& relation);
-	bool getRelation(VarID var, ConstraintGraphRelation& outRelation) const;
-
-	// Graph this constraint is associated with.
-	shared_ptr<ITopology> graph;
-	// The vertex within the graph this constraint was instantiated for.
-	int sourceGraphVertex;
-
 	struct VariableRelation
 	{
 		VarID var;
-		ConstraintGraphRelation relation;
+		IGraphRelationPtr<VarID> relation;
 	};
 
-	vector<VariableRelation> relations;
+	struct LiteralRelation
+	{
+		Literal lit;
+		IGraphRelationPtr<Literal> relation;
+	};
+
+	ConstraintGraphRelationInfo();
+	ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex);
+
+	void invalidate();
+	void reset(const shared_ptr<ITopology>& graph, int sourceVertex);
+	void reserve(int numVariableRels, int numLiteralRels)
+	{
+		m_variableRelations.reserve(numVariableRels);
+		m_literalRelations.reserve(numLiteralRels);
+	}
+
+	bool isValid() const { return m_isValid; }
+	const shared_ptr<ITopology>& getGraph() const { return m_graph; }
+	int getSourceGraphVertex() const { return m_sourceGraphVertex; }
+
+	void addVariableRelation(VarID var, const IGraphRelationPtr<VarID>& relation);
+	void addLiteralRelation(const Literal& lit, const IGraphRelationPtr<Literal>& relation);
+
+	bool getVariableRelation(VarID var, IGraphRelationPtr<VarID>& outRelation) const;
+	bool getLiteralRelation(const Literal& lit, IGraphRelationPtr<Literal>& outRelation) const;
+
+	const vector<VariableRelation>& getVariableRelations() const { return m_variableRelations; }
+	const vector<LiteralRelation>& getLiteralRelations() const { return m_literalRelations; }
+	
+protected:
+	// Graph this constraint is associated with.
+	shared_ptr<ITopology> m_graph;
+	// The vertex within the graph this constraint was instantiated for.
+	int m_sourceGraphVertex;
+	
+	vector<VariableRelation> m_variableRelations;
+	vector<LiteralRelation> m_literalRelations;
 
 	// Whether this is valid. Currently we treat the constraint as non-graph if there are multiple relations
 	// to the same variable within the same constraint.
-	bool isValid = true;
+	bool m_isValid = true;
 };
 
 } // namespace Vertexy

@@ -25,6 +25,8 @@ public:
 	SolverDecisionLevel analyzeConflict(SolverTimestamp conflictTs, IConstraint* conflictingConstraint, VarID contradictingVariable, ClauseConstraint*& outLearned);
 
 protected:
+	using ARelation = variant<GraphLiteralRelationPtr, GraphVariableRelationPtr>;
+	
 	// Used during conflict analysis to analyze the implication graph in order to find an explanation for conflict.
 	struct ImplicationNode
 	{
@@ -44,7 +46,7 @@ protected:
 
 		void clearGraphRelation()
 		{
-			relation = ConstraintGraphRelation();
+			relation = ARelation();
 		}
 
 		inline bool hasGraphRelation() const
@@ -56,7 +58,7 @@ protected:
 		SolverTimestamp time;
 		SolverDecisionLevel level;
 		shared_ptr<TManyToOneGraphRelation<VarID>> multiRelation;
-		ConstraintGraphRelation relation;
+		ARelation relation;
 	};
 
 	SolverDecisionLevel searchImplicationGraph(vector<Literal>& explanation, const IConstraint* initialConflict, int conflictTime);
@@ -73,24 +75,15 @@ protected:
 		Union,
 		Intersection
 	};
-
-	using ClauseRelationType = shared_ptr<const IGraphRelation<SignedClause>>;
-	using LiteralRelationType = shared_ptr<const IGraphRelation<Literal>>;
-	using VariableRelationType = shared_ptr<const IGraphRelation<VarID>>;
-
+	
 	void applyGraphRelation(ImplicationNode& node, const ConstraintGraphRelationInfo& originGraphInfo, const ValueSet& values, EGraphRelationType applicationType);
 
 	int findMostRecentNodeIndex() const;
-	static bool compatibleRelations(const ConstraintGraphRelation& existingRelation, const ConstraintGraphRelation& newRelation);
+	static bool compatibleRelations(const ARelation& existingRelation, const ARelation& newRelation);
 
-	static bool isClauseRelation(const ConstraintGraphRelation& rel)
+	static bool isClauseRelation(const ARelation& rel)
 	{
-		return visit([&](auto&& typedRel)
-		{
-			vxy_assert(typedRel != nullptr);
-			using T = decay_t<decltype(typedRel)>;
-			return is_same_v<T, ClauseRelationType> || is_same_v<T, LiteralRelationType>;
-		}, rel);
+		return get_if<GraphLiteralRelationPtr>(&rel) != nullptr;
 	}
 
 	template <typename T>

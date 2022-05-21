@@ -17,7 +17,7 @@ public:
 	IConstraint(const ConstraintFactoryParams& params)
 		: m_id(params.getNextConstraintID())
 	{
-		if (params.getGraphRelationInfo().graph != nullptr)
+		if (params.getGraphRelationInfo().getGraph() != nullptr)
 		{
 			m_graphRelationInfo = move(make_unique<ConstraintGraphRelationInfo>(params.getGraphRelationInfo()));
 		}
@@ -82,37 +82,43 @@ public:
 	inline const shared_ptr<ITopology>& getGraph() const
 	{
 		static shared_ptr<ITopology> nullRet = nullptr;
-		return (m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid) ? m_graphRelationInfo->graph : nullRet;
+		return (m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid()) ? m_graphRelationInfo->getGraph() : nullRet;
 	}
 
 	inline const ConstraintGraphRelationInfo* getGraphRelationInfo() const
 	{
-		return m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid ? m_graphRelationInfo.get() : nullptr;
+		return m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid() ? m_graphRelationInfo.get() : nullptr;
 	}
 
 	// Given a series of literals, return a set of relations for those literals.
 	// Returns false if a set of relations cannot be provided for all literals.
 	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outInfo) const
 	{
-		if (m_graphRelationInfo == nullptr || m_graphRelationInfo->graph == nullptr)
+		if (m_graphRelationInfo == nullptr || m_graphRelationInfo->getGraph() == nullptr)
 		{
 			return false;
 		}
 
-		outInfo.reset(m_graphRelationInfo->graph, m_graphRelationInfo->sourceGraphVertex);
-		outInfo.reserve(literals.size());
+		outInfo.reset(m_graphRelationInfo->getGraph(), m_graphRelationInfo->getSourceGraphVertex());
 		for (auto& lit : literals)
-		{
-			ConstraintGraphRelation foundRelation;
-			if (!m_graphRelationInfo->getRelation(lit.variable, foundRelation))
+		{			
+			if (GraphVariableRelationPtr varRelation;
+				m_graphRelationInfo->getVariableRelation(lit.variable, varRelation))
 			{
-				outInfo.clear();
+				outInfo.addVariableRelation(lit.variable, varRelation);
+			}
+			else if (GraphLiteralRelationPtr litRelation;
+				m_graphRelationInfo->getLiteralRelation(lit, litRelation))
+			{
+				outInfo.addLiteralRelation(lit, litRelation);
+			}
+			else
+			{
+				outInfo.invalidate();
 				return false;
 			}
-			outInfo.addRelation(lit.variable, foundRelation);
 		}
 
-		vxy_assert(outInfo.relations.size() == literals.size());
 		return true;
 	}
 

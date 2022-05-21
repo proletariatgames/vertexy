@@ -1442,6 +1442,31 @@ void ConstraintSolver::sanityCheckExplanation(SolverTimestamp modificationTime, 
 	}
 }
 
+void ConstraintSolver::addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<VarID, VarID>& arg)
+{
+	if (arg.relation) { relationInfo.addVariableRelation(arg.value, arg.relation); }
+}
+
+void ConstraintSolver::addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, VarID>& arg)
+{
+	if (arg.relation) { relationInfo.addVariableRelation(arg.value.variable, arg.relation); }
+}
+
+void ConstraintSolver::addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<SignedClause, SignedClause>& arg)
+{
+	if (arg.relation)
+	{
+		auto clauseToLitRel = make_shared<ClauseToLiteralGraphRelation>(*this, arg.relation);
+		auto lit = arg.value.translateToLiteral(*this);
+		relationInfo.addLiteralRelation(lit, clauseToLitRel);
+	}
+}
+
+void ConstraintSolver::addRelation(ConstraintGraphRelationInfo& relationInfo, const TransformedGraphArgument<Literal, Literal>& arg)
+{
+	if (arg.relation) { relationInfo.addLiteralRelation(arg.value, arg.relation); }
+}
+
 ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, const ConstraintGraphRelationInfo* relationInfo)
 {
 	ClauseConstraint* learnedCons = relationInfo != nullptr
@@ -1594,7 +1619,7 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 
 	auto& graph = constraint.getGraph();
 
-	int promotingNode = constraint.getGraphRelationInfo()->sourceGraphVertex;
+	int promotingNode = constraint.getGraphRelationInfo()->getSourceGraphVertex();
 
 	int numCreated = 0;
 	int numDuplicates = 0;
@@ -1666,38 +1691,27 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 	{
 		ConstraintGraphRelationInfo tempInfo;
 		vector<Literal> tempLits;
-		vxy_verify(createLiteralsForGraphPromotion(constraint, constraint.getGraphRelationInfo()->sourceGraphVertex, tempInfo, tempLits));
+		vxy_verify(createLiteralsForGraphPromotion(constraint, constraint.getGraphRelationInfo()->getSourceGraphVertex(), tempInfo, tempLits));
 
 		wstring relationStr;
-		for (auto& entry : constraint.getGraphRelationInfo()->relations)
+		for (auto& entry : constraint.getGraphRelationInfo()->getVariableRelations())
 		{
-			visit([&](auto&& typedRel)
+			VarID varID;
+			vxy_verify(entry.relation->getRelation(constraint.getGraphRelationInfo()->getSourceGraphVertex(), varID));
+			const ValueSet& litVals = constraint.getLiteralForVariable(varID)->values;
+			if (litVals.getNumSetBits() > (litVals.size() >> 1))
 			{
-				using T = decay_t<decltype(typedRel)>;
-				if constexpr (is_same_v<T, shared_ptr<const IGraphRelation<Literal>>>)
-				{
-					relationStr.append_sprintf(TEXT("CLAUSE(%s)\n"), typedRel->toString().c_str());
-				}
-				else if constexpr (is_same_v<T, shared_ptr<const IGraphRelation<VarID>>>)
-				{
-					VarID varID;
-					vxy_verify(typedRel->getRelation(constraint.getGraphRelationInfo()->sourceGraphVertex, varID));
-					const ValueSet& litVals = constraint.getLiteralForVariable(varID)->values;
-					if (litVals.getNumSetBits() > (litVals.size() >> 1))
-					{
-						relationStr.append_sprintf(TEXT("%s <not> %s\n"), typedRel->toString().c_str(), valueSetToString(varID, litVals.inverted()).c_str());
-					}
-					else
-					{
-						relationStr.append_sprintf(TEXT("%s <is> %s\n"), typedRel->toString().c_str(), valueSetToString(varID, litVals).c_str());
-					}
-				}
-				else
-				{
-					// Do not expect a IGraphRelation<FSignedClause> at this point.
-					vxy_fail();
-				}
-			}, entry.relation);
+				relationStr.append_sprintf(TEXT("%s <not> %s\n"), entry.relation->toString().c_str(), valueSetToString(varID, litVals.inverted()).c_str());
+			}
+			else
+			{
+				relationStr.append_sprintf(TEXT("%s <is> %s\n"), entry.relation->toString().c_str(), valueSetToString(varID, litVals).c_str());
+			}
+		}
+
+		for (auto& entry : constraint.getGraphRelationInfo()->getLiteralRelations())
+		{
+			relationStr.append_sprintf(TEXT("CLAUSE(%s)\n"), entry.relation->toString().c_str());
 		}
 
 		VERTEXY_LOG("Promoted constraint %d:\n%s%d Created, %d dupes\n", constraint.getID(), relationStr.c_str(), numCreated, numDuplicates);
@@ -1725,77 +1739,49 @@ bool ConstraintSolver::createLiteralsForGraphPromotion(const ClauseConstraint& p
 	vxy_assert(promotingCons.getGraph() != nullptr);
 	outLits.clear();
 	outRelInfo.reset(promotingCons.getGraph(), destVertex);
-	outRelInfo.reserve(promotingCons.getGraphRelationInfo()->relations.size());
+	outRelInfo.reserve(
+		promotingCons.getGraphRelationInfo()->getVariableRelations().size(),
+		promotingCons.getGraphRelationInfo()->getLiteralRelations().size()
+	);
 
-	bool success = true;
-	for (auto& entry : promotingCons.getGraphRelationInfo()->relations)
+	for (const auto& [var, relation] : promotingCons.getGraphRelationInfo()->getVariableRelations())
 	{
-		visit([&](auto&& typedRel)
+		VarID correspondingVar;
+		vxy_verify(relation->getRelation(promotingCons.getGraphRelationInfo()->getSourceGraphVertex(), correspondingVar));
+		const ValueSet& correspondingVarInitialVals = m_variableDB.getInitialValues(correspondingVar);
+		const Literal* correspondingLit = promotingCons.getLiteralForVariable(correspondingVar);
+		vxy_sanity(correspondingLit != nullptr);
+
+		VarID destVar;
+		if (!relation->getRelation(destVertex, destVar) ||
+			m_variableDB.getInitialValues(destVar) != correspondingVarInitialVals) 
 		{
-			using T = decay_t<decltype(typedRel)>;
-			if constexpr (is_same_v<T, shared_ptr<const IGraphRelation<VarID>>>)
-			{
-				VarID correspondingVar;
-				vxy_verify(typedRel->getRelation(promotingCons.getGraphRelationInfo()->sourceGraphVertex, correspondingVar));
-				const ValueSet& correspondingVarInitialVals = m_variableDB.getInitialValues(correspondingVar);
-				const Literal* correspondingLit = promotingCons.getLiteralForVariable(correspondingVar);
-				vxy_sanity(correspondingLit != nullptr);
-
-				VarID var;
-				if (!typedRel->getRelation(destVertex, var))
-				{
-					success = false;
-					return;
-				}
-				else if (m_variableDB.getInitialValues(var) != correspondingVarInitialVals)
-				{
-					success = false;
-					return;
-				}
-				else
-				{
-					outRelInfo.addRelation(var, typedRel);
-					outLits.push_back(Literal{var, correspondingLit->values});
-				}
-			}
-			else if constexpr (is_same_v<T, shared_ptr<const IGraphRelation<Literal>>>)
-			{
-				Literal correspondingClause;
-				vxy_verify(typedRel->getRelation(promotingCons.getGraphRelationInfo()->sourceGraphVertex, correspondingClause));
-				const ValueSet& correspondingVarInitialVals = m_variableDB.getInitialValues(correspondingClause.variable);
-
-				Literal clause;
-				if (!typedRel->getRelation(destVertex, clause))
-				{
-					success = false;
-					return;
-				}
-				else if (m_variableDB.getInitialValues(clause.variable) != correspondingVarInitialVals)
-				{
-					success = false;
-					return;
-				}
-				else
-				{
-					vxy_assert(clause.values.contains(true));
-					outRelInfo.addRelation(clause.variable, typedRel);
-					outLits.push_back(clause);
-				}
-			}
-			else
-			{
-				// Do not expect a IGraphRelation<FSignedClause> at this point.
-				vxy_fail();
-			}
-		}, entry.relation);
-
-		if (!success)
-		{
-			break;
+			return false;
 		}
+
+		outRelInfo.addVariableRelation(destVar, relation);
+		outLits.push_back(Literal{destVar, correspondingLit->values});
+	}
+	
+	for (const auto& [lit, relation] : promotingCons.getGraphRelationInfo()->getLiteralRelations())
+	{		
+		Literal correspondingClause;
+		vxy_verify(relation->getRelation(promotingCons.getGraphRelationInfo()->getSourceGraphVertex(), correspondingClause));
+		const ValueSet& correspondingVarInitialVals = m_variableDB.getInitialValues(correspondingClause.variable);
+
+		Literal clause;
+		if (!relation->getRelation(destVertex, clause) || 
+			m_variableDB.getInitialValues(clause.variable) != correspondingVarInitialVals)
+		{
+			return false;
+		}
+
+		vxy_assert(clause.values.contains(true));
+		outRelInfo.addLiteralRelation(clause, relation);
+		outLits.push_back(clause);
 	}
 
-	return success;
+	return true;
 }
 
 void ConstraintSolver::purgeConstraints()

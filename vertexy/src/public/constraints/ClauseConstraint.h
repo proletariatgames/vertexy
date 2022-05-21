@@ -182,7 +182,7 @@ public:
 
 	inline bool isPromotableToGraph() const
 	{
-		return m_graphRelationInfo != nullptr && m_graphRelationInfo->graph != nullptr &&
+		return m_graphRelationInfo != nullptr && m_graphRelationInfo->getGraph() != nullptr &&
 			   m_extendedInfo != nullptr && !m_extendedInfo->isPromoted && !isPromotedFromGraph();
 	}
 
@@ -196,7 +196,7 @@ public:
 
 	inline bool isPromotedFromGraph() const
 	{
-		if (!m_extendedInfo.get())
+		if (m_extendedInfo == nullptr)
 		{
 			return false;
 		}

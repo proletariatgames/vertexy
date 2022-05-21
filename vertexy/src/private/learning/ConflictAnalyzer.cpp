@@ -107,12 +107,12 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 	m_nodes.clear();
 	m_nodes.reserve(inOutExplanation.size());
 	m_graph = initialConflict->getGraph();
-	m_anchorGraphVertex = initialConflict->getGraphRelationInfo() != nullptr ? initialConflict->getGraphRelationInfo()->sourceGraphVertex : -1;
+	m_anchorGraphVertex = initialConflict->getGraphRelationInfo() != nullptr ? initialConflict->getGraphRelationInfo()->getSourceGraphVertex() : -1;
 
 	ConstraintGraphRelationInfo initialConflictRelationInfo;
 	if (!initialConflict->getGraphRelations(inOutExplanation, initialConflictRelationInfo))
 	{
-		initialConflictRelationInfo.clear();
+		initialConflictRelationInfo.invalidate();
 		m_graph = nullptr;
 	}
 
@@ -206,7 +206,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 
 		if (!antecedent->getGraphRelations(explToResolve, relationInfo))
 		{
-			relationInfo.clear();
+			relationInfo.invalidate();
 		}
 
 		resolve(explToResolve, relationInfo, inOutExplanation, pivotVar, lastModificationTime);
@@ -255,7 +255,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 		m_resolvedRelationInfo.reset();
 		if (m_graph != nullptr)
 		{
-			vxy_sanity(initialConflict->getGraphRelationInfo() && initialConflict->getGraphRelationInfo()->graph == m_graph);
+			vxy_sanity(initialConflict->getGraphRelationInfo() && initialConflict->getGraphRelationInfo()->getGraph() == m_graph);
 			const bool isPromotable = !containsPredicate(m_nodes.begin() + 1, m_nodes.end(), [&](auto& node)
 			{
 				return !node.hasGraphRelation();
@@ -267,18 +267,27 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 				{
 					const ImplicationNode& node = m_nodes[i];
 
-					m_resolvedRelationInfo->addRelation(node.var, node.relation);
+					if (auto varRel = get_if<GraphVariableRelationPtr>(&node.relation))
+					{
+						m_resolvedRelationInfo->addVariableRelation(node.var, *varRel);						
+					}
+					else
+					{
+						vxy_assert(node.var == inOutExplanation[i].variable);
+						m_resolvedRelationInfo->addLiteralRelation(inOutExplanation[i], get<GraphLiteralRelationPtr>(node.relation));
+					}
+
 					#if VERTEXY_SANITY_CHECKS
 					if (!isClauseRelation(node.relation))
 					{
-						auto resolvedRel = get<VariableRelationType>(node.relation);
+						auto resolvedRel = get<GraphVariableRelationPtr>(node.relation);
 						VarID resolvedVar;
 						vxy_sanity(resolvedRel->getRelation(m_anchorGraphVertex, resolvedVar) != false);
 						vxy_sanity(resolvedVar == node.var);
 					}
 					else
 					{
-						auto resolvedRel = get<LiteralRelationType>(node.relation);
+						auto resolvedRel = get<GraphLiteralRelationPtr>(node.relation);
 						Literal resolvedLit;
 						vxy_sanity(resolvedRel->getRelation(m_anchorGraphVertex, resolvedLit) != false);
 						vxy_sanity(resolvedLit == inOutExplanation[i]);
@@ -594,15 +603,27 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 		return;
 	}
 
-	if (m_graph != originGraphInfo.graph)
+	if (m_graph != originGraphInfo.getGraph())
 	{
 		m_graph = nullptr;
 		node.clearGraphRelation();
 		return;
 	}
 
-	ConstraintGraphRelation newRelation;
-	if (!originGraphInfo.getRelation(node.var, newRelation))
+
+	ARelation newRelation;
+	GraphLiteralRelationPtr newLiteralRelation;
+	GraphVariableRelationPtr newVarRelation;
+	
+	if (originGraphInfo.getLiteralRelation(Literal(node.var, values), newLiteralRelation))
+	{
+		newRelation = newLiteralRelation;
+	}
+	else if (originGraphInfo.getVariableRelation(node.var, newVarRelation))
+	{
+		newRelation = newVarRelation;
+	}
+	else
 	{
 		m_graph = nullptr;
 		node.clearGraphRelation();
@@ -615,126 +636,104 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 		node.clearGraphRelation();
 		return;
 	}
-
-	// Convert SignedClause graph relation to Literal graph relation
-	visit([&](auto&& typedRel)
-	{
-		vxy_sanity(typedRel != nullptr);
-		using T = decay_t<decltype(typedRel)>;
-		if constexpr (is_same_v<T, ClauseRelationType>)
-		{
-			auto clauseToLit = make_shared<ClauseToLiteralGraphRelation>(m_solver, typedRel);
-			newRelation = clauseToLit;
-		}
-	}, newRelation);
-
+	
 	const bool hasExistingRelation = node.hasGraphRelation();
 
 	// Apply the relation
 	bool isValid = true;
-	visit([&](auto&& newTypedRel)
+	
+	//
+	// Handle Vertex -> Literal relations
+	//
+	if (newLiteralRelation != nullptr)
 	{
-		vxy_sanity(newTypedRel != nullptr);
-		using T = decay_t<decltype(newTypedRel)>;
-
-		auto offsetRel = createOffsetGraphRelation(originGraphInfo.sourceGraphVertex, newTypedRel);
-
-		//
-		// Handle Vertex -> Literal relations
-		//
-
-		if constexpr (is_same_v<T, LiteralRelationType>)
+		auto offsetRel = createOffsetGraphRelation(originGraphInfo.getSourceGraphVertex(), newLiteralRelation);
+		
+		Literal relationVals;
+		vxy_verify(newLiteralRelation->getRelation(originGraphInfo.getSourceGraphVertex(), relationVals));
+		vxy_sanity(relationVals.variable == node.var);
+		if (applicationType == EGraphRelationType::Intersection)
 		{
-			Literal relationVals;
-			vxy_verify(newTypedRel->getRelation(originGraphInfo.sourceGraphVertex, relationVals));
-			vxy_sanity(relationVals.variable == node.var);
-			if (applicationType == EGraphRelationType::Intersection)
-			{
-				relationVals.values.invert();
-				offsetRel = make_shared<InvertLiteralGraphRelation>(offsetRel);
-			}
+			relationVals.values.invert();
+			offsetRel = make_shared<InvertLiteralGraphRelation>(offsetRel);
+		}
 
-			if (relationVals.values != values)
+		if (relationVals.values != values)
+		{
+			// The explanation returned something unexpected. TODO: Maybe can check subset instead?
+			isValid = false;
+		}
+		else if (!hasExistingRelation || !offsetRel->equals(*get<GraphLiteralRelationPtr>(node.relation)))
+		{
+			if (hasExistingRelation)
 			{
-				// The explanation returned something unexpected. TODO: Maybe can check subset instead?
-				isValid = false;
-			}
-			else if (!hasExistingRelation || !offsetRel->equals(*get<LiteralRelationType>(node.relation)))
-			{
-				if (hasExistingRelation)
+				if (applicationType == EGraphRelationType::Intersection)
 				{
-					if (applicationType == EGraphRelationType::Intersection)
-					{
-						auto intersectRel = make_shared<LiteralIntersectionGraphRelation>();
-						intersectRel->add(get<LiteralRelationType>(node.relation));
-						intersectRel->add(offsetRel);
-						node.relation = intersectRel;
-					}
-					else
-					{
-						auto unionRel = make_shared<LiteralUnionGraphRelation>();
-						unionRel->add(get<LiteralRelationType>(node.relation));
-						unionRel->add(offsetRel);
-						node.relation = unionRel;
-					}
+					auto intersectRel = make_shared<LiteralIntersectionGraphRelation>();
+					intersectRel->add(get<GraphLiteralRelationPtr>(node.relation));
+					intersectRel->add(offsetRel);
+					node.relation = intersectRel;
 				}
 				else
 				{
-					node.relation = offsetRel;
+					auto unionRel = make_shared<LiteralUnionGraphRelation>();
+					unionRel->add(get<GraphLiteralRelationPtr>(node.relation));
+					unionRel->add(offsetRel);
+					node.relation = unionRel;
 				}
 			}
+			else
+			{
+				node.relation = offsetRel;
+			}
 		}
-
+	}
+	else
+	{
 		//
 		// Handle Vertex -> VarID relations
 		//
 
-		else if constexpr (is_same_v<T, VariableRelationType>)
+		auto offsetRel = createOffsetGraphRelation(originGraphInfo.getSourceGraphVertex(), newVarRelation);
+		if (!hasExistingRelation || !offsetRel->equals(*get<GraphVariableRelationPtr>(node.relation)))
 		{
-			if (!hasExistingRelation || !offsetRel->equals(*get<VariableRelationType>(node.relation)))
+			if (hasExistingRelation)
 			{
-				if (hasExistingRelation)
+				auto existingRel = get<GraphVariableRelationPtr>(node.relation);
+				if (node.multiRelation == nullptr)
 				{
-					auto existingRel = get<VariableRelationType>(node.relation);
-					if (node.multiRelation == nullptr)
+					auto newMultiRel = make_shared<TManyToOneGraphRelation<VarID>>();
+					// Compact chained ManyToOneGraphRelations:
+					if (auto existingMultiRel = dynamic_cast<const TManyToOneGraphRelation<VarID>*>(existingRel.get()))
 					{
-						auto newMultiRel = make_shared<TManyToOneGraphRelation<VarID>>();
-						// Compact chained ManyToOneGraphRelations:
-						if (auto existingMultiRel = dynamic_cast<const TManyToOneGraphRelation<VarID>*>(existingRel.get()))
+						for (auto& inner : existingMultiRel->getRelations())
 						{
-							for (auto& inner : existingMultiRel->getRelations())
-							{
-								newMultiRel->add(inner);
-							}
+							newMultiRel->add(inner);
 						}
-						else
-						{
-							newMultiRel->add(existingRel);
-						}
-						node.relation = newMultiRel;
-						node.multiRelation = newMultiRel;
 					}
-
-					bool isAlreadyContained = containsPredicate(node.multiRelation->getRelations().begin(), node.multiRelation->getRelations().end(), [&](auto&& inner)
+					else
 					{
-						return inner->equals(*offsetRel.get());
-					});
-					if (!isAlreadyContained)
-					{
-						node.multiRelation->add(offsetRel);
+						newMultiRel->add(existingRel);
 					}
+					node.relation = newMultiRel;
+					node.multiRelation = newMultiRel;
 				}
-				else
+
+				bool isAlreadyContained = containsPredicate(node.multiRelation->getRelations().begin(), node.multiRelation->getRelations().end(), [&](auto&& inner)
 				{
-					node.relation = offsetRel;
+					return inner->equals(*offsetRel);
+				});
+				if (!isAlreadyContained)
+				{
+					node.multiRelation->add(offsetRel);
 				}
 			}
+			else
+			{
+				node.relation = offsetRel;
+			}
 		}
-		else
-		{
-			vxy_fail();
-		}
-	}, newRelation);
+	}
 
 	if (!isValid)
 	{
@@ -743,7 +742,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 	}
 }
 
-bool ConflictAnalyzer::compatibleRelations(const ConstraintGraphRelation& existingRelation, const ConstraintGraphRelation& newRelation)
+bool ConflictAnalyzer::compatibleRelations(const ARelation& existingRelation, const ARelation& newRelation)
 {
 	return visit([&](auto&& typedRel)
 	{
@@ -752,7 +751,7 @@ bool ConflictAnalyzer::compatibleRelations(const ConstraintGraphRelation& existi
 		{
 			return true;
 		}
-		else if (is_same_v<T1, ClauseRelationType> || is_same_v<T1, LiteralRelationType>)
+		else if (is_same_v<T1, GraphLiteralRelationPtr>)
 		{
 			return isClauseRelation(newRelation);
 		}
