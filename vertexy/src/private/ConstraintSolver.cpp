@@ -55,6 +55,8 @@ static constexpr int DECISION_LOG_FREQUENCY = -1;
 static constexpr bool LOG_VARIABLE_PROPAGATIONS = false;
 // Whether to log every time the solver backtracks. Very noisy!
 static constexpr bool LOG_BACKTRACKS = false;
+// Log every clause constraint created
+static constexpr bool LOG_CLAUSE_CONSTRAINTS = false;
 
 // The literal block distance (LBD) for learned constraints where we put them in the permanent constraint pool.
 // Permanent constraints will remain forever.
@@ -212,6 +214,14 @@ IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 	if (constraint->needsBacktracking())
 	{
 		m_backtrackingConstraints.push_back(static_cast<IBacktrackingSolverConstraint*>(constraint));
+	}
+
+	if constexpr (LOG_CLAUSE_CONSTRAINTS)
+	{
+		if (auto cc = constraint->asClauseConstraint())
+		{
+			VERTEXY_LOG("Constraint %d:%s", constraint->getID(), clauseConstraintToString(*cc).c_str());
+		}
 	}
 
 	vector<VarID> constraintVars;

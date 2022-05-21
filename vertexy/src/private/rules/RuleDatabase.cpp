@@ -90,13 +90,9 @@ bool RuleDatabase::finalize()
 
             vxy_assert(getAtom(bodyLit.id())->asAbstract() == nullptr || hasAbstracts);
 
-            auto atomLit = getAtom(bodyLit.id())->getLiteral(*this, bodyLit.sign() ? bodyLit.inverted() : bodyLit);
-            if (!bodyLit.sign())
-            {
-                atomLit = make_shared<NotAtomRelation>(m_solver, get<GraphLiteralRelationPtr>(atomLit));
-            }
-
-            m_nogoodBuilder.add(atomLit, false, getAtom(bodyLit.id())->getTopology());
+            auto bodyLitAtom = getAtom(bodyLit.id());
+            ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
+            m_nogoodBuilder.add(atomLit, bodyLit.sign(), bodyLitAtom->getTopology());
         }
 
         vxy_assert(!m_nogoodBuilder.empty());
@@ -112,18 +108,18 @@ bool RuleDatabase::finalize()
         // For each literal Bv in the body:
         // nogood(B, -Bv) == clause(-B, Bv)
         //
-        for (auto itv = bodyInfo->atomLits.begin(), itvEnd = bodyInfo->atomLits.end(); itv != itvEnd; ++itv)
+        for (auto& bodyLit : bodyInfo->atomLits)
         {
-            if (isLiteralAssumed(*itv))
+            if (isLiteralAssumed(bodyLit))
             {
                 // literal is known, no need to include.
                 continue;
             }
 
-            auto atomLit = getAtom(itv->id())->getLiteral(*this, *itv);
-
+            auto bodyLitAtom = getAtom(bodyLit.id());
+            ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit);
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), true, bodyInfo->getTopology());
-            m_nogoodBuilder.add(atomLit, true, getAtom(itv->id())->getTopology());
+            m_nogoodBuilder.add(atomLit, !bodyLit.sign(), bodyLitAtom->getTopology());
             m_nogoodBuilder.emit(*this);
         }
         
@@ -1743,40 +1739,4 @@ bool BodyInstantiatorRelation::getRelation(VertexID sourceVertex, Literal& out) 
 size_t BodyInstantiatorRelation::hash() const
 {
     return 0;
-}
-
-NotAtomRelation::NotAtomRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation)
-    : m_solver(solver)
-    , m_atomRelation(atomRelation)
-{
-}
-
-bool NotAtomRelation::getRelation(VertexID sourceVertex, Literal& out) const
-{
-    Literal atomLit;
-    if (!m_atomRelation->getRelation(sourceVertex, atomLit))
-    {        
-        if (!m_falseLit.isValid())
-        {
-            // create a new variable
-            m_falseLit.variable = m_solver.makeBoolean(TEXT("alwaysFalse"), {0});
-            m_falseLit.values = SolverVariableDomain(0,1).getBitsetForValue(1);
-        }
-        out = m_falseLit;
-    }
-    else
-    {
-        out = atomLit.inverted();
-    }
-    return true;
-}
-
-size_t NotAtomRelation::hash() const
-{
-    return m_atomRelation->hash();
-}
-
-wstring NotAtomRelation::toString() const
-{
-    return TEXT("NOT(") + m_atomRelation->toString() + TEXT(")");
 }
