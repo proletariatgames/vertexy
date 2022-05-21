@@ -291,13 +291,13 @@ IffConstraint* ConstraintSolver::iff(const SignedClause& head, const vector<Sign
 		posClauses.push_back(head.inverted());
 		negClauses.push_back(head);
 
-		for (int i = 0; i < body.size(); ++i)
+		for (const auto& signedClause : body)
 		{
-			posClauses.push_back(body[i]);
+			posClauses.push_back(signedClause);
 			nogood(posClauses);
 			posClauses.pop_back();
 
-			negClauses.push_back(body[i].inverted());
+			negClauses.push_back(signedClause.inverted());
 		}
 		nogood(negClauses);
 		return nullptr;
@@ -329,9 +329,9 @@ vector<VarID> ConstraintSolver::unifyVariableDomains(const vector<VarID>& variab
 	// To do this, we create new variables and apply an OffsetConstraint between the new and original variable.
 
 	int minDomain = INT_MAX;
-	for (int i = 0; i < variables.size(); ++i)
+	for (auto variable : variables)
 	{
-		minDomain = min(minDomain, m_variableDomains[variables[i].raw()].getMin());
+		minDomain = min(minDomain, m_variableDomains[variable.raw()].getMin());
 	}
 
 	vector<VarID> adjustedIDs;
@@ -403,7 +403,7 @@ RuleDatabase& ConstraintSolver::getRuleDB()
 		vxy_assert_msg(!m_initialArcConsistencyEstablished, "Cannot access rule database after solving has started!");
 		m_ruleDB = make_unique<RuleDatabase>(*this);
 	}
-	return *m_ruleDB.get();
+	return *m_ruleDB;
 }
 
 void ConstraintSolver::addProgram(UProgramInstance&& instance)
@@ -472,9 +472,9 @@ bool ConstraintSolver::simplify()
 					fixPoint = false;
 
 					strengthenedConstraints.add(i);
-					for (auto it = varsRemoved.begin(), itEnd = varsRemoved.end(); it != itEnd; ++it)
+					for (auto& var : varsRemoved)
 					{
-						occurList[it->raw()].erase_first_unsorted(i);
+						occurList[var.raw()].erase_first_unsorted(i);
 						++numLiteralsRemoved;
 					}
 				}
@@ -608,11 +608,11 @@ bool ConstraintSolver::simplify()
 			negateVar = cons->getLiteral(negateLitIdx).variable;
 		}
 
-		for (auto it = occurList[bestVar.raw()].begin(), itEnd = occurList[bestVar.raw()].end(); it != itEnd; ++it)
+		for (int& occur : occurList[bestVar.raw()])
 		{
-			if (isSubsetOf(clauseIdx, *it, negateVar))
+			if (isSubsetOf(clauseIdx, occur, negateVar))
 			{
-				outConsumed.push_back(*it);
+				outConsumed.push_back(occur);
 			}
 		}
 	};
@@ -629,9 +629,9 @@ bool ConstraintSolver::simplify()
 		{
 			auto& lit = cons->getLiteral(i);
 			findSubsumed(clauseIdx, consumed, i);
-			for (auto it = consumed.begin(), itEnd = consumed.end(); it != itEnd; ++it)
+			for (int& clause : consumed)
 			{
-				auto strCons = clauses[*it];
+				auto strCons = clauses[clause];
 				bool found = false;
 				for (int j = 0; j < strCons->getNumLiterals(); ++j)
 				{
@@ -639,9 +639,9 @@ bool ConstraintSolver::simplify()
 					{
 						vxy_sanity(strCons->getLiteral(j).values == lit.values.inverted());
 						strCons->removeLiteralAt(&m_variableDB, j);
-						clauseHashes[*it] = hashClause(strCons);
-						occurList[lit.variable.raw()].erase_first_unsorted(*it);
-						strengthenedConstraints.add(*it);
+						clauseHashes[clause] = hashClause(strCons);
+						occurList[lit.variable.raw()].erase_first_unsorted(clause);
+						strengthenedConstraints.add(clause);
 
 						++numLiteralsRemoved;
 
@@ -658,13 +658,13 @@ bool ConstraintSolver::simplify()
 	auto getClausesWithLiteral = [&](const Literal& lit, LookupSet& outClauses)
 	{
 		const auto& list = occurList[lit.variable.raw()];
-		for (auto it = list.begin(), itEnd = list.end(); it != itEnd; ++it)
+		for (int listLit : list)
 		{
-			auto cons = clauses[*it];
+			auto cons = clauses[listLit];
 			auto found = find_if(cons->beginLiterals(), cons->endLiterals(), [&](auto& l) { return l.variable == lit.variable; });
 			if (found != cons->endLiterals() && found->values == lit.values)
 			{
-				outClauses.add(*it);
+				outClauses.add(listLit);
 			}
 		}
 	};
@@ -680,9 +680,9 @@ bool ConstraintSolver::simplify()
 	while (!addedConstraints.empty())
 	{
 		potentialSet.clear();
-		for (auto it = addedConstraints.begin(), itEnd = addedConstraints.end(); it != itEnd; ++it)
+		for (int& addedConstraint : addedConstraints)
 		{
-			auto clause = clauses[*it];
+			auto clause = clauses[addedConstraint];
 			for (auto itLit = clause->beginLiterals(), itLitEnd = clause->endLiterals(); itLit != itLitEnd; ++itLit)
 			{
 				getClausesWithLiteral(*itLit, potentialSet);
@@ -692,27 +692,27 @@ bool ConstraintSolver::simplify()
 		do
 		{
 			subsumeSet.clear();
-			for (auto it = addedConstraints.begin(), itEnd = addedConstraints.end(); it != itEnd; ++it)
+			for (int& addedConstraint : addedConstraints)
 			{
-				subsumeSet.add(*it);
+				subsumeSet.add(addedConstraint);
 
-				auto clause = clauses[*it];
+				auto clause = clauses[addedConstraint];
 				for (auto itLit = clause->beginLiterals(), itLitEnd = clause->endLiterals(); itLit != itLitEnd; ++itLit)
 				{
 					getClausesWithLiteral(Literal(itLit->variable, itLit->values.inverted()), subsumeSet);
 				}
 			}
-			for (auto it = strengthenedConstraints.begin(), itEnd = strengthenedConstraints.end(); it != itEnd; ++it)
+			for (int& strengthenedConstraint : strengthenedConstraints)
 			{
-				subsumeSet.add(*it);
+				subsumeSet.add(strengthenedConstraint);
 			}
 
 			addedConstraints.clear();
 			strengthenedConstraints.clear();
 
-			for (auto it = subsumeSet.begin(), itEnd = subsumeSet.end(); it != itEnd; ++it)
+			for (int& subsumed : subsumeSet)
 			{
-				selfSubsume(*it);
+				selfSubsume(subsumed);
 			}
 
 			if (!propagateTopLevel())
@@ -722,15 +722,15 @@ bool ConstraintSolver::simplify()
 		}
 		while (!strengthenedConstraints.empty());
 
-		for (auto it = potentialSet.begin(), itEnd = potentialSet.end(); it != itEnd; ++it)
+		for (int& consIdx : potentialSet)
 		{
-			if (clauses[*it] == nullptr)
+			if (clauses[consIdx] == nullptr)
 			{
 				continue;
 			}
 
 			foundSubsumed.clear();
-			findSubsumed(*it, foundSubsumed);
+			findSubsumed(consIdx, foundSubsumed);
 
 			for (int subsumedIdx : foundSubsumed)
 			{
@@ -1031,7 +1031,7 @@ EConstraintSolverResult ConstraintSolver::step()
 		else if (backtrackLevel == 0)
 		{
 			m_restartPolicy.onRestarted();
-			for (auto heuristic : m_heuristicStack)
+			for (auto& heuristic : m_heuristicStack)
 			{
 				heuristic->onRestarted();
 			}
@@ -1072,7 +1072,7 @@ EConstraintSolverResult ConstraintSolver::step()
 			backtrackUntilDecision(0, true);
 
 			m_restartPolicy.onRestarted();
-			for (auto heuristic : m_heuristicStack)
+			for (auto& heuristic : m_heuristicStack)
 			{
 				heuristic->onRestarted();
 			}
@@ -1082,7 +1082,7 @@ EConstraintSolverResult ConstraintSolver::step()
 		else
 		{
 			// Get rid of old learned constraints if database has grown too large
-			if (getCurrentDecisionLevel() > 0 && m_temporaryLearnedConstraints.size() >= m_numUserConstraints*MAX_LEARNED_CONSTRAINTS_SCALAR)
+			if (getCurrentDecisionLevel() > 0 && m_temporaryLearnedConstraints.size() >= size_t(float(m_numUserConstraints)*MAX_LEARNED_CONSTRAINTS_SCALAR))
 			{
 				purgeConstraints();
 				++m_stats.numConstraintPurges;
@@ -1490,7 +1490,7 @@ ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, co
 	//
 
 	m_restartPolicy.onClauseLearned(*learnedCons);
-	for (auto heuristic : m_heuristicStack)
+	for (auto& heuristic : m_heuristicStack)
 	{
 		heuristic->onClauseLearned();
 	}
@@ -1809,7 +1809,7 @@ void ConstraintSolver::purgeConstraints()
 	});
 
 	const int prevTotal = m_temporaryLearnedConstraints.size();
-	const int numRemaining = prevTotal * (1.0f - CONSTRAINT_PURGE_PERCENT);
+	const int numRemaining = int(float(prevTotal) * (1.0f - CONSTRAINT_PURGE_PERCENT));
 	const int numPurged = prevTotal - numRemaining;
 
 	int bestRemovedLBD = INT_MAX;
@@ -1955,7 +1955,7 @@ void ConstraintSolver::debugAttemptSolution(const wchar_t* filename)
 	}
 
 	m_restartPolicy.onRestarted();
-	for (auto heuristic : m_heuristicStack)
+	for (auto& heuristic : m_heuristicStack)
 	{
 		heuristic->onRestarted();
 	}

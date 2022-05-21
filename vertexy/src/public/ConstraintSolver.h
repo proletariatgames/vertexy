@@ -605,7 +605,7 @@ protected:
 	// Incrementer for constraint activity
 	float m_constraintConflictIncr = 1.0;
 	// How many user-supplied constraints were provided
-	int m_numUserConstraints = 0;
+	size_t m_numUserConstraints = 0;
 
 	// Queue of variable changes that need to be propagated to other constraints
 	vector<QueuedVariablePropagation> m_variablePropagationQueue;
@@ -618,7 +618,7 @@ protected:
 	// Reset to null on backtrack.
 	IVariableWatchSink* m_lastTriggeredSink = nullptr;
 	// Timestamp before we triggered the most recent sink
-	SolverTimestamp m_lastTriggeredTs;
+	SolverTimestamp m_lastTriggeredTs{};
 	// whether all constraints have set up initial arc-consistency
 	bool m_initialArcConsistencyEstablished = false;
 
