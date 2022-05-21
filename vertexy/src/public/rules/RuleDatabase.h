@@ -445,20 +445,4 @@ protected:
     bool m_allowCreation;
 };
 
-class NotAtomRelation : public IGraphRelation<Literal>
-{
-public:
-    NotAtomRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation);
-
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
-    virtual size_t hash() const override;
-    virtual wstring toString() const override;
-    const GraphLiteralRelationPtr& getInner() const { return m_atomRelation; }
-
-protected:
-    ConstraintSolver& m_solver;
-    GraphLiteralRelationPtr m_atomRelation;
-    mutable Literal m_falseLit;
-};
-
 } // namespace Vertexy
