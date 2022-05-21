@@ -84,48 +84,52 @@ bool RuleDatabase::finalize()
         {
             if (isLiteralAssumed(bodyLit))
             {
-                // literal is always true, no need to include.
+                // literal is known, no need to include.
                 continue;
             }
 
-            if (getAtom(bodyLit.id())->asAbstract() != nullptr)
+            vxy_assert(getAtom(bodyLit.id())->asAbstract() == nullptr || hasAbstracts);
+
+            auto atomLit = getAtom(bodyLit.id())->getLiteral(*this, bodyLit.sign() ? bodyLit.inverted() : bodyLit);
+            if (!bodyLit.sign())
             {
-                vxy_assert(hasAbstracts);
+                atomLit = make_shared<NotAtomRelation>(m_solver, get<GraphLiteralRelationPtr>(atomLit));
             }
 
-            auto atomLit = getAtom(bodyLit.id())->getLiteral(*this, bodyLit.inverted());
             m_nogoodBuilder.add(atomLit, false, getAtom(bodyLit.id())->getTopology());
         }
 
         vxy_assert(!m_nogoodBuilder.empty());
 
         //
-        // For all literal Bv1...BvN in the body:
-        // nogood(-B, Bv1, Bv2, Bv3, ... BvN)
+        // For all literals Bv1...BvN in the body:
+        // nogood(-B, Bv1, Bv2, ..., BvN) == clause(B, -Bv1, -Bv2, ..., -BvN)
         //
         m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, false), true, bodyInfo->getTopology());
         m_nogoodBuilder.emit(*this);
 
         //
         // For each literal Bv in the body:
-        // nogood(B, -Bv)
+        // nogood(B, -Bv) == clause(-B, Bv)
         //
         for (auto itv = bodyInfo->atomLits.begin(), itvEnd = bodyInfo->atomLits.end(); itv != itvEnd; ++itv)
         {
             if (isLiteralAssumed(*itv))
             {
-                // literal is always true, no need to include.
+                // literal is known, no need to include.
                 continue;
             }
 
+            auto atomLit = getAtom(itv->id())->getLiteral(*this, *itv);
+
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), true, bodyInfo->getTopology());
-            m_nogoodBuilder.add(getAtom(itv->id())->getLiteral(*this, *itv), true, getAtom(itv->id())->getTopology());
+            m_nogoodBuilder.add(atomLit, true, getAtom(itv->id())->getTopology());
             m_nogoodBuilder.emit(*this);
         }
         
         //
         // For each head H attached to this body:
-        // nogood(-H, B)
+        // nogood(-H, B) == clause(H, -B)
         //
         for (auto ith = bodyInfo->heads.begin(), ithEnd = bodyInfo->heads.end(); ith != ithEnd; ++ith)
         {
@@ -177,7 +181,7 @@ bool RuleDatabase::finalize()
     
     //
     // Go through each atom, and constrain it to be false if ALL supporting bodies are false.
-    // nogood(H, -B1, -B2, ...)
+    // nogood(H, -B1, -B2, ...) == clause(-H, B1, B2, ...)
     //
     for (auto it = m_atoms.begin()+1, itEnd = m_atoms.end(); it != itEnd; ++it)
     {
@@ -1594,10 +1598,10 @@ bool AbstractBodyMapper::getForVertex(ITopology::VertexID vertex, bool allowCrea
     }
     
     vxy_assert(m_headRelationInfo != nullptr || m_bodyInfo->isNegativeConstraint);
-    if (!checkValid(vertex, *args))
-    {
-        return false;
-    }
+    // if (!checkValid(vertex, *args))
+    // {
+    //     return false;
+    // }
 
     outLit = makeForArgs(*args, argHash);
     return true;
@@ -1741,48 +1745,38 @@ size_t BodyInstantiatorRelation::hash() const
     return 0;
 }
 
-AtomWrapperRelation::AtomWrapperRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation, bool invert, const shared_ptr<Literal>& falseLitPtr)
+NotAtomRelation::NotAtomRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation)
     : m_solver(solver)
     , m_atomRelation(atomRelation)
-    , m_invert(invert)
-    , m_falseLitPtr(falseLitPtr)
 {
 }
 
-bool AtomWrapperRelation::getRelation(VertexID sourceVertex, Literal& out) const
+bool NotAtomRelation::getRelation(VertexID sourceVertex, Literal& out) const
 {
     Literal atomLit;
     if (!m_atomRelation->getRelation(sourceVertex, atomLit))
-    {
-        if (!m_falseLitPtr->isValid())
+    {        
+        if (!m_falseLit.isValid())
         {
             // create a new variable
-            VarID newVar = m_solver.makeBoolean(TEXT("alwaysFalse"), {0});
-            *m_falseLitPtr = Literal(newVar, SolverVariableDomain(0,1).getBitsetForValue(1));            
+            m_falseLit.variable = m_solver.makeBoolean(TEXT("alwaysFalse"), {0});
+            m_falseLit.values = SolverVariableDomain(0,1).getBitsetForValue(1);
         }
-        out = m_invert ? *m_falseLitPtr : m_falseLitPtr->inverted();
+        out = m_falseLit;
     }
     else
     {
-        vxy_assert(atomLit.isValid());
-        out = m_invert ? atomLit.inverted() : atomLit;
+        out = atomLit.inverted();
     }
     return true;
 }
 
-size_t AtomWrapperRelation::hash() const
+size_t NotAtomRelation::hash() const
 {
     return m_atomRelation->hash();
 }
 
-wstring AtomWrapperRelation::toString() const
+wstring NotAtomRelation::toString() const
 {
-    if (m_invert)
-    {
-        return TEXT("~(") + m_atomRelation->toString() + TEXT(")");
-    }
-    else
-    {
-        return TEXT("*(") + m_atomRelation->toString() + TEXT(")");
-    }
+    return TEXT("NOT(") + m_atomRelation->toString() + TEXT(")");
 }

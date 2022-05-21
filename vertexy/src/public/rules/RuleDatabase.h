@@ -445,22 +445,20 @@ protected:
     bool m_allowCreation;
 };
 
-class AtomWrapperRelation : public IGraphRelation<Literal>
+class NotAtomRelation : public IGraphRelation<Literal>
 {
 public:
-    AtomWrapperRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation, bool invert, const shared_ptr<Literal>& falseLitPtr);
+    NotAtomRelation(ConstraintSolver& solver, const GraphLiteralRelationPtr& atomRelation);
 
     virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
     virtual size_t hash() const override;
     virtual wstring toString() const override;
     const GraphLiteralRelationPtr& getInner() const { return m_atomRelation; }
-    bool inverted() const { return m_invert; }
 
 protected:
     ConstraintSolver& m_solver;
     GraphLiteralRelationPtr m_atomRelation;
-    bool m_invert;
-    shared_ptr<Literal> m_falseLitPtr;
+    mutable Literal m_falseLit;
 };
 
 } // namespace Vertexy
