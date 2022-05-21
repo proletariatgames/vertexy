@@ -219,9 +219,9 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 
 	// Clear out VariableClauseIndices, so it is fresh for next time.
 	// NOTE! We don't want to return earlier than here!
-	for (int i = 0; i < inOutExplanation.size(); ++i)
+	for (auto& literal : inOutExplanation)
 	{
-		m_variableClauseIndices[inOutExplanation[i].variable.raw()] = -1;
+		m_variableClauseIndices[literal.variable.raw()] = -1;
 	}
 
 	vxy_assert(m_nodes.size() == inOutExplanation.size());
@@ -552,13 +552,13 @@ shared_ptr<const IGraphRelation<T>> ConflictAnalyzer::createOffsetGraphRelation(
 		TopologyLink link;
 		if (!m_graph->getTopologyLink(m_anchorGraphVertex, graphNode, link))
 		{
-			return false;
+			return nullptr;
 		}
 
 		if (auto existingLinkRel = dynamic_cast<const TTopologyLinkGraphRelation<T>*>(inRel.get()))
 		{
 			TopologyLink combinedLink = link.combine(existingLinkRel->getLink());
-			if (combinedLink.isEquivalent(TopologyLink::SELF, *m_graph.get()))
+			if (combinedLink.isEquivalent(TopologyLink::SELF, *m_graph))
 			{
 				return make_shared<TVertexToDataGraphRelation<T>>(existingLinkRel->getTopo(), existingLinkRel->getData());
 			}
@@ -566,10 +566,10 @@ shared_ptr<const IGraphRelation<T>> ConflictAnalyzer::createOffsetGraphRelation(
 		}
 		else if (auto existingMapping = dynamic_cast<const TMappingGraphRelation<T>*>(inRel.get()))
 		{
-			if (auto existingLinkRel = dynamic_cast<const TopologyLinkIndexGraphRelation*>(existingMapping->getFirstRelation().get()))
+			if (auto mapperLinkRel = dynamic_cast<const TopologyLinkIndexGraphRelation*>(existingMapping->getFirstRelation().get()))
 			{
-				TopologyLink combinedLink = link.combine(existingLinkRel->getLink());
-				if (combinedLink.isEquivalent(TopologyLink::SELF, *m_graph.get()))
+				TopologyLink combinedLink = link.combine(mapperLinkRel->getLink());
+				if (combinedLink.isEquivalent(TopologyLink::SELF, *m_graph))
 				{
 					return existingMapping->getSecondRelation();
 				}
@@ -659,7 +659,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 				// The explanation returned something unexpected. TODO: Maybe can check subset instead?
 				isValid = false;
 			}
-			else if (!hasExistingRelation || !offsetRel->equals(*get<LiteralRelationType>(node.relation).get()))
+			else if (!hasExistingRelation || !offsetRel->equals(*get<LiteralRelationType>(node.relation)))
 			{
 				if (hasExistingRelation)
 				{
@@ -691,7 +691,7 @@ void ConflictAnalyzer::applyGraphRelation(ImplicationNode& node, const Constrain
 
 		else if constexpr (is_same_v<T, VariableRelationType>)
 		{
-			if (!hasExistingRelation || !offsetRel->equals(*get<VariableRelationType>(node.relation).get()))
+			if (!hasExistingRelation || !offsetRel->equals(*get<VariableRelationType>(node.relation)))
 			{
 				if (hasExistingRelation)
 				{
@@ -778,13 +778,13 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 		// Simple/cheaper version of redundancy check that just sees if the reason for this literal's propagation
 		// is a subset of the constraint we're learning. If so, it's redundant.
 		vector<Literal> reason = m_solver.getExplanationForModification(m_nodes[litIndex].time);
-		for (int i = 0; i < reason.size(); ++i)
+		for (auto& reasonLit : reason)
 		{
-			if (db.getModificationTimePriorTo(reason[i].variable, m_nodes[litIndex].time) >= 0)
+			if (db.getModificationTimePriorTo(reasonLit.variable, m_nodes[litIndex].time) >= 0)
 			{
 				bool wasFound = contains(explanation.begin(), explanation.end(), [&](auto& literal)
 				{
-					return literal.variable == reason[i].variable;
+					return literal.variable == reasonLit.variable;
 				});
 				if (!wasFound)
 				{
@@ -827,10 +827,8 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 			vxy_assert(stack[curNode.time].constraint != nullptr);
 
 			vector<Literal> reasons = m_solver.getExplanationForModification(curNode.time);
-			for (int i = 0; i < reasons.size(); ++i)
+			for (auto& reason : reasons)
 			{
-				const Literal& reason = reasons[i];
-
 				// Check if we've seen this variable and all its values
 				bool alreadySeen = m_redundancySeen[reason.variable.raw()];
 				ValueSet& seenValues = m_redundancyValues[reason.variable.raw()];

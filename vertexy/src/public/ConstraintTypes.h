@@ -84,15 +84,8 @@ public:
 		m_value = inValue;
 	}
 
-	inline VarID(const VarID& other)
-	{
-		m_value = other.m_value;
-	}
-
-	inline VarID(VarID&& other) noexcept
-	{
-		m_value = other.m_value;
-	}
+	VarID(const VarID& other) = default;
+	VarID(VarID&& other) = default;
 
 	void reset()
 	{
@@ -114,6 +107,7 @@ public:
 	}
 
 	VarID& operator=(const VarID& other) = default;
+	VarID& operator=(VarID&& other) = default;
 
 private:
 	uint32_t m_value;
