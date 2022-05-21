@@ -329,8 +329,8 @@ public:
     static detail::ProgramRangeTerm range(detail::ProgramBodyTerm min, detail::ProgramBodyTerm max);
 
     static ExternalFormula<2> graphLink(const TopologyLink& link);
+    static detail::ProgramExternalFunctionTerm hasGraphLink(detail::ProgramBodyTerm&& vertex, const TopologyLink& link);
     static detail::ProgramExternalFunctionTerm graphEdge(detail::ProgramBodyTerm&& left, detail::ProgramBodyTerm&& right);
-    static detail::ProgramExternalFunctionTerm vertex(detail::ProgramBodyTerm&& term);
 
     static FormulaUID allocateFormulaUID()
     {

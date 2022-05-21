@@ -9,74 +9,6 @@ ProgramInstance* Program::s_currentInstance = nullptr;
 int Program::s_nextFormulaUID = 1;
 int Program::s_nextVarUID = 1;
 
-class VertexProvider : public IExternalFormulaProvider
-{
-public:
-    VertexProvider(FormulaUID uid, const ITopologyPtr& topology)
-        : m_uid(uid)
-        , m_topology(topology)
-    {
-    }
-
-    virtual bool canInstantiate(int argIndex) const override
-    {
-        return true;
-    }
-
-    virtual bool eval(const vector<ProgramSymbol>& args) const override
-    {
-        return args[0].getInt() >= 0 && args[0].getInt() < m_topology->getNumVertices();
-    }
-
-    virtual void startMatching(vector<ExternalFormulaMatchArg>&& args) override
-    {
-        vxy_assert(args.size() == 1); // should've been caught by type system?
-
-        m_matchResult = move(args);
-        m_matched = false;
-    }
-
-    virtual bool matchNext(bool& isFact) override
-    {
-        if (m_matched)
-        {
-            return false;
-        }
-        m_matched = true;
-
-        isFact = false;
-        if (m_matchResult[0].isBound())
-        {
-            if (m_matchResult[0].get().isInteger())
-            {
-                isFact = true;
-                return eval({m_matchResult[0].get()});
-            }
-            else
-            {
-                vxy_assert(m_matchResult[0].get().isAbstract());
-                return true;
-            }
-        }
-        else
-        {
-            *m_matchResult[0].getUnbound() = ProgramSymbol(IdentityGraphRelation::get());
-            return true;
-        }
-    }
-
-    virtual size_t hash() const override
-    {
-        return eastl::hash<ITopology*>()(m_topology.get());
-    }
-
-protected:
-    FormulaUID m_uid;
-    ITopologyPtr m_topology;
-    vector<ExternalFormulaMatchArg> m_matchResult;
-    bool m_matched = false;
-};
-
 // Provider for Program::graphLink()
 class GraphLinkProvider : public IExternalFormulaProvider
 {
@@ -171,6 +103,85 @@ public:
 
             // Only a fact if we have two concrete arguments.
             isFact = true;
+        }
+
+        return true;
+    }
+
+    virtual size_t hash() const override
+    {
+        return combineHashes(eastl::hash<FormulaUID>()(m_uid), m_link.hash());
+    }
+
+    const wchar_t* getName() const { return m_name.c_str(); }
+
+protected:
+    FormulaUID m_uid;
+    ITopologyPtr m_topology;
+    TopologyLink m_link;
+    wstring m_name;
+    vector<ExternalFormulaMatchArg> m_matchResult;
+    bool m_matched = false;
+};
+
+// Provider for Program::hasGraphLink()
+class HasGraphLinkProvider : public IExternalFormulaProvider
+{
+public:
+    HasGraphLinkProvider(FormulaUID uid, const ITopologyPtr& topology, const TopologyLink& link)
+        : m_uid(uid)
+        , m_topology(topology)
+        , m_link(link)
+    {
+        m_name.sprintf(TEXT("hasGraphLink(%s)"), link.toString(topology).c_str());
+    }
+
+    HasGraphLinkProvider(FormulaUID uid, const ITopologyPtr& topology, TopologyLink&& link)
+        : m_uid(uid)
+        , m_topology(topology)
+        , m_link(move(link))
+    {
+        m_name.sprintf(TEXT("hasGraphLink(%s)"), link.toString(topology).c_str());
+    }
+
+    virtual bool canInstantiate(int argIndex) const override
+    {
+        return false;
+    }
+
+    virtual bool eval(const vector<ProgramSymbol>& args) const override
+    {
+        int resolved;
+        return m_link.resolve(m_topology, args[0].getInt(), resolved);
+    }
+
+    virtual void startMatching(vector<ExternalFormulaMatchArg>&& args) override
+    {
+        vxy_assert(args.size() == 1); // should've been caught by type system?
+
+        m_matchResult = move(args);
+        m_matched = false;
+    }
+
+    virtual bool matchNext(bool& isFact) override
+    {
+        if (m_matched)
+        {
+            return false;
+        }
+        m_matched = true;
+
+        isFact = false;
+
+        vxy_assert(m_matchResult[0].isBound());        
+        // If this is a concrete call, make sure it fits.
+        const ProgramSymbol& arg = m_matchResult[0].get();
+        if (arg.isInteger())
+        {
+            isFact = true;
+
+            int resolved;
+            return m_link.resolve(m_topology, arg.getInt(), resolved);
         }
 
         return true;
@@ -435,6 +446,25 @@ ExternalFormula<2> Program::graphLink(const TopologyLink& link)
     return ExternalFormula<2>(uid, provider, provider->getName());
 }
 
+Vertexy::detail::ProgramExternalFunctionTerm Program::hasGraphLink(detail::ProgramBodyTerm&& vertex, const TopologyLink& link)
+{
+    vxy_assert_msg(getCurrentInstance() != nullptr, "graphLink can only be called from within a Program::define() block");
+    vxy_assert_msg(getCurrentInstance()->getTopology() != nullptr, "graphLink can only be used with graph programs");
+
+    FormulaUID uid = allocateFormulaUID();
+    auto provider = make_shared<HasGraphLinkProvider>(uid, getCurrentInstance()->getTopology(), link);
+    ExternalFormula<1> formula(uid, provider, provider->getName());
+    vector<detail::ProgramBodyTerm> args;
+    args.push_back(move(vertex));
+
+    return detail::ProgramExternalFunctionTerm(
+        uid,
+        provider->getName(),
+        provider,
+        move(args)
+    );
+}
+
 Vertexy::detail::ProgramExternalFunctionTerm Program::graphEdge(detail::ProgramBodyTerm&& left, detail::ProgramBodyTerm&& right)
 {
     vxy_assert_msg(getCurrentInstance() != nullptr, "graphEdge can only be called from within a Program::define() block");
@@ -451,26 +481,6 @@ Vertexy::detail::ProgramExternalFunctionTerm Program::graphEdge(detail::ProgramB
     return detail::ProgramExternalFunctionTerm(
         uid,
         TEXT("graphEdge"),
-        provider,
-        move(args)
-    );
-}
-
-Vertexy::detail::ProgramExternalFunctionTerm Program::vertex(detail::ProgramBodyTerm&& term)
-{
-    vxy_assert_msg(getCurrentInstance() != nullptr, "vertex can only be called from within a Program::define() block");
-    vxy_assert_msg(getCurrentInstance()->getTopology() != nullptr, "vertex can only be used with graph programs");
-
-    FormulaUID uid = allocateFormulaUID();
-    auto provider = make_shared<VertexProvider>(uid, getCurrentInstance()->getTopology());
-
-    ExternalFormula<2> formula(uid, provider, TEXT("vertex()"));
-    vector<detail::ProgramBodyTerm> args;
-    args.push_back(move(term));
-
-    return detail::ProgramExternalFunctionTerm(
-        uid,
-        TEXT("vertex"),
         provider,
         move(args)
     );
