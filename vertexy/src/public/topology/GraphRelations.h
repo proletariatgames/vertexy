@@ -431,6 +431,43 @@ public:
 		return out;
 	}
 
+	// Given two relations, creates a TManyToOneRelation containing both of them.
+	static shared_ptr<const IGraphRelation<T>> combine(const shared_ptr<const IGraphRelation<T>>& first, const shared_ptr<const IGraphRelation<T>>& second)
+	{
+		if (first->equals(*second))
+		{
+			return first;
+		}
+
+		auto out = make_shared<TManyToOneGraphRelation>();
+		
+		if (auto firstM2O = dynamic_cast<const TManyToOneGraphRelation*>(first.get()))
+		{
+			for (auto& rel : firstM2O->getRelations())
+			{
+				out->add(rel, true);
+			}
+		}
+		else
+		{
+			out->add(first, true);
+		}
+
+		if (auto secondM2O = dynamic_cast<const TManyToOneGraphRelation*>(second.get()))
+		{
+			for (auto& rel : secondM2O->getRelations())
+			{
+				out->add(rel, true);
+			}
+		}
+		else
+		{
+			out->add(second, true);
+		}
+		
+		return out;		
+	}
+
 	const vector<shared_ptr<const IGraphRelation<T>>>& getRelations() const { return m_relations; }
 
 protected:
@@ -449,15 +486,7 @@ public:
 	virtual wstring toString() const override;
 
 	void add(const shared_ptr<const IGraphRelation<Literal>>& rel);
-	virtual size_t hash() const override
-	{
-		size_t hash = 0;
-		for (auto& rel : m_relations)
-		{
-			hash |= rel->hash();
-		}
-		return hash;
-	}
+	virtual size_t hash() const override;
 protected:
 	vector<shared_ptr<const IGraphRelation<Literal>>> m_relations;
 	wstring m_operator;
@@ -467,36 +496,19 @@ protected:
 class LiteralUnionGraphRelation : public LiteralTransformGraphRelation
 {
 public:
-	LiteralUnionGraphRelation()
-		: LiteralTransformGraphRelation(TEXT(" | "))
-	{
-	}
-
+	LiteralUnionGraphRelation();
 	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
-
-	virtual bool combine(ValueSet& dest, const ValueSet& src) const override
-	{
-		dest.include(src);
-		return true;
-	}
+	virtual bool combine(ValueSet& dest, const ValueSet& src) const override;
 };
 
 /** Literal transform relation that intersects all potential values */
 class LiteralIntersectionGraphRelation : public LiteralTransformGraphRelation
 {
 public:
-	LiteralIntersectionGraphRelation()
-		: LiteralTransformGraphRelation(TEXT(" & "))
-	{
-	}
+	LiteralIntersectionGraphRelation();
 
 	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
-
-	virtual bool combine(ValueSet& dest, const ValueSet& src) const override
-	{
-		dest.intersect(src);
-		return true;
-	}
+	virtual bool combine(ValueSet& dest, const ValueSet& src) const override;
 };
 
 /** Transforms a FSignedClause relation into an FLiteral relation. */
@@ -507,10 +519,7 @@ public:
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
 	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
 	virtual wstring toString() const override;
-	virtual size_t hash() const override
-	{
-		return m_clauseRel->hash();
-	}
+	virtual size_t hash() const override;
 protected:
 	const ConstraintSolver& m_solver;
 	shared_ptr<const IGraphRelation<SignedClause>> m_clauseRel;
@@ -520,47 +529,16 @@ protected:
 class TopologyLinkIndexGraphRelation : public IGraphRelation<int>
 {
 public:
-	TopologyLinkIndexGraphRelation(const ITopologyPtr& topo, const TopologyLink& link)
-		: m_topo(topo)
-		, m_link(link)
-	{
-	}
+	TopologyLinkIndexGraphRelation(const ITopologyPtr& topo, const TopologyLink& link);
 
-	virtual bool getRelation(int sourceVertex, int& out) const override
-	{
-		int destVertex;
-		if (!m_link.resolve(m_topo, sourceVertex, destVertex))
-		{
-			return false;
-		}
-
-		out = destVertex;
-		return true;
-	}
-
-	virtual bool equals(const IGraphRelation<int>& rhs) const override
-	{
-		if (this == &rhs)
-		{
-			return true;
-		}
-		auto typedRHS = dynamic_cast<const TopologyLinkIndexGraphRelation*>(&rhs);
-		return typedRHS != nullptr && m_topo == typedRHS->m_topo &&
-			m_link.isEquivalent(typedRHS->m_link, *m_topo.get());
-	}
-
-	virtual wstring toString() const override
-	{
-		return m_link.toString(m_topo);
-	}
+	virtual bool getRelation(int sourceVertex, int& out) const override;
+	virtual bool equals(const IGraphRelation<int>& rhs) const override;
+	virtual wstring toString() const override;
 
 	const TopologyLink& getLink() const { return m_link; }
 	const ITopologyPtr& getTopo() const { return m_topo; }
 
-	virtual size_t hash() const override
-	{
-		return m_link.hash();
-	}
+	virtual size_t hash() const override;
 
 protected:
 	ITopologyPtr m_topo;
@@ -825,12 +803,9 @@ public:
 	virtual bool getRelation(int sourceVertex, Literal& out) const override;
 	virtual wstring toString() const override;
 	virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+	virtual size_t hash() const override;
 
 	const shared_ptr<const IGraphRelation<Literal>>& getInner() const { return m_inner; }
-	virtual size_t hash() const override
-	{
-		return m_inner->hash();
-	}
 
 protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
@@ -840,200 +815,33 @@ protected:
 class NegateGraphRelation : public IGraphRelation<int>
 {
 public:
-    NegateGraphRelation(const IGraphRelationPtr<int>& child)
-        : m_child(child)
-    {
-    }
+    NegateGraphRelation(const IGraphRelationPtr<int>& child);
 
-    virtual bool equals(const IGraphRelation<int>& rhs) const override
-    {
-        if (auto typed = dynamic_cast<const NegateGraphRelation*>(&rhs))
-        {
-            return typed->m_child->equals(*m_child.get());
-        }
-        return false;
-    }
-
-    virtual bool getRelation(int sourceVertex, int& out) const override
-    {
-        if (m_child->getRelation(sourceVertex, out))
-        {
-            out *= -1;
-            return true;
-        }
-        return false;
-    }
-
-	virtual size_t hash() const override
-    {
-	    return m_child->hash();
-    }
-
-	const IGraphRelationPtr<int>& getInner() const
-    {
-	    return m_child;
-    }
+    virtual bool equals(const IGraphRelation<int>& rhs) const override;
+    virtual bool getRelation(int sourceVertex, int& out) const override;
+    virtual size_t hash() const override;
+	
+    const IGraphRelationPtr<int>& getInner() const { return m_child; }
 
 protected:
     IGraphRelationPtr<int> m_child;
 };
 
-class	BinOpGraphRelation : public IGraphRelation<int>
+class BinOpGraphRelation : public IGraphRelation<int>
 {
 public:
-    BinOpGraphRelation(const IGraphRelationPtr<int>& lhs, const IGraphRelationPtr<int>& rhs, EBinaryOperatorType op)
-        : m_lhs(lhs)
-        , m_rhs(rhs)
-        , m_op(op)
-    {
-    }
+    BinOpGraphRelation(const IGraphRelationPtr<int>& lhs, const IGraphRelationPtr<int>& rhs, EBinaryOperatorType op);
 
-    virtual bool equals(const IGraphRelation<int>& rhs) const override
-    {
-        if (auto typed = dynamic_cast<const BinOpGraphRelation*>(&rhs))
-        {
-            return
-                typed->m_op == m_op &&
-                typed->m_lhs->equals(*m_lhs.get()) &&
-                typed->m_rhs->equals(*m_rhs.get());
-        }
-        return false;
-    }
-
-    virtual bool getRelation(int sourceVertex, int& out) const override
-    {
-        int left, right;
-        if (m_lhs->getRelation(sourceVertex, left) && m_rhs->getRelation(sourceVertex, right))
-        {
-            switch (m_op)
-            {
-            case EBinaryOperatorType::Add:
-                out = left+right;
-                break;
-            case EBinaryOperatorType::Subtract:
-                out = left-right;
-                break;
-            case EBinaryOperatorType::Divide:
-                out = left/right;
-                break;
-            case EBinaryOperatorType::Multiply:
-                out = left*right;
-                break;
-            case EBinaryOperatorType::Equality:
-            	if (left != right) { return false; }
-            	out = 1;
-                break;
-            case EBinaryOperatorType::Inequality:
-            	if (left == right) { return false; }
-                out = 1;
-                break;
-            case EBinaryOperatorType::LessThan:
-            	if (left >= right) { return false; }
-                out = 1;
-                break;
-            case EBinaryOperatorType::LessThanEq:
-            	if (left > right) { return false; }
-                out = 1;
-                break;
-            case EBinaryOperatorType::GreaterThan:
-            	if (left <= right) { return false; }
-                out = 1;
-                break;
-            case EBinaryOperatorType::GreaterThanEq:
-            	if (left < right) { return false; }
-                out = 1;
-            default:
-                vxy_fail_msg("unexpected binary operator");
-            }
-            return true;
-        }
-        return false;
-    }
-
-	virtual size_t hash() const override
-    {
-	    return combineHashes(m_lhs->hash(),
-	    	combineHashes(m_rhs->hash(), eastl::hash<EBinaryOperatorType>()(m_op))
-	    );
-    }
-
-	virtual wstring toString() const override
-    {
-	    wstring sOp;
-    	switch (m_op)
-    	{
-    	case EBinaryOperatorType::Add:				sOp = TEXT("+"); break;
-    	case EBinaryOperatorType::Subtract:			sOp = TEXT("-"); break;
-    	case EBinaryOperatorType::Divide:			sOp = TEXT("/"); break;
-    	case EBinaryOperatorType::Multiply:			sOp = TEXT("*"); break;
-    	case EBinaryOperatorType::Equality:			sOp = TEXT("=="); break;
-    	case EBinaryOperatorType::Inequality:		sOp = TEXT("!="); break;
-    	case EBinaryOperatorType::LessThan:			sOp = TEXT("<"); break;
-    	case EBinaryOperatorType::LessThanEq:		sOp = TEXT("<="); break;
-    	case EBinaryOperatorType::GreaterThan:		sOp = TEXT(">"); break;
-    	case EBinaryOperatorType::GreaterThanEq:	sOp = TEXT(">="); break;
-    	default:
-    		vxy_fail_msg("unexpected binary operator");
-    	}
-
-    	wstring out = m_lhs->toString();
-    	out.append_sprintf(TEXT(" %s %s"), sOp.c_str(), m_rhs->toString().c_str());
-    	return out;
-    }
+    virtual bool equals(const IGraphRelation<int>& rhs) const override;
+    virtual bool getRelation(int sourceVertex, int& out) const override;
+    virtual size_t hash() const override;
+    virtual wstring toString() const override;
 
 protected:
     IGraphRelationPtr<int> m_lhs;
     IGraphRelationPtr<int> m_rhs;
     EBinaryOperatorType m_op;
 };
-
-// given an evaluator relation E, and a two relations L and R:
-// resolve to L.map(E) iff L.map(E) == R.
-class FilterGraphRelation : public IGraphRelation<int>
-{
-public:
-	FilterGraphRelation(const IGraphRelationPtr<VertexID>& left, const IGraphRelationPtr<VertexID>& right, const IGraphRelationPtr<VertexID>& eval)
-		: m_lhs(left)
-		, m_rhs(right)
-		, m_eval(eval)
-	{
-	}
-
-	virtual bool getRelation(VertexID sourceVertex, VertexID& out) const override
-	{
-		VertexID left;
-		if (!m_lhs->getRelation(sourceVertex, left))
-		{
-			return false;
-		}
-
-		VertexID eval;
-		if (!m_eval->getRelation(left, eval))
-		{
-			return false;
-		}
-
-		VertexID right;
-		if (!m_rhs->getRelation(sourceVertex, right))
-		{
-			return false;
-		}
-
-		if (eval != right)
-		{
-			return false;
-		}
-
-		out = eval;
-		return true;
-	}
-
-protected:
-	IGraphRelationPtr<VertexID> m_lhs;
-	IGraphRelationPtr<VertexID> m_rhs;
-	IGraphRelationPtr<VertexID> m_eval;
-};
-
 
 template <>
 template <typename U>

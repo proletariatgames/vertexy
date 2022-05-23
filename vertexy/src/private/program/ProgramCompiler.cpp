@@ -517,33 +517,36 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     }
 
     AbstractOverrideMap overrideMap;
-    instantiateRule(statementNode, bound, instantiators, overrideMap);
+    ProgramSymbol boundVertex;
+    instantiateRule(statementNode, bound, instantiators, overrideMap, boundVertex);
 }
 
-void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, int cur)
+void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur)
 {
     if (cur == nodes.size())
     {
-        addGroundedRule(stmtNode, stmtNode->stmt->statement, parentMap, varBindings);
+        addGroundedRule(stmtNode, stmtNode->stmt->statement, parentMap, parentBoundVertex, varBindings);
     }
     else
     {
         auto& inst = nodes[cur];
         AbstractOverrideMap thisMap = parentMap;
-        for (inst->first(thisMap); !inst->hitEnd(); inst->match(thisMap))
+        ProgramSymbol boundVertex = parentBoundVertex;
+        for (inst->first(thisMap, boundVertex); !inst->hitEnd(); inst->match(thisMap, boundVertex))
         {
-            instantiateRule(stmtNode, varBindings, nodes, thisMap, cur+1);
+            instantiateRule(stmtNode, varBindings, nodes, thisMap, boundVertex, cur+1);
             thisMap = parentMap;
+            boundVertex = parentBoundVertex;
         }
     }
 }
 
-void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const VariableMap& varBindings)
+void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings)
 {
     vector<ProgramSymbol> bodyTerms;
     for (auto& bodyTerm : stmt->body)
     {
-        ProgramSymbol bodySym = bodyTerm->eval(overrideMap);
+        ProgramSymbol bodySym = bodyTerm->eval(overrideMap, boundVertex);
         vxy_assert(bodySym.isValid());
         if (bodySym.isFormula())
         {
@@ -562,6 +565,16 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             if (!fnTerm->assignedToFact)
             {
                 bodyTerms.push_back(bodySym);
+            }
+
+            // Ensure external formula terms hold. We need to do this now because it might've originally
+            // been bound to an abstract that got narrowed later on in the matching process.
+            if (bodySym.isExternalFormula() && !bodySym.containsAbstract())
+            {
+                if (bodySym.isNegated() == bodySym.getExternalFormulaProvider()->eval(bodySym.getFormula()->args))
+                {
+                    return;
+                }
             }
 
             if (bodySym.containsAbstract())
@@ -607,7 +620,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     vector<ProgramSymbol> headSymbols;
     if (stmt->head != nullptr)
     {
-        headSymbols = stmt->head->eval(overrideMap, isNormalRule);
+        headSymbols = stmt->head->eval(overrideMap, boundVertex, isNormalRule);
         vxy_assert(!isNormalRule || headSymbols.size() == 1);
 
         auto isAtomFact = [&](const ProgramSymbol& sym)
@@ -709,10 +722,10 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
         auto toString = [&]()
         {
             wstring out;
-            if (stmt->head)
+            for (int i = 0; i < headSymbols.size(); ++i)
             {
-                out.append(stmt->head->toString());
-                out.append(TEXT(" "));
+                if (i > 0) out.append(TEXT(", "));
+                out.append(headSymbols[i].toString());
             }
         
             if (!bodyTerms.empty())
@@ -745,7 +758,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
 
     if (areFacts && stmt->head != nullptr)
     {
-        stmt->head->bindAsFacts(*this, overrideMap, stmtNode->stmt->topology);
+        stmt->head->bindAsFacts(*this, overrideMap, boundVertex, stmtNode->stmt->topology);
     }
 }
 
@@ -860,6 +873,10 @@ void ProgramCompiler::exportRules()
             exportedBody.reserve(rule.bodyLits.size());
             for (auto& bodySym : rule.bodyLits)
             {
+                if (bodySym.isExternalFormula() && !bodySym.containsAbstract())
+                {
+                    continue;
+                }
                 exportedBody.push_back(exportAtom(bodySym, rule.topology, false));
             }
 
@@ -1130,11 +1147,17 @@ void ProgramCompiler::transformChoice(GroundedRule&& rule)
     for (const auto& headSym : rule.heads)
     {
         vxy_assert(headSym.isNormalFormula());
+
+        auto foundChoice = m_choiceFormulas.find(headSym.getFormula()->uid);
+        if (foundChoice == m_choiceFormulas.end())
+        {
+            auto choiceUID = Program::allocateFormulaUID();
+            foundChoice = m_choiceFormulas.insert({headSym.getFormula()->uid, choiceUID}).first;
+        }
         
-        auto choiceUID = Program::allocateFormulaUID();
         wstring choiceName;
         choiceName.sprintf(TEXT("not-chosen::%s"), headSym.getFormula()->name.c_str());
-        ProgramSymbol choiceSym(choiceUID, choiceName.c_str(), headSym.getFormula()->args, false);
+        ProgramSymbol choiceSym(foundChoice->second, choiceName.c_str(), headSym.getFormula()->args, false);
 
         vector<ProgramSymbol> extBody = rule.bodyLits; 
         extBody.push_back(choiceSym.negatedFormula());

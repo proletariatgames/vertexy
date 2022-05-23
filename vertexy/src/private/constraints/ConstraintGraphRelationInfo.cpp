@@ -17,7 +17,6 @@ ConstraintGraphRelationInfo::ConstraintGraphRelationInfo(const shared_ptr<ITopol
 
 void ConstraintGraphRelationInfo::invalidate()
 {
-	m_graph = nullptr;
 	m_isValid = false;
 	m_variableRelations.clear();
 	m_literalRelations.clear();

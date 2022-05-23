@@ -5,6 +5,7 @@
 #include "ConstraintTypes.h"
 #include "Program.h"
 #include "program/ProgramAST.h"
+#include "program/ExternalFormula.h"
 #include "rules/RuleTypes.h"
 #include "ConstraintSolver.h"
 #include "rules/RuleDatabase.h"
@@ -155,6 +156,10 @@ public:
     };
 
     ProgramCompiler(RuleDatabase& rdb, const BindMap& binders);
+    ProgramCompiler(const ProgramCompiler& rhs) = delete;
+    ProgramCompiler(ProgramCompiler&& rhs) noexcept = default;
+
+    ProgramCompiler& operator=(const ProgramCompiler& rhs) = delete;
 
     static bool compile(RuleDatabase& rdb, const vector<RelationalRuleStatement>& statements, const BindMap& binders);
 
@@ -258,9 +263,9 @@ protected:
     
     void ground();
     void groundRule(DepGraphNodeData* statementNode);
-    void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, int cur=0);
+    void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur=0);
 
-    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& parentMap, const VariableMap& varBindings);
+    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings);
     bool addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology);
 
     void transformRules();
@@ -288,6 +293,7 @@ protected:
     hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
     hash_map<FormulaUID, UExportMap> m_exportedLits;
     hash_map<FormulaUID, FormulaMapperPtr> m_exportedFormulas;
+    hash_map<FormulaUID, FormulaUID> m_choiceFormulas;
 
     bool m_failure = false;
     bool m_foundRecursion = false;

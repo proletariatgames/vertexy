@@ -2,6 +2,7 @@
 #include "program/Program.h"
 
 #include "program/ProgramDSL.h"
+#include "program/ExternalFormula.h"
 
 using namespace Vertexy;
 
@@ -70,7 +71,7 @@ public:
         const ProgramSymbol& left = m_matchResult[0].get();
         if (!m_matchResult[1].isBound())
         {
-            ProgramSymbol* right = m_matchResult[1].getUnbound();
+            ProgramSymbol* right = m_matchResult[1].getWriteable();
             if (left.isAbstract())
             {
                 auto linkRel = make_shared<TopologyLinkIndexGraphRelation>(m_topology, m_link);
@@ -321,7 +322,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[1].getUnbound() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, m_nextEdge));
+            *m_matchResult[1].getWriteable() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, m_nextEdge));
             ++m_nextEdge;
             return true;
         }
@@ -334,7 +335,7 @@ protected:
             int destVertex;
             if (m_topology->getOutgoingDestination(left.getInt(), m_nextEdge, destVertex))
             {
-                *m_matchResult[1].getUnbound() = ProgramSymbol(destVertex);
+                *m_matchResult[1].getWriteable() = ProgramSymbol(destVertex);
                 break;
             }
         }
@@ -358,7 +359,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[0].getUnbound() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, m_nextEdge));
+            *m_matchResult[0].getWriteable() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, m_nextEdge));
             ++m_nextEdge;
             return true;
         }
@@ -371,7 +372,7 @@ protected:
             int sourceVertex;
             if (m_topology->getIncomingSource(right.getInt(), m_nextEdge, sourceVertex))
             {
-                *m_matchResult[0].getUnbound() = ProgramSymbol(sourceVertex);
+                *m_matchResult[0].getWriteable() = ProgramSymbol(sourceVertex);
                 break;
             }
         }
@@ -393,12 +394,12 @@ protected:
         switch (layout)
         {
         case 0:
-            *m_matchResult[0].getUnbound() = ProgramSymbol(IdentityGraphRelation::get());
-            *m_matchResult[1].getUnbound() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, localEdge));
+            *m_matchResult[0].getWriteable() = ProgramSymbol(IdentityGraphRelation::get());
+            *m_matchResult[1].getWriteable() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, localEdge));
             break;
         case 1:
-            *m_matchResult[0].getUnbound() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, localEdge));
-            *m_matchResult[1].getUnbound() = ProgramSymbol(IdentityGraphRelation::get());
+            *m_matchResult[0].getWriteable() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, localEdge));
+            *m_matchResult[1].getWriteable() = ProgramSymbol(IdentityGraphRelation::get());
             break;
         default:
             return false;
@@ -490,8 +491,8 @@ Vertexy::detail::ProgramRangeTerm Program::range(detail::ProgramBodyTerm min, de
 {
     // TODO: validate arguments
     static LiteralTerm::AbstractOverrideMap tempMap;
-    int minV = min.term->eval(tempMap).getInt();
-    int maxV = max.term->eval(tempMap).getInt();
+    int minV = min.term->eval(tempMap, ProgramSymbol()).getInt();
+    int maxV = max.term->eval(tempMap, ProgramSymbol()).getInt();
     vxy_assert_msg(maxV >= minV, "invalid range");
     return detail::ProgramRangeTerm(minV, maxV);
 }
