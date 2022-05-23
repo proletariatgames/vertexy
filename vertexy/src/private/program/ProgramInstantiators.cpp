@@ -11,16 +11,16 @@ FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramComp
     vxy_assert(m_term.provider == nullptr);
 }
 
-void FunctionInstantiator::first(AbstractOverrideMap& overrideMap)
+void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
     m_index = 0;
     m_subIndex = 0;
     m_abstractCheckState = -1;
-    match(overrideMap);
+    match(overrideMap, boundVertex);
 }
 
-void FunctionInstantiator::match(AbstractOverrideMap& overrideMap)
+void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     vxy_assert(m_term.provider == nullptr);
     if (m_hitEnd)
@@ -32,7 +32,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap)
     {
         // all variables should be fully bound at this point, because positive literals are always earlier in
         // the dependency list. Therefore, we can eval safely.
-        ProgramSymbol matched = m_term.eval(overrideMap);
+        ProgramSymbol matched = m_term.eval(overrideMap, boundVertex);
         if (matched.isInvalid())
         {
             m_hitEnd = true;
@@ -88,8 +88,9 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap)
             // }
 
             bool isFact = atom.isFact;
-            if (m_term.match(atom.symbol, false, isFact, overrideMap))
+            if (m_term.match(atom.symbol, overrideMap, boundVertex))
             {
+                m_term.assignedToFact = isFact;
                 moveNextDomainAtom();
                 return;
             }
@@ -148,7 +149,7 @@ ExternalFunctionInstantiator::ExternalFunctionInstantiator(FunctionTerm& term)
     vxy_assert(m_term.provider != nullptr);
 }
 
-void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap)
+void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
 
@@ -164,11 +165,11 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap)
             if (varArg->isBinder)
             {
                 allArgumentsBound = false;
-                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef));
+                matchArgs.push_back(ExternalFormulaMatchArg::makeUnboundOrOverridable(varArg->sharedBoundRef));
             }
             else
             {
-                ProgramSymbol boundVarVal = varArg->eval(overrideMap);
+                ProgramSymbol boundVarVal = varArg->eval(overrideMap, boundVertex);
                 matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundVarVal));
                 if (boundVarVal.isAbstract())
                 {
@@ -182,7 +183,7 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap)
         }
         else if (auto vertexArg = dynamic_cast<VertexTerm*>(arg.get()))
         {
-            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(vertexArg->eval(overrideMap)));
+            matchArgs.push_back(ExternalFormulaMatchArg::makeBound(vertexArg->eval(overrideMap, boundVertex)));
         }
         else
         {
@@ -197,10 +198,10 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap)
     {
         m_term.provider->startMatching(move(matchArgs));
     }
-    match(overrideMap);
+    match(overrideMap, boundVertex);
 }
 
-void ExternalFunctionInstantiator::match(AbstractOverrideMap&)
+void ExternalFunctionInstantiator::match(AbstractOverrideMap&, ProgramSymbol&)
 {
     vxy_assert(m_term.provider != nullptr);
     if (m_hitEnd)
@@ -237,20 +238,21 @@ bool ExternalFunctionInstantiator::hitEnd() const
     return hadHit;
 }
 
-EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler): m_term(term)
+EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler)
+    : m_term(term)
     , m_compiler(compiler)
     , m_hitEnd(false)
 {
     vxy_assert(term.op == EBinaryOperatorType::Equality);
 }
 
-void EqualityInstantiator::first(AbstractOverrideMap& overrideMap)
+void EqualityInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
-    match(overrideMap);
+    match(overrideMap, boundVertex);
 }
 
-void EqualityInstantiator::match(AbstractOverrideMap& overrideMap)
+void EqualityInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     if (m_hitEnd)
     {
@@ -258,11 +260,11 @@ void EqualityInstantiator::match(AbstractOverrideMap& overrideMap)
     }
 
     // all variables in right hand side should be fully bound now
-    ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap);
+    ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
     if (rhsSym.isAbstract())
     {
         // If the right hand side is abstract, we may need to create an abstract relation.
-        ProgramSymbol sym = m_term.eval(overrideMap);
+        ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
         if (sym.isInvalid())
         {
             m_hitEnd = true;
@@ -270,9 +272,7 @@ void EqualityInstantiator::match(AbstractOverrideMap& overrideMap)
     }
     else
     {
-        // TODO: passing isFact=false seems fine here?
-        bool isFact = false;
-        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, false, isFact, overrideMap))
+        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, overrideMap, boundVertex))
         {
             m_hitEnd = true;
         }
@@ -293,13 +293,13 @@ RelationInstantiator::RelationInstantiator(BinaryOpTerm& term, const ProgramComp
     vxy_assert(isRelationOp(m_term.op));
 }
 
-void RelationInstantiator::first(AbstractOverrideMap& overrideMap)
+void RelationInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
-    match(overrideMap);
+    match(overrideMap, boundVertex);
 }
 
-void RelationInstantiator::match(AbstractOverrideMap& overrideMap)
+void RelationInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     if (m_hitEnd)
     {
@@ -307,7 +307,7 @@ void RelationInstantiator::match(AbstractOverrideMap& overrideMap)
     }
 
     // variables in non-assignment binary ops should be fully bound now
-    ProgramSymbol sym = m_term.eval(overrideMap);
+    ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
     // BinOpTerm::eval() will return 0 to indicate false.
     if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))
     {

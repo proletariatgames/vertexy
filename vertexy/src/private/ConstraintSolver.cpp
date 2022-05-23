@@ -57,6 +57,8 @@ static constexpr bool LOG_VARIABLE_PROPAGATIONS = false;
 static constexpr bool LOG_BACKTRACKS = false;
 // Log every clause constraint created
 static constexpr bool LOG_CLAUSE_CONSTRAINTS = false;
+// Log the set of variables that remain unsolved after initialization
+static constexpr bool LOG_INITIAL_UNSOLVED_VARIABLES = false;
 
 // The literal block distance (LBD) for learned constraints where we put them in the permanent constraint pool.
 // Permanent constraints will remain forever.
@@ -954,6 +956,19 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 	{
 		vxy_assert_msg(false, "startSolving called in bad state!");
 		m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+	}
+
+	if constexpr (LOG_INITIAL_UNSOLVED_VARIABLES)
+	{
+		VERTEXY_LOG("Initial unsolved variables:");
+		for (int i = 1; i < m_variableDB.getNumVariables() + 1; ++i)
+		{
+			VarID v(i);
+			if (!isSolved(v))
+			{
+				VERTEXY_LOG("  %s", getVariableName(v).c_str());
+			}
+		}
 	}
 
 	return m_currentStatus;

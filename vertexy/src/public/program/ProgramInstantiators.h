@@ -14,8 +14,8 @@ class FunctionInstantiator : public Instantiator
 public:
     FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, const ITopologyPtr& topology);
 
-    virtual void first(AbstractOverrideMap& overrideMap) override;
-    virtual void match(AbstractOverrideMap& overrideMap) override;
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool hitEnd() const override;
 
 protected:
@@ -35,8 +35,8 @@ class ExternalFunctionInstantiator : public Instantiator
 {
 public:
     ExternalFunctionInstantiator(FunctionTerm& term);
-    virtual void first(AbstractOverrideMap& overrideMap) override;
-    virtual void match(AbstractOverrideMap& overrideMap) override;
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool hitEnd() const override;
 
 protected:
@@ -51,8 +51,8 @@ class EqualityInstantiator : public Instantiator
 public:
     EqualityInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler);
 
-    virtual void first(AbstractOverrideMap& overrideMap) override;
-    virtual void match(AbstractOverrideMap& overrideMap) override;
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool hitEnd() const override;
 
 protected:
@@ -67,8 +67,8 @@ class RelationInstantiator : public Instantiator
 public:
     RelationInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler);
 
-    virtual void first(AbstractOverrideMap& overrideMap) override;
-    virtual void match(AbstractOverrideMap& overrideMap) override;
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool hitEnd() const override;
 
 protected:

@@ -74,9 +74,7 @@ public:
     struct ConcreteAtomInfo : public AtomInfo
     {
         ConcreteAtomInfo() {}
-        ConcreteAtomInfo(AtomID inID, const shared_ptr<Literal>& bindDestination)
-            : AtomInfo(inID)
-            , bindDestination(bindDestination)
+        ConcreteAtomInfo(AtomID inID) : AtomInfo(inID)
         {
         }
 
@@ -94,7 +92,9 @@ public:
         int scc = -1;
         // Optional equivalence to a constraint solver literal
         Literal equivalence;
-        shared_ptr<Literal> bindDestination;
+
+        ITopologyPtr topology;
+        GraphLiteralRelationPtr relation;
     };
 
     struct AbstractAtomInfo : public AtomInfo
@@ -119,8 +119,6 @@ public:
         RelationSet abstractLiterals;
         // The topology used for making this atom concrete
         ITopologyPtr topology;
-        // number of literals marked ETruthStatus::Undecided. If all get marked true, then the entire atom gets marked true.
-        int numUndeterminedLiterals = 0;
     };
 
     struct ConcreteBodyInfo;
@@ -145,7 +143,7 @@ public:
         ConcreteBodyInfo* asConcrete() { return const_cast<ConcreteBodyInfo*>(const_cast<const BodyInfo*>(this)->asConcrete()); }
         AbstractBodyInfo* asAbstract() { return const_cast<AbstractBodyInfo*>(const_cast<const BodyInfo*>(this)->asAbstract()); }
 
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) = 0;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) const = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
         bool isChoiceBody() const { return status == ETruthStatus::Undetermined; }
@@ -176,13 +174,16 @@ public:
         }
 
         virtual const ConcreteBodyInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) override;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return nullptr; }
 
         // the strongly connected component ID this belongs to.
         int32_t scc = -1;
         // the solver literal corresponding with this body
-        Literal equivalence;
+        mutable Literal equivalence;
+        
+        ITopologyPtr topology;
+        GraphLiteralRelationPtr relation;
     };
 
     struct AbstractBodyInfo : public BodyInfo
@@ -195,22 +196,35 @@ public:
         }
 
         virtual const AbstractBodyInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) override;
+        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return topology; }
 
         GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo); 
 
         ITopologyPtr topology;
-        shared_ptr<AbstractBodyMapper> bodyMapper;
-        GraphLiteralRelationPtr relation;
-        GraphLiteralRelationPtr invRelation;
+        mutable shared_ptr<AbstractBodyMapper> bodyMapper;
+        mutable GraphLiteralRelationPtr relation;
+        mutable GraphLiteralRelationPtr invRelation;
+    };
+
+    struct ArgumentHasher
+    {
+        size_t operator()(const vector<int>& concreteArgs) const
+        {
+            size_t hash = 0;
+            for (auto& arg : concreteArgs)
+            {
+                hash = combineHashes(hash, eastl::hash<int>()(arg));
+            }
+            return hash;
+        }
     };
 
     explicit RuleDatabase(ConstraintSolver& solver);
     RuleDatabase(const RuleDatabase&) = delete;
     RuleDatabase(RuleDatabase&&) = delete;
 
-    AtomID createAtom(const wchar_t* name=nullptr, const shared_ptr<Literal>& bindDestination=nullptr, bool external=false);
+    AtomID createAtom(const wchar_t* name=nullptr, bool external=false);
     AtomID createBoundAtom(const Literal& equivalence, const wchar_t* name=nullptr, bool external=false);
     AtomID createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name=nullptr, bool external=false);
 
@@ -232,6 +246,8 @@ public:
     const BodyInfo* getBody(int32_t id) const { return m_bodies[id].get(); }
 
 protected:
+    void setConflicted();
+    
     // IVariableDomainProvider
     virtual const SolverVariableDomain& getDomain(VarID varID) const override;
 
@@ -263,6 +279,8 @@ protected:
         vector<pair<ALiteral,bool/*required*/>> m_literals;
         vector<ITopologyPtr> m_topologies;
     };
+    
+    using BodySet = hash_set<BodyInfo*, BodyHasher>;
 
     struct GroundingData
     {
@@ -276,18 +294,17 @@ protected:
 
         vector<unique_ptr<AtomInfo>> newAtoms;
         vector<unique_ptr<BodyInfo>> newBodies;
+        BodySet newBodySet;
         vector<vector<int32_t>> bodyMappings;
         vector<AtomID> concreteAtomMappings;
-        vector<hash_map<Literal, AtomID>> abstractAtomMappings;
+        vector<hash_map<vector<int>, AtomID, ArgumentHasher>> abstractAtomMappings;
     };
 
     static bool isConcreteLiteral(const ALiteral& lit);
     
-    bool markAtomFalse(AtomInfo* atom);
-    bool markAtomTrue(const AtomLiteral& atomLit, bool propagateAbstract);
-    bool setAtomStatus(AtomInfo* atom, ETruthStatus status);
+    bool setAtomStatus(ConcreteAtomInfo* atom, ETruthStatus status);    
+    bool setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status);
     
-    bool setBodyStatus(BodyInfo* body, ETruthStatus status);
     bool propagateFacts();
     bool isLiteralAssumed(const AtomLiteral& literal) const;
 
@@ -295,6 +312,7 @@ protected:
     bool emptyBodyQueue();
 
     BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo);
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const BodySet& bodySet, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -302,7 +320,7 @@ protected:
 
     void makeConcrete();
     void groundBodyToConcrete(const BodyInfo& oldBody, GroundingData& groundingData);
-    void groundAtomToConcrete(const AtomID oldAtom, GroundingData& groundingData);
+    void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
     vector<AtomLiteral> groundLiteralsToConcrete(const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed, int vertex=-1);
     void hookupGroundedDependencies(ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
@@ -364,8 +382,11 @@ protected:
     vector<unique_ptr<AtomInfo>> m_atoms;
 
     // Stored bodies.
-    hash_set<BodyInfo*, BodyHasher> m_bodySet;
+    BodySet m_bodySet;
     vector<unique_ptr<BodyInfo>> m_bodies;
+
+    // Whether any abstract heads or bodies exist.
+    bool m_hasAbstract = false;
 
     vector<AtomInfo*> m_atomsToPropagate;
     vector<BodyInfo*> m_bodiesToPropagate;
@@ -388,28 +409,14 @@ public:
 
 protected:
     Literal makeForArgs(const vector<int>& args, size_t argHash);
-    bool checkValid(ITopology::VertexID vertex, const vector<int>& args);
     
     wstring makeVarName(const vector<int>& concreteHeadArgs) const;
     wstring litToString(const AtomLiteral& lit) const;
 
-    struct ArgumentHasher
-    {
-        size_t operator()(const vector<int>& concreteArgs) const
-        {
-            size_t hash = 0;
-            for (auto& arg : concreteArgs)
-            {
-                hash = combineHashes(hash, eastl::hash<int>()(arg));
-            }
-            return hash;
-        }
-    };
-
     RuleDatabase& m_rdb;
     AbstractAtomRelationInfoPtr m_headRelationInfo;
     const RuleDatabase::AbstractBodyInfo* m_bodyInfo;
-    mutable hash_map<vector<int>, Literal, ArgumentHasher> m_bindMap;
+    mutable hash_map<vector<int>, Literal, RuleDatabase::ArgumentHasher> m_bindMap;
     mutable vector<int> m_concrete;
 };
 

@@ -37,6 +37,49 @@ wstring ClauseToLiteralGraphRelation::toString() const
 	return {wstring::CtorSprintf(), TEXT("ToLiteral(%s)"), m_clauseRel->toString().c_str()};
 }
 
+size_t ClauseToLiteralGraphRelation::hash() const
+{
+	return m_clauseRel->hash();
+}
+
+TopologyLinkIndexGraphRelation::TopologyLinkIndexGraphRelation(const ITopologyPtr& topo, const TopologyLink& link): m_topo(topo)
+	, m_link(link)
+{
+}
+
+bool TopologyLinkIndexGraphRelation::getRelation(int sourceVertex, int& out) const
+{
+	int destVertex;
+	if (!m_link.resolve(m_topo, sourceVertex, destVertex))
+	{
+		return false;
+	}
+
+	out = destVertex;
+	return true;
+}
+
+bool TopologyLinkIndexGraphRelation::equals(const IGraphRelation<int>& rhs) const
+{
+	if (this == &rhs)
+	{
+		return true;
+	}
+	auto typedRHS = dynamic_cast<const TopologyLinkIndexGraphRelation*>(&rhs);
+	return typedRHS != nullptr && m_topo == typedRHS->m_topo &&
+		m_link.isEquivalent(typedRHS->m_link, *m_topo.get());
+}
+
+wstring TopologyLinkIndexGraphRelation::toString() const
+{
+	return m_link.toString(m_topo);
+}
+
+size_t TopologyLinkIndexGraphRelation::hash() const
+{
+	return m_link.hash();
+}
+
 LiteralTransformGraphRelation::LiteralTransformGraphRelation(const wchar_t* operatorName)
 	: m_operator(operatorName)
 {
@@ -48,6 +91,16 @@ void LiteralTransformGraphRelation::add(const shared_ptr<const IGraphRelation<Li
 	{
 		m_relations.push_back(rel);
 	}
+}
+
+size_t LiteralTransformGraphRelation::hash() const
+{
+	size_t hash = 0;
+	for (auto& rel : m_relations)
+	{
+		hash |= rel->hash();
+	}
+	return hash;
 }
 
 bool LiteralTransformGraphRelation::getRelation(int sourceVertex, Literal& out) const
@@ -116,9 +169,147 @@ bool InvertLiteralGraphRelation::equals(const IGraphRelation<Literal>& rhs) cons
 	return typedRHS != nullptr && m_inner->equals(*typedRHS->m_inner.get());
 }
 
+size_t InvertLiteralGraphRelation::hash() const
+{
+	return m_inner->hash();
+}
+
+NegateGraphRelation::NegateGraphRelation(const IGraphRelationPtr<int>& child): m_child(child)
+{
+}
+
+bool NegateGraphRelation::equals(const IGraphRelation<int>& rhs) const
+{
+	if (auto typed = dynamic_cast<const NegateGraphRelation*>(&rhs))
+	{
+		return typed->m_child->equals(*m_child.get());
+	}
+	return false;
+}
+
+bool NegateGraphRelation::getRelation(int sourceVertex, int& out) const
+{
+	if (m_child->getRelation(sourceVertex, out))
+	{
+		out *= -1;
+		return true;
+	}
+	return false;
+}
+
+size_t NegateGraphRelation::hash() const
+{
+	return m_child->hash();
+}
+
+BinOpGraphRelation::BinOpGraphRelation(const IGraphRelationPtr<int>& lhs, const IGraphRelationPtr<int>& rhs, EBinaryOperatorType op)
+	: m_lhs(lhs)
+	, m_rhs(rhs)
+	, m_op(op)
+{
+}
+
+bool BinOpGraphRelation::equals(const IGraphRelation<int>& rhs) const
+{
+	if (auto typed = dynamic_cast<const BinOpGraphRelation*>(&rhs))
+	{
+		return
+			typed->m_op == m_op &&
+			typed->m_lhs->equals(*m_lhs.get()) &&
+			typed->m_rhs->equals(*m_rhs.get());
+	}
+	return false;
+}
+
+bool BinOpGraphRelation::getRelation(int sourceVertex, int& out) const
+{
+	int left, right;
+	if (m_lhs->getRelation(sourceVertex, left) && m_rhs->getRelation(sourceVertex, right))
+	{
+		switch (m_op)
+		{
+		case EBinaryOperatorType::Add:
+			out = left+right;
+			break;
+		case EBinaryOperatorType::Subtract:
+			out = left-right;
+			break;
+		case EBinaryOperatorType::Divide:
+			out = left/right;
+			break;
+		case EBinaryOperatorType::Multiply:
+			out = left*right;
+			break;
+		case EBinaryOperatorType::Equality:
+			if (left != right) { return false; }
+			out = 1;
+			break;
+		case EBinaryOperatorType::Inequality:
+			if (left == right) { return false; }
+			out = 1;
+			break;
+		case EBinaryOperatorType::LessThan:
+			if (left >= right) { return false; }
+			out = 1;
+			break;
+		case EBinaryOperatorType::LessThanEq:
+			if (left > right) { return false; }
+			out = 1;
+			break;
+		case EBinaryOperatorType::GreaterThan:
+			if (left <= right) { return false; }
+			out = 1;
+			break;
+		case EBinaryOperatorType::GreaterThanEq:
+			if (left < right) { return false; }
+			out = 1;
+		default:
+			vxy_fail_msg("unexpected binary operator");
+		}
+		return true;
+	}
+	return false;
+}
+
+size_t BinOpGraphRelation::hash() const
+{
+	return combineHashes(m_lhs->hash(),
+	                     combineHashes(m_rhs->hash(), eastl::hash<EBinaryOperatorType>()(m_op))
+	);
+}
+
+wstring BinOpGraphRelation::toString() const
+{
+	wstring sOp;
+	switch (m_op)
+	{
+	case EBinaryOperatorType::Add:				sOp = TEXT("+"); break;
+	case EBinaryOperatorType::Subtract:			sOp = TEXT("-"); break;
+	case EBinaryOperatorType::Divide:			sOp = TEXT("/"); break;
+	case EBinaryOperatorType::Multiply:			sOp = TEXT("*"); break;
+	case EBinaryOperatorType::Equality:			sOp = TEXT("=="); break;
+	case EBinaryOperatorType::Inequality:		sOp = TEXT("!="); break;
+	case EBinaryOperatorType::LessThan:			sOp = TEXT("<"); break;
+	case EBinaryOperatorType::LessThanEq:		sOp = TEXT("<="); break;
+	case EBinaryOperatorType::GreaterThan:		sOp = TEXT(">"); break;
+	case EBinaryOperatorType::GreaterThanEq:	sOp = TEXT(">="); break;
+	default:
+		vxy_fail_msg("unexpected binary operator");
+	}
+
+	wstring out = m_lhs->toString();
+	out.append_sprintf(TEXT(" %s %s"), sOp.c_str(), m_rhs->toString().c_str());
+	return out;
+}
+
 wstring InvertLiteralGraphRelation::toString() const
 {
 	return {wstring::CtorSprintf(), TEXT("InvertLiteral(%s)"), m_inner->toString().c_str()};
+}
+
+LiteralUnionGraphRelation::LiteralUnionGraphRelation()
+	: LiteralTransformGraphRelation(TEXT(" | "))
+{
 }
 
 bool LiteralUnionGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
@@ -141,6 +332,17 @@ bool LiteralUnionGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 	});
 }
 
+bool LiteralUnionGraphRelation::combine(ValueSet& dest, const ValueSet& src) const
+{
+	dest.include(src);
+	return true;
+}
+
+LiteralIntersectionGraphRelation::LiteralIntersectionGraphRelation()
+	: LiteralTransformGraphRelation(TEXT(" & "))
+{
+}
+
 bool LiteralIntersectionGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
 {
 	if (this == &rhs)
@@ -159,4 +361,10 @@ bool LiteralIntersectionGraphRelation::equals(const IGraphRelation<Literal>& rhs
 			return inner->equals(*outer.get());
 		});
 	});
+}
+
+bool LiteralIntersectionGraphRelation::combine(ValueSet& dest, const ValueSet& src) const
+{
+	dest.intersect(src);
+	return true;
 }
