@@ -26,41 +26,27 @@ class ClauseConstraint : public IConstraint
 public:
 	// NOTE: Do not call directly. Not enough memory will be allocated.
 	ClauseConstraint(const ConstraintFactoryParams& params, const vector<Literal>& literals, bool isLearned = false);
-
+	
 	struct ClauseConstraintFactory
 	{
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, const vector<SignedClause>& clauses);
-		static ClauseConstraint* construct_(const ConstraintFactoryParams& params, const vector<SignedClause>& clauses)
-		{
-			return construct(params, clauses);
-		}
-
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, ENoGood noGood, const vector<SignedClause>& clauses);
-		static ClauseConstraint* construct_(const ConstraintFactoryParams& params, ENoGood noGood, const vector<SignedClause>& clauses)
-		{
-			return construct(params, noGood, clauses);
-		}
-
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, const vector<Literal>& lits, bool isLearned = false);
 
-		template <typename... ArgsType>
+		template <typename... ArgsType,
+			typename = enable_if_t< (is_same_v<decay_t<ArgsType>, SignedClause> && ...) >>
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, ENoGood noGood, ArgsType&&... args)
 		{
 			vector<SignedClause> argsArray = {args...};
-			return construct_(params, noGood, argsArray);
+			return construct(params, noGood, argsArray);
 		}
 
-		template <typename... ArgsType>
+		template <typename... ArgsType,
+			typename = enable_if_t< (is_same_v<decay_t<ArgsType>, SignedClause> && ...) >>
 		static ClauseConstraint* construct(const ConstraintFactoryParams& params, ArgsType&&... args)
 		{
 			vector<SignedClause> argsArray = {args...};
-			return construct_(params, argsArray);
-		}
-
-		// Needed to disambiguate between above function and parameter pack versions above
-		static ClauseConstraint* construct(const ConstraintFactoryParams& params, vector<Literal>& lits, bool isLearned = false)
-		{
-			return construct(params, const_cast<const vector<Literal>&>(lits), isLearned);
+			return construct(params, argsArray);
 		}
 	};
 
