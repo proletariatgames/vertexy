@@ -79,7 +79,7 @@ bool LiteralTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideM
 wstring LiteralTerm::toString() const
 {
     static AbstractOverrideMap temp;
-    return eval(temp, ProgramSymbol(IdentityGraphRelation::get())).toString();
+    return eval(temp, ProgramSymbol()).toString();
 }
 
 VariableTerm::VariableTerm(ProgramVariable param)
@@ -244,6 +244,12 @@ bool VertexTerm::match(const ProgramSymbol& sym, AbstractOverrideMap&, ProgramSy
 
 ProgramSymbol VertexTerm::eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const
 {
+    if (boundVertex.isValid())
+    {
+        int constant = boundVertex.getInt();
+        return ProgramSymbol(IdentityGraphRelation::get()->filter([constant](int v) { return v == constant; }));
+    }
+    
     return boundVertex.isValid() ? boundVertex : ProgramSymbol(IdentityGraphRelation::get());
 }
 

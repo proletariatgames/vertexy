@@ -798,16 +798,16 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 
 		path(X, Y).choice() <<= Program::graphEdge(X, Y);
 
-		Program::disallow(path(X, Z) && path(Y, Z) && X != Y);
-		Program::disallow(path(Z, X) && path(Z, Y) && X != Y);
+		Program::disallow(path(X, vertex) && path(Y, vertex) && X != Y);
+		Program::disallow(path(vertex, X) && path(vertex, Y) && X != Y);
 
 		VXY_FORMULA(on_path, 1);
-		on_path(Z) <<= path(X, Z) && path(Z, Y);
+		on_path(vertex) <<= path(X, vertex) && path(vertex, Y);
 		Program::disallow(~on_path(vertex));
 
 		VXY_FORMULA(reach, 1);
 		reach(0);
-		reach(Y) <<= reach(X) && path(X, Y);
+		reach(vertex) <<= reach(X) && path(X, vertex);
 		Program::disallow(~reach(vertex));
 
 		return HamiltonianOutput{path};

@@ -115,8 +115,8 @@ public:
 
         // Set of relations where this atom was in the head of a rule
         using RelationSetHasher = pointer_value_hash<AbstractAtomRelationInfo, call_hash>;
-        using RelationSet = hash_map<AbstractAtomRelationInfoPtr, ETruthStatus, RelationSetHasher, pointer_value_equality>;
-        RelationSet abstractLiterals;
+        using RelationMap = hash_map<AbstractAtomRelationInfoPtr, ETruthStatus, RelationSetHasher, pointer_value_equality>;
+        RelationMap abstractLiterals;
         // The topology used for making this atom concrete
         ITopologyPtr topology;
     };
@@ -262,14 +262,14 @@ protected:
             return hashBody(lhs->atomLits);
         }
 
-        static bool compareBodies(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs);
+        static bool compareBodies(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs, bool checkRelations=true);
         static int32_t hashBody(const vector<AtomLiteral>& body);
     };
 
     class NogoodBuilder
     {
     public:
-        void clear() { m_literals.clear(); }
+        void clear() { m_literals.clear(); m_topologies.clear(); }
         void reserve(int n) { m_literals.reserve(n); }
         bool empty() const { return m_literals.empty(); }
         void add(const ALiteral& lit, bool required, const ITopologyPtr& topology);
@@ -297,7 +297,7 @@ protected:
         BodySet newBodySet;
         vector<vector<int32_t>> bodyMappings;
         vector<AtomID> concreteAtomMappings;
-        vector<hash_map<vector<int>, AtomID, ArgumentHasher>> abstractAtomMappings;
+        vector<hash_map<Literal, AtomID>> abstractAtomMappings;
     };
 
     static bool isConcreteLiteral(const ALiteral& lit);
@@ -311,8 +311,8 @@ protected:
     bool emptyAtomQueue();
     bool emptyBodyQueue();
 
-    BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo);
-    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const BodySet& bodySet, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const;
+    BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo, bool forceAbstract);
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const BodySet& bodySet, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, bool checkRelations=true) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -388,8 +388,8 @@ protected:
     // Whether any abstract heads or bodies exist.
     bool m_hasAbstract = false;
 
-    vector<AtomInfo*> m_atomsToPropagate;
-    vector<BodyInfo*> m_bodiesToPropagate;
+    vector<ConcreteAtomInfo*> m_atomsToPropagate;
+    vector<ConcreteBodyInfo*> m_bodiesToPropagate;
     bool m_conflict = false;
 
     NogoodBuilder m_nogoodBuilder;

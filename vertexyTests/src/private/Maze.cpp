@@ -65,88 +65,70 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 
 	struct MazeResult
 	{
-		FormulaResult<2> wall;
-		FormulaResult<2> blank;
-		FormulaResult<2> exit;
-		FormulaResult<2> entrance;
+		FormulaResult<1> wall;
+		FormulaResult<1> blank;
+		FormulaResult<1> exit;
+		FormulaResult<1> entrance;
 	};
 
+	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);
+
 	// Rule formulas can only be defined within a Program::define() block
-	auto simpleMaze = Program::define([](ProgramSymbol width, ProgramSymbol height, ProgramSymbol entranceX, ProgramSymbol entranceY, ProgramSymbol exitX, ProgramSymbol exitY)
+	auto simpleMaze = Program::define([](ProgramVertex vertex, ProgramSymbol entranceVertex, ProgramSymbol exitVertex)
 	{
 		// Floating variables. These don't mean anything outside the context of a rule statement.
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
 		VXY_VARIABLE(X);
 		VXY_VARIABLE(Y);
-		VXY_VARIABLE(X1);
-		VXY_VARIABLE(Y1);
 
 		// define the entrance/exit positions, based on the program inputs.
-		VXY_FORMULA(entrance, 2);
-		VXY_FORMULA(exit, 2);
-		entrance(entranceX, entranceY);
-		exit(exitX, exitY);
-
-		// define col(0), col(1), ... col(width-1) as atoms.
-		VXY_FORMULA(row, 1);
-		VXY_FORMULA(col, 1);
-		col = Program::range(0, width-1);
-		// define row(1), row(2), ... row(height) as atoms.
-		row = Program::range(0, height-1);
-
-		// define a rule grid(X,Y), which is only true if X is a column and Y is a row.
-		VXY_FORMULA(grid, 2);
-		grid(X,Y) <<= col(X) && row(Y);
-
-		// define a rule formula adjacent(x1,y1,x2,y2), which is only true for two adjacent tiles.
-		VXY_FORMULA(adjacent, 4);
-		adjacent(X,Y,X+1,Y) <<= grid(X,Y) && col(X+1);
-		adjacent(X,Y,X-1,Y) <<= grid(X,Y) && col(X-1);
-		adjacent(X,Y,X,Y+1) <<= grid(X,Y) && row(Y+1);
-		adjacent(X,Y,X,Y-1) <<= grid(X,Y) && row(Y-1);
+		VXY_FORMULA(entrance, 1);
+		VXY_FORMULA(exit, 1);
+		entrance(entranceVertex);
+		exit(exitVertex);
 
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
-		VXY_FORMULA(border, 2);
-		border(0,Y) <<= row(Y);
-		border(X,0) <<= col(X);
-		border(X,Y) <<= row(Y) && X == width-1;
-		border(X,Y) <<= col(X) && Y == height-1;
-
-		VXY_FORMULA(wall, 2);
-		VXY_FORMULA(blank, 2);
+		VXY_FORMULA(border, 1);
+		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveUp());
+		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveDown());
+		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveLeft());
+		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveRight());
+		
+		VXY_FORMULA(wall, 1);
+		VXY_FORMULA(blank, 1);
 		// wall OR blank may be true if this is a grid tile that is not on the border, and not the entrance or exit.
-		(wall(X,Y) | blank(X,Y)) <<= grid(X,Y) && ~border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
+		(wall(vertex) | blank(vertex)) <<= ~border(vertex) && ~entrance(vertex) && ~exit(vertex);
 		// border is a wall as long as it's not the entrance or exit.
-		wall(X,Y) <<= border(X,Y) && ~entrance(X,Y) && ~exit(X,Y);
+		wall(vertex) <<= border(vertex) && ~entrance(vertex) && ~exit(vertex);
 
 		// declare the type of tiles that are considered empty
-		VXY_FORMULA(emptyType, 2);
-		emptyType(X,Y) <<= blank(X,Y);
-		emptyType(X,Y) <<= entrance(X,Y);
-		emptyType(X,Y) <<= exit(X,Y);
+		VXY_FORMULA(emptyType, 1);
+		emptyType(vertex) <<= blank(vertex);
+		emptyType(vertex) <<= entrance(vertex);
+		emptyType(vertex) <<= exit(vertex);
 
-		// disallow a 2x2 block of walls
-		Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-		// disallow a 2x2 block of empty
-		Program::disallow(emptyType(X,Y) && emptyType(X1, Y) && emptyType(X, Y1) && emptyType(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-
-		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
-		Program::disallow(wall(X,Y) && wall(X+1,Y+1) && emptyType(X+1,Y) && emptyType(X, Y+1));
-		Program::disallow(emptyType(X, Y) && emptyType(X+1, Y+1) && wall(X+1,Y) && wall(X,Y+1));
-
-		// wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
-		VXY_FORMULA(wallWithAdjacentWall, 2);
-		wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
-
-		// disallow walls that don't have any adjacent walls
-		Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
+		// // disallow a 2x2 block of walls
+		// Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+		// // disallow a 2x2 block of empty
+		// Program::disallow(emptyType(X,Y) && emptyType(X1, Y) && emptyType(X, Y1) && emptyType(X1, Y1) && X1 == X+1 && Y1 == Y+1);
+		//
+		// // If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
+		// Program::disallow(wall(X,Y) && wall(X+1,Y+1) && emptyType(X+1,Y) && emptyType(X, Y+1));
+		// Program::disallow(emptyType(X, Y) && emptyType(X+1, Y+1) && wall(X+1,Y) && wall(X,Y+1));
+		//
+		// // wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
+		// VXY_FORMULA(wallWithAdjacentWall, 2);
+		// wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
+		//
+		// // disallow walls that don't have any adjacent walls
+		// Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
 
 		// encode reachability (faster to do this with a reachability constraint)
-		VXY_FORMULA(reach, 2);
-		reach(X,Y) <<= entrance(X,Y);
-		reach(X1,Y1) <<= adjacent(X,Y,X1,Y1) && reach(X,Y) && emptyType(X1,Y1);
-		Program::disallow(emptyType(X,Y) && ~reach(X,Y));
+		VXY_FORMULA(reach, 1);
+		reach(vertex) <<= entrance(vertex);
+		reach(vertex) <<= reach(X) && emptyType(vertex) && Program::graphEdge(X, vertex);
+		Program::disallow(emptyType(vertex) && ~reach(vertex));
 
 		return MazeResult {wall, blank, entrance, exit};
 	});
@@ -157,10 +139,9 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	// A program can be instantiated multiple times.
 	auto entranceLocation = make_pair(1, 0);
 	auto exitLocation = make_pair(numCols-2, numRows-1);
-	auto inst = simpleMaze(
-		numCols, numRows,
-		entranceLocation.first, entranceLocation.second,
-		exitLocation.first, exitLocation.second
+	auto inst = simpleMaze(ITopology::adapt(grid),
+		grid->coordinateToIndex(entranceLocation.first, entranceLocation.second),
+		grid->coordinateToIndex(exitLocation.first, exitLocation.second)
 	);
 
 	// Grab the results from the instantiation.
@@ -179,35 +160,30 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 
 	// Create the grid representation and solver variables for each cell in the grid.
 	SolverVariableDomain cellDomain(0, 3);
-	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
 
 	//
 	// Bind the formulas to variables
 	//
 
-	result.wall.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	result.wall.bind([&](const ProgramSymbol& vert)
 	{
-		int i = grid->coordinateToIndex(x.getInt(), y.getInt());
-		return SignedClause(cells->get(i), vector{WALL_IDX});
+		return SignedClause(cells->get(vert.getInt()), vector{WALL_IDX});
 	});
 
-	result.blank.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	result.blank.bind([&](const ProgramSymbol& vert)
 	{
-		int i = grid->coordinateToIndex(x.getInt(), y.getInt());
-		return SignedClause(cells->get(i), vector{BLANK_IDX});
+		return SignedClause(cells->get(vert.getInt()), vector{BLANK_IDX});
 	});
 
-	result.entrance.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	result.entrance.bind([&](const ProgramSymbol& vert)
 	{
-		int i = grid->coordinateToIndex(x.getInt(), y.getInt());
-		return SignedClause(cells->get(i), vector{ENTRANCE_IDX});
+		return SignedClause(cells->get(vert.getInt()), vector{ENTRANCE_IDX});
 	});
 
-	result.exit.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	result.exit.bind([&](const ProgramSymbol& vert)
 	{
-		int i = grid->coordinateToIndex(x.getInt(), y.getInt());
-		return SignedClause(cells->get(i), vector{EXIT_IDX});
+		return SignedClause(cells->get(vert.getInt()), vector{EXIT_IDX});
 	});
 
 	// Add the program to the solver. Multiple programs can be added, as well

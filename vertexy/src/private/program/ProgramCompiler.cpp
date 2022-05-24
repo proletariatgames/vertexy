@@ -680,10 +680,10 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
         }
 
         // If this head is abstract, it needs to include an identity term.
-        if (headHasAbstracts && !headHasIdentityAbstract)
-        {
-            return;
-        }
+        // if (headHasAbstracts && !headHasIdentityAbstract)
+        // {
+        //     return;
+        // }
     }
 
     //

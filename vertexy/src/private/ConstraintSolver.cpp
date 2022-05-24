@@ -222,7 +222,10 @@ IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 	{
 		if (auto cc = constraint->asClauseConstraint())
 		{
-			VERTEXY_LOG("Constraint %d:%s", constraint->getID(), clauseConstraintToString(*cc).c_str());
+			VERTEXY_LOG("Constraint%s %d:%s",
+				constraint->getGraphRelationInfo() ? TEXT("(GRAPH)") : TEXT(""),
+				constraint->getID(), clauseConstraintToString(*cc).c_str()
+			);
 		}
 	}
 
