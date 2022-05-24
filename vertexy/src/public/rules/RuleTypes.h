@@ -70,7 +70,7 @@ struct AbstractAtomRelationInfo
         return true;
     }
 
-    GraphLiteralRelationPtr getInverseRelation() const
+    const GraphLiteralRelationPtr& getInverseRelation() const
     {
         if (invRelation == nullptr)
         {
