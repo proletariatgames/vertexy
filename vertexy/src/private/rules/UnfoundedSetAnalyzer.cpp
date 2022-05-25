@@ -136,7 +136,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     for (int i = 1; i < rdb.getNumAtoms(); ++i)
     {
         const RuleDatabase::ConcreteAtomInfo* atomInfo = rdb.getAtom(AtomID(i))->asConcrete();
-        if (!atomInfo->isChoiceAtom() || atomInfo->scc < 0)
+        if (atomInfo == nullptr || !atomInfo->isChoiceAtom() || atomInfo->scc < 0)
         {
             continue;
         }
@@ -172,7 +172,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     for (int i = 0; i < rdb.getNumBodies(); ++i)
     {
         const RuleDatabase::ConcreteBodyInfo* bodyInfo = rdb.getBody(i)->asConcrete();
-        if (!bodyInfo->isChoiceBody())
+        if (bodyInfo == nullptr || !bodyInfo->isChoiceBody())
         {
             continue;
         }
@@ -246,7 +246,10 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     {
         BodyData* newBody = new (&m_bodyBuffer[outBodyOffsets[i]]) BodyData();
         const RuleDatabase::ConcreteBodyInfo* bodyInfo = rdb.getBody(relevantBodies[i])->asConcrete();
-        newBody->variable = bodyInfo->equivalence.variable;
+
+        auto bodyLit = get<Literal>(bodyInfo->getLiteral(rdb, false, false));
+        
+        newBody->variable = bodyLit.variable;
         newBody->scc = bodyInfo->scc+1;
         newBody->numWatching = 0;
         vxy_assert(newBody->variable.isValid());
