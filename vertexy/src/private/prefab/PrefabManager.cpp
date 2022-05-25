@@ -8,90 +8,95 @@
 
 using namespace Vertexy;
 
-PrefabManager::PrefabManager(ConstraintSolver* inSolver, shared_ptr<PlanarGridTopology> inGrid)
+PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
 {
-	maxPrefabSize = 0;
-	tilePrefabData = nullptr;
-	tilePrefabPosData = nullptr;
+	m_maxPrefabSize = 0;
+	m_tilePrefabData = nullptr;
+	m_tilePrefabPosData = nullptr;
 
-	solver = inSolver;
-	grid = inGrid;
+	m_solver = inSolver;
+	m_grid = inGrid;
+	m_thisPtr = make_shared<PrefabManager>(this);
 }
 
-void PrefabManager::CreatePrefab(vector<vector<int>> inTiles)
+void PrefabManager::createPrefab(const vector<vector<int>>& inTiles)
 {
 	// Create the prefab with its unique ID
-	Prefab prefab = Prefab(prefabs.size() + 1, this, inTiles);
+	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, m_thisPtr, inTiles);
 
 	// Update the largest size for the domain
-	if (prefab.getNumTiles() > maxPrefabSize)
+	if (prefab->getNumTiles() > m_maxPrefabSize)
 	{
-		maxPrefabSize = prefab.getNumTiles();
+		m_maxPrefabSize = prefab->getNumTiles();
 	}
 
 	// Add to our internal list of prefabs
-	prefabs.push_back(prefab);
+	m_prefabs.push_back(prefab);
 }
 
-void PrefabManager::GeneratePrefabConstraints(shared_ptr<TTopologyVertexData<VarID>> tileData)
+void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData)
 {
 	// Create the domains
-	SolverVariableDomain prefabDomain(Prefab::NO_PREFAB_ID, prefabs.size()); // NO_PREFAB_ID represents a tile with no prefab
-	SolverVariableDomain positionDomain(Prefab::NO_PREFAB_POS, maxPrefabSize); // NO_PREFAB_POS is reserved for tiles with no prefab
+	SolverVariableDomain prefabDomain(Prefab::NO_PREFAB_ID, m_prefabs.size()); // NO_PREFAB_ID represents a tile with no prefab
+	SolverVariableDomain positionDomain(Prefab::NO_PREFAB_POS, m_maxPrefabSize); // NO_PREFAB_POS is reserved for tiles with no prefab
 
 	// Create the variable graphs
-	tilePrefabData = solver->makeVariableGraph(TEXT("TilePrefabVars"), ITopology::adapt(grid), prefabDomain, TEXT("TilePrefabID"));
-	tilePrefabPosData = solver->makeVariableGraph(TEXT("TilePrefabPosVars"), ITopology::adapt(grid), positionDomain, TEXT("TilePrefabPos"));
+	m_tilePrefabData = m_solver->makeVariableGraph(TEXT("TilePrefabVars"), ITopology::adapt(m_grid), prefabDomain, TEXT("TilePrefabID"));
+	m_tilePrefabPosData = m_solver->makeVariableGraph(TEXT("TilePrefabPosVars"), ITopology::adapt(m_grid), positionDomain, TEXT("TilePrefabPos"));
 
-	auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(tilePrefabData);
-	auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(tilePrefabPosData);
+	auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(m_tilePrefabData);
+	auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(m_tilePrefabPosData);
 
 	// No prefab constraint
-	solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+	m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood,
 		GraphRelationClause(selfTilePrefab, { Prefab::NO_PREFAB_ID }),
 		GraphRelationClause(selfTilePrefabPos, EClauseSign::Outside, { Prefab::NO_PREFAB_POS })
-		);
+	);
 
 	// Prefab Constraints
-	for (auto prefab : prefabs)
+	for (auto& prefab : m_prefabs)
 	{
-		prefab.GeneratePrefabConstraints(*solver, grid, tileData);
+		prefab->generatePrefabConstraints(m_solver, m_grid, tileData);
 	}
 }
 
-shared_ptr<TTopologyVertexData<VarID>> PrefabManager::getTilePrefabData()
+const shared_ptr<TTopologyVertexData<VarID>>& PrefabManager::getTilePrefabData()
 {
-	return tilePrefabData;
+	return m_tilePrefabData;
 }
 
-shared_ptr<TTopologyVertexData<VarID>> PrefabManager::getTilePrefabPosData()
+const shared_ptr<TTopologyVertexData<VarID>>& PrefabManager::getTilePrefabPosData()
 {
-	return tilePrefabPosData;
+	return m_tilePrefabPosData;
 }
 
-vector<Prefab> PrefabManager::getPrefabs()
+const vector<shared_ptr<Prefab>>& PrefabManager::getPrefabs()
 {
-	return prefabs;
+	return m_prefabs;
 }
 
 int PrefabManager::getMaxPrefabSize()
 {
-	return maxPrefabSize;
+	return m_maxPrefabSize;
 }
 
-void PrefabManager::CreateDefaultTestPrefab(int index)
+void PrefabManager::createDefaultTestPrefab(int index)
 {
 	switch (index)
 	{
 	case 0: 
-		CreatePrefab({ {0, 0},
-									 {1, 1} });
+		createPrefab({
+			{0, 0},
+			{1, 1}
+		});
 		break;
 
 	case 1:
-		CreatePrefab({ { 1, -1, 1 },
-									 {-1, -1, -1},
-									 {1, -1, -1} });
+		createPrefab({
+			{ 1, -1, 1 },
+			{-1, -1, -1},
+			{ 1, -1, -1}
+		});
 		break;
 
 	default: vxy_assert(false);

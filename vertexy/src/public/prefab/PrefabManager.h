@@ -11,47 +11,54 @@ namespace Vertexy
 
 	class PrefabManager
 	{
-	private:
-		// The prefabs associated with this manager
-		vector<Prefab> prefabs;
-
-		// The largest prefab associated with this manager (in terms of number of tiles in the prefab)
-		int maxPrefabSize;
-
-		// The solver for which the prefab constraints will be created
-		ConstraintSolver* solver;
-
-		// The grid used for the tiles
-		shared_ptr<PlanarGridTopology> grid;
-
-		// The variable graph representing prefab ID's
-		shared_ptr<TTopologyVertexData<VarID>> tilePrefabData;
-
-		// The variable graph representing indices of the tiles within the prefab
-		shared_ptr<TTopologyVertexData<VarID>> tilePrefabPosData;
-
 	public:
-		PrefabManager(ConstraintSolver* inSolver, shared_ptr<PlanarGridTopology> inGrid);
-
+		PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
+		
+		PrefabManager(const PrefabManager& rhs) = delete;
+		PrefabManager(PrefabManager&& rhs) = default;
+		PrefabManager& operator=(const PrefabManager & rhs) = delete;
+		
 		// Creates a prefab and associates it with this manager
-		void CreatePrefab(vector<vector<int>> inTiles);
+		void createPrefab(const vector<vector<int>>& inTiles);
 
 		// Generates constraints for all prefabs associated with this manager
-		void GeneratePrefabConstraints(shared_ptr<TTopologyVertexData<VarID>> tileData);
+		void generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData);
 
 		// Returns the variable graph representing prefab ID's
-		shared_ptr<TTopologyVertexData<VarID>> getTilePrefabData();
+		const shared_ptr<TTopologyVertexData<VarID>>& getTilePrefabData();
 
 		// Returns the variable graph representing indices of the tiles within the prefab
-		shared_ptr<TTopologyVertexData<VarID>> getTilePrefabPosData();
+		const shared_ptr<TTopologyVertexData<VarID>>& getTilePrefabPosData();
 
 		// Returns this manager's prefabs
-		vector<Prefab> getPrefabs();
+		const vector<shared_ptr<Prefab>>& getPrefabs();
 
 		// Returns the size of the largest prefab associated with this manager
 		int getMaxPrefabSize();
 
 		// Create some basic sample prefabs used for testing
-		void CreateDefaultTestPrefab(int index);
+		void createDefaultTestPrefab(int index);
+
+	private:
+		// A shared_ptr to this
+		shared_ptr<PrefabManager> m_thisPtr;
+
+		// The prefabs associated with this manager
+		vector<shared_ptr<Prefab>> m_prefabs;
+
+		// The largest prefab associated with this manager (in terms of number of tiles in the prefab)
+		int m_maxPrefabSize;
+
+		// The solver for which the prefab constraints will be created
+		ConstraintSolver* m_solver;
+
+		// The grid used for the tiles
+		shared_ptr<PlanarGridTopology> m_grid;
+
+		// The variable graph representing prefab ID's
+		shared_ptr<TTopologyVertexData<VarID>> m_tilePrefabData;
+
+		// The variable graph representing indices of the tiles within the prefab
+		shared_ptr<TTopologyVertexData<VarID>> m_tilePrefabPosData;
 	};
 }

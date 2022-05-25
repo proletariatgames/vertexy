@@ -37,11 +37,11 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
 
 		// Create the PrefabManager
-		PrefabManager prefabManager = PrefabManager(&solver, grid);
+		shared_ptr<PrefabManager> prefabManager = make_shared<PrefabManager>(&solver, grid);
 
 		// Generate test prefabs
-		prefabManager.CreateDefaultTestPrefab(0);
-		prefabManager.CreateDefaultTestPrefab(1);
+		prefabManager->createDefaultTestPrefab(0);
+		prefabManager->createDefaultTestPrefab(1);
 
 		// The domains for the various types of variables
 		SolverVariableDomain tileDomain(0, 1);
@@ -50,11 +50,11 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 		auto tileData = solver.makeVariableGraph(TEXT("TileVars"), ITopology::adapt(grid), tileDomain, TEXT("Tile"));
 
 		// Generate the prefab constraints
-		prefabManager.GeneratePrefabConstraints(tileData);
+		prefabManager->generatePrefabConstraints(tileData);
 
 		// Set some initial values
-		solver.setInitialValues(prefabManager.getTilePrefabData()->getData()[0], { 2 });
-		solver.setInitialValues(prefabManager.getTilePrefabData()->getData()[4], { 1 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[0], { 2 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[4], { 1 });
 
 		shared_ptr<SolverDecisionLog> outputLog;
 		if constexpr (WRITE_BREADCRUMB_LOG)
@@ -87,9 +87,9 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
-void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, PrefabManager prefabManager)
+void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
 {
-	vector<shared_ptr<TTopologyVertexData<VarID>>> graphVars = { tileData, prefabManager.getTilePrefabData(), prefabManager.getTilePrefabPosData() };
+	vector<shared_ptr<TTopologyVertexData<VarID>>> graphVars = { tileData, prefabManager->getTilePrefabData(), prefabManager->getTilePrefabPosData() };
 	
 	for (int varIndex = 0; varIndex < graphVars.size(); varIndex++)
 	{
@@ -118,14 +118,14 @@ void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopo
 }
 
 // Pass in a row, column, or square to ensure every valid value is represented exactly once
-int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, PrefabManager prefabManager)
+int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
 {
 	int nErrorCount = 0;
 
 	// Create a PrefabPos counter for each unique prefab
 	// These will be incremented in traversal order and are unique starting at 1 for each prefab
 	vector<int> prefabPositions;
-	for (auto prefab : prefabManager.getPrefabs())
+	for (int x = 0; x < prefabManager->getPrefabs().size(); x++)
 	{
 		prefabPositions.push_back(Prefab::NO_PREFAB_POS + 1);
 	}
@@ -134,15 +134,15 @@ int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertex
 	for (int x = 0; x < tileData->getData().size(); x++)
 	{
 		// If this isn't part of a prefab, we don't care about it. Skip it.
-		int solvedPrefab = solver->getSolvedValue(prefabManager.getTilePrefabData()->getData()[x]);
+		int solvedPrefab = solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x]);
 		if (solvedPrefab == Prefab::NO_PREFAB_ID)
 		{
 			continue;
 		}
-		Prefab prefab = prefabManager.getPrefabs()[solvedPrefab - 1];
+		auto prefab = prefabManager->getPrefabs()[solvedPrefab - 1];
 		
 		// Check to ensure the PrefabPos is correct
-		int solvedPos = solver->getSolvedValue(prefabManager.getTilePrefabPosData()->getData()[x]);
+		int solvedPos = solver->getSolvedValue(prefabManager->getTilePrefabPosData()->getData()[x]);
 		if (solvedPos != prefabPositions[solvedPrefab - 1])
 		{
 			nErrorCount++;
@@ -150,8 +150,8 @@ int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertex
 
 		// Check to ensure the TileID matches what the prefab says it is for the given PrefabPos
 		int solvedTile = solver->getSolvedValue(tileData->getData()[x]);
-		vector<int> tileLoc = prefab.getPositionForIndex(solvedPos - 1);
-		int tileVal = prefab.getTileValAtPos(tileLoc[0], tileLoc[1]);
+		Position tileLoc = prefab->getPositionForIndex(solvedPos - 1);
+		int tileVal = prefab->getTileValAtPos(tileLoc.x, tileLoc.y);
 		if (solvedTile != tileVal)
 		{
 			nErrorCount++;
