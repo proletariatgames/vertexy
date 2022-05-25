@@ -47,8 +47,7 @@ public:
 
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) = 0;
         virtual ITopologyPtr getTopology() const = 0;
-        virtual bool synchronize(RuleDatabase& rdb) const = 0;
-
+        
         AbstractAtomInfo* asAbstract() { return const_cast<AbstractAtomInfo*>(const_cast<const AtomInfo*>(this)->asAbstract()); }
         ConcreteAtomInfo* asConcrete() { return const_cast<ConcreteAtomInfo*>(const_cast<const AtomInfo*>(this)->asConcrete()); }
 
@@ -59,6 +58,8 @@ public:
         wstring name;
         // Whether this is an external atom (possibly true even with no supports)
         bool isExternal = false;
+        // the strongly connected component ID this belongs to
+        int scc = -1;        
         // Bodies this head relies on for support
         vector<BodyInfo*> supports;
         // Bodies referring to this atom positively
@@ -80,21 +81,17 @@ public:
 
         virtual const ConcreteAtomInfo* asConcrete() const override { return this; }
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
-
-        Literal getConcreteLiteral(RuleDatabase& rdb, bool inverted);
-
+        
         virtual ITopologyPtr getTopology() const override { return nullptr; }
-        virtual bool synchronize(RuleDatabase& rdb) const override;
+        bool synchronize(RuleDatabase& rdb) const;
 
         bool isVariable() const { return equivalence.variable.isValid(); }
 
-        // the strongly connected component ID this belongs to
-        int scc = -1;
         // Optional equivalence to a constraint solver literal
         Literal equivalence;
 
-        ITopologyPtr topology;
-        GraphLiteralRelationPtr relation;
+        AbstractAtomInfo* abstractParent = nullptr;
+        int parentVertex = -1;
     };
 
     struct AbstractAtomInfo : public AtomInfo
@@ -109,9 +106,6 @@ public:
         virtual const AbstractAtomInfo* asAbstract() const override { return this; }
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
         virtual ITopologyPtr getTopology() const override { return topology; }
-        virtual bool synchronize(RuleDatabase& rdb) const override;
-
-        bool synchronizeLiteral(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& litRelation, ETruthStatus status);
 
         // Set of relations where this atom was in the head of a rule
         using RelationSetHasher = pointer_value_hash<AbstractAtomRelationInfo, call_hash>;
@@ -119,6 +113,7 @@ public:
         RelationMap abstractLiterals;
         // The topology used for making this atom concrete
         ITopologyPtr topology;
+        vector<ConcreteAtomInfo*> concreteAtoms;
     };
 
     struct ConcreteBodyInfo;
@@ -163,6 +158,8 @@ public:
         bool enqueued = false;
         // for the abstract head literal(s) this is attached to, the abstract relation info for it.
         AbstractAtomRelationInfoPtr headRelationInfo;
+        // the strongly connected component ID this belongs to.
+        int32_t scc = -1;
     };
 
     struct ConcreteBodyInfo : public BodyInfo
@@ -177,13 +174,11 @@ public:
         virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return nullptr; }
 
-        // the strongly connected component ID this belongs to.
-        int32_t scc = -1;
         // the solver literal corresponding with this body
         mutable Literal equivalence;
         
-        ITopologyPtr topology;
-        GraphLiteralRelationPtr relation;
+        AbstractBodyInfo* abstractParent = nullptr;
+        int parentVertex = -1;
     };
 
     struct AbstractBodyInfo : public BodyInfo
@@ -205,6 +200,8 @@ public:
         mutable shared_ptr<AbstractBodyMapper> bodyMapper;
         mutable GraphLiteralRelationPtr relation;
         mutable GraphLiteralRelationPtr invRelation;
+
+        vector<ConcreteBodyInfo*> concreteBodies;
     };
 
     struct ArgumentHasher
@@ -286,17 +283,11 @@ protected:
     {
         GroundingData(int numOldAtoms, int numOldBodies)
         {
-            newAtoms.push_back(make_unique<ConcreteAtomInfo>()); // sentinel
             bodyMappings.resize(numOldBodies);
-            concreteAtomMappings.resize(numOldAtoms, AtomID());
             abstractAtomMappings.resize(numOldAtoms);
         }
 
-        vector<unique_ptr<AtomInfo>> newAtoms;
-        vector<unique_ptr<BodyInfo>> newBodies;
-        BodySet newBodySet;
         vector<vector<int32_t>> bodyMappings;
-        vector<AtomID> concreteAtomMappings;
         vector<hash_map<vector<int>, AtomID, ArgumentHasher>> abstractAtomMappings;
     };
 
@@ -319,7 +310,7 @@ protected:
     void computeSCCs();
 
     void makeConcrete();
-    void groundBodyToConcrete(const BodyInfo& oldBody, GroundingData& groundingData);
+    void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
     void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
     vector<AtomLiteral> groundLiteralsToConcrete(const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed, int vertex=-1);
     void hookupGroundedDependencies(ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
