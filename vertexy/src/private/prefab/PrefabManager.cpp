@@ -8,6 +8,11 @@
 
 using namespace Vertexy;
 
+/*static*/ shared_ptr<PrefabManager> PrefabManager::create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
+{
+	return shared_ptr<PrefabManager>(new PrefabManager(inSolver, inGrid));
+}
+
 PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
 {
 	m_maxPrefabSize = 0;
@@ -16,13 +21,12 @@ PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<Planar
 
 	m_solver = inSolver;
 	m_grid = inGrid;
-	m_thisPtr = make_shared<PrefabManager>(this);
 }
 
 void PrefabManager::createPrefab(const vector<vector<int>>& inTiles)
 {
 	// Create the prefab with its unique ID
-	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, m_thisPtr, inTiles);
+	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, shared_from_this(), inTiles);
 
 	// Update the largest size for the domain
 	if (prefab->getNumTiles() > m_maxPrefabSize)

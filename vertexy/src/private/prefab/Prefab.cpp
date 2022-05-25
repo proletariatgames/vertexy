@@ -8,7 +8,7 @@
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, const shared_ptr<PrefabManager>& inManager, const vector<vector<int>>& inTiles)
+Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<int>>& inTiles)
 {
 	m_id = inID;
 	m_manager = inManager;
