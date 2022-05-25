@@ -19,8 +19,8 @@ namespace VertexyTests
 	public:
 		static int solveBasic(int times, int seed, bool printVerbose = true);
 
-		static int check(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, PrefabManager prefabManager);
-		static void print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, PrefabManager prefabManager);
+		static int check(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager);
+		static void print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager);
 	};
 
 }
