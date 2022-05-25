@@ -10,7 +10,8 @@ using namespace Vertexy;
 
 /*static*/ shared_ptr<PrefabManager> PrefabManager::create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
 {
-	return shared_ptr<PrefabManager>(new PrefabManager(inSolver, inGrid));
+	auto retval = shared_ptr<PrefabManager>(new PrefabManager(inSolver, inGrid));
+	return retval;
 }
 
 PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
