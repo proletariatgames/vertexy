@@ -67,8 +67,17 @@ void ConstraintGraphRelationInfo::addLiteralRelation(const Literal& lit, const I
 	});
 	if (it != m_literalRelations.end())
 	{
-		VERTEXY_WARN("Variable %d is being referred to be two overlapping literal relations in the same constraint. This will prevent it from being used for graph learning.", lit.variable.raw());
-		m_isValid = false;
+		vxy_sanity(it->lit.variable == lit.variable);
+		if (it->lit.values == lit.values)
+		{
+			// Multiple relations referring to same literal. Resolve the two relations into one.
+			it->relation = TManyToOneGraphRelation<Literal>::combine(it->relation, relation); 
+		}
+		else
+		{
+			VERTEXY_WARN("Variable %d is being referred to be two overlapping literal relations in the same constraint. This will prevent it from being used for graph learning.", lit.variable.raw());
+			m_isValid = false;
+		}
 		return;
 	}
 
