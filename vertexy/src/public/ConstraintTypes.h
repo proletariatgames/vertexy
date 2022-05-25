@@ -212,8 +212,10 @@ struct Literal
 
 	inline bool operator==(const Literal& rhs) const
 	{
+		if (this == &rhs) return true;
 		return variable == rhs.variable && values == rhs.values;
 	}
+	inline bool operator!=(const Literal& rhs) const { return !(operator==(rhs)); }
 
 	Literal inverted() const
 	{
