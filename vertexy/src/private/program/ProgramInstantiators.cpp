@@ -90,7 +90,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
             bool isFact = atom.isFact;
             if (m_term.match(atom.symbol, overrideMap, boundVertex))
             {
-                m_term.assignedToFact = isFact;
+                m_term.assignedToFact = isFact && !m_term.eval(overrideMap, boundVertex).containsAbstract();
                 moveNextDomainAtom();
                 return;
             }

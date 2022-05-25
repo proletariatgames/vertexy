@@ -964,22 +964,40 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(const vector<AtomLite
             auto makeConcreteForVertex = [&](ITopology::VertexID v, AbstractAtomInfo* oldAbsInfo, const AtomLiteral& abstractLit)
             {
                 auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(*this, oldLit));
-
-                Literal concreteLit;
-                if (!rel->getRelation(v, concreteLit))
-                {
-                    return !abstractLit.sign();
-                }
-
+                
                 if (oldAbsInfo->isExternal)
                 {
                     int value;
+                    Literal concreteLit;
+                    if (!rel->getRelation(v, concreteLit))
+                    {
+                        return !abstractLit.sign();
+                    }
+                    
                     vxy_verify(concreteLit.values.isSingleton(value));
                     return value != 0;
                 }
+
+                vector<int> args;
+                args.reserve(relationInfo->argumentRelations.size());
+                for (auto& arg : relationInfo->argumentRelations)
+                {
+                    int resolved;
+                    if (!arg->getRelation(v, resolved))
+                    {
+                        break;
+                    }
+                    args.push_back(resolved);
+                }
+
+                if (args.size() != relationInfo->argumentRelations.size())
+                {
+                    // No relation
+                    return !abstractLit.sign();
+                }
                 
                 auto& mappings = groundingData.abstractAtomMappings[abstractLit.id().value]; 
-                auto found = mappings.find(abstractLit.sign() ? concreteLit : concreteLit.inverted());
+                auto found = mappings.find(args);
                 if (found == mappings.end())
                 {
                     // No head defining this atom
@@ -1195,13 +1213,24 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
         auto& vertexMap = groundingData.abstractAtomMappings[oldAbstractAtom->id.value];
         for (int vertex = 0; vertex < oldAbstractAtom->topology->getNumVertices(); ++vertex)
         {
-            Literal concreteLit;
-            if (!relationInfo->literalRelation->getRelation(vertex, concreteLit))
+            args.clear();
+            args.reserve(relationInfo->argumentRelations.size());
+            for (auto& argRel : relationInfo->argumentRelations)
+            {
+                int resolved;
+                if (!argRel->getRelation(vertex, resolved))
+                {
+                    break;
+                }
+                args.push_back(resolved);
+            }
+
+            if (args.size() != relationInfo->argumentRelations.size())
             {
                 continue;
             }
-
-            if (auto found = vertexMap.find(concreteLit);
+            
+            if (auto found = vertexMap.find(args);
                 found != vertexMap.end())
             {
                 auto existing = groundingData.newAtoms[found->second.value]->asConcrete();
@@ -1224,7 +1253,7 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             newAtom->isExternal = oldAtomInfo->isExternal;
             setAtomStatus(newAtom.get(), litEntry->second);
 
-            vertexMap[concreteLit] = AtomID(groundingData.newAtoms.size());
+            vertexMap[args] = AtomID(groundingData.newAtoms.size());
             groundingData.newAtoms.push_back(move(newAtom));
         }
     }
