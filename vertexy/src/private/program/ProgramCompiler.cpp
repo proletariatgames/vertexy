@@ -990,10 +990,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
         else
         {
             int constant = arg.getInt();
-            relationInfo->argumentRelations[i] = IdentityGraphRelation::get()->filter([constant](int vertex)
-            {
-               return vertex == constant; 
-            });
+            relationInfo->argumentRelations[i] = make_shared<ConstantGraphRelation<int>>(constant);
         }
     }
 

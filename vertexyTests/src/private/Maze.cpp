@@ -67,8 +67,8 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	{
 		FormulaResult<1> wall;
 		FormulaResult<1> blank;
-		FormulaResult<1> exit;
 		FormulaResult<1> entrance;
+		FormulaResult<1> exit;
 	};
 
 	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);

@@ -297,7 +297,7 @@ protected:
         BodySet newBodySet;
         vector<vector<int32_t>> bodyMappings;
         vector<AtomID> concreteAtomMappings;
-        vector<hash_map<Literal, AtomID>> abstractAtomMappings;
+        vector<hash_map<vector<int>, AtomID, ArgumentHasher>> abstractAtomMappings;
     };
 
     static bool isConcreteLiteral(const ALiteral& lit);
