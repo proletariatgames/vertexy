@@ -113,7 +113,10 @@ public:
         RelationMap abstractLiterals;
         // The topology used for making this atom concrete
         ITopologyPtr topology;
+        
         vector<ConcreteAtomInfo*> concreteAtoms;
+        int numTrueConcretes = 0;
+        int numFalseConcretes = 0;
     };
 
     struct ConcreteBodyInfo;
@@ -194,14 +197,31 @@ public:
         virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return topology; }
 
-        GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo); 
+        GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo);
+        bool getHeadArgumentsForVertex(int vertex, vector<int>& outArgs) const;
 
         ITopologyPtr topology;
         mutable shared_ptr<AbstractBodyMapper> bodyMapper;
         mutable GraphLiteralRelationPtr relation;
         mutable GraphLiteralRelationPtr invRelation;
 
-        vector<ConcreteBodyInfo*> concreteBodies;
+        struct ChildBodyHasher
+        {
+            size_t operator()(const vector<int>& elems) const
+            {
+                size_t out = 0;
+                for (int i = 0; i < elems.size(); ++i)
+                {
+                    out ^= (elems[i] << (i%(sizeof(size_t)*8))); 
+                }
+                return out;
+            }
+        };
+        
+        // Maps concrete head arguments to the associated concrete body
+        hash_map<vector<int>, ConcreteBodyInfo*, ChildBodyHasher> concreteBodies;
+        int numTrueConcretes = 0;
+        int numFalseConcretes = 0;
     };
 
     struct ArgumentHasher
@@ -241,6 +261,8 @@ public:
 
     int getNumBodies() const { return m_bodies.size(); }
     const BodyInfo* getBody(int32_t id) const { return m_bodies[id].get(); }
+
+    bool getLiteralForBody(const AbstractBodyInfo& body, const vector<int>& headArguments, Literal& outLiteral);
 
 protected:
     void setConflicted();
@@ -303,7 +325,7 @@ protected:
     bool emptyBodyQueue();
 
     BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo, bool forceAbstract);
-    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const BodySet& bodySet, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, bool checkRelations=true) const;
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, bool checkRelations=true) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -312,7 +334,7 @@ protected:
     void makeConcrete();
     void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
     void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
-    vector<AtomLiteral> groundLiteralsToConcrete(const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed, int vertex=-1);
+    vector<AtomLiteral> groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool cullKnown, bool& outSomeFailed);
     void hookupGroundedDependencies(ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
     // Solver that owns us
@@ -399,11 +421,6 @@ public:
     const RuleDatabase::AbstractBodyInfo* getBodyInfo() const { return m_bodyInfo; }
 
 protected:
-    Literal makeForArgs(const vector<int>& args, size_t argHash);
-    
-    wstring makeVarName(const vector<int>& concreteHeadArgs) const;
-    wstring litToString(const AtomLiteral& lit) const;
-
     RuleDatabase& m_rdb;
     AbstractAtomRelationInfoPtr m_headRelationInfo;
     const RuleDatabase::AbstractBodyInfo* m_bodyInfo;
