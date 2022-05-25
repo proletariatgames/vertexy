@@ -1,6 +1,5 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
-
 #include "topology/GraphRelations.h"
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"
@@ -9,14 +8,14 @@ namespace Vertexy
 {
 	class Prefab;
 
-	class PrefabManager
+	class PrefabManager : public enable_shared_from_this<PrefabManager>
 	{
 	public:
-		PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
-		
 		PrefabManager(const PrefabManager& rhs) = delete;
-		PrefabManager(PrefabManager&& rhs) = default;
+		PrefabManager(PrefabManager&& rhs) = delete;
 		PrefabManager& operator=(const PrefabManager & rhs) = delete;
+
+		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
 		void createPrefab(const vector<vector<int>>& inTiles);
@@ -40,8 +39,7 @@ namespace Vertexy
 		void createDefaultTestPrefab(int index);
 
 	private:
-		// A shared_ptr to this
-		shared_ptr<PrefabManager> m_thisPtr;
+		PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 
 		// The prefabs associated with this manager
 		vector<shared_ptr<Prefab>> m_prefabs;

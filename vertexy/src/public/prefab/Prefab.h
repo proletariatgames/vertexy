@@ -1,6 +1,5 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
-
 #include "topology/GraphRelations.h"
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"
@@ -21,10 +20,10 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, const shared_ptr<PrefabManager>& inManager, const vector<vector<int>>& inTiles);
+		Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<int>>& inTiles);
 		
 		Prefab(const Prefab& rhs) = delete;
-		Prefab(Prefab&& rhs) = default;
+		Prefab(Prefab&& rhs) = delete;
 		Prefab& operator=(const Prefab& rhs) = delete;
 		
 		// Given a solver, grid, and tileData, converts this prefab into a list of constraints and adds them to the solver

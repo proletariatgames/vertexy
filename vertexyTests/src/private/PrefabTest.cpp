@@ -37,7 +37,7 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
 
 		// Create the PrefabManager
-		shared_ptr<PrefabManager> prefabManager = make_shared<PrefabManager>(&solver, grid);
+		shared_ptr<PrefabManager> prefabManager = PrefabManager::create(&solver, grid);
 
 		// Generate test prefabs
 		prefabManager->createDefaultTestPrefab(0);
