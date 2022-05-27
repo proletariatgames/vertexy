@@ -28,6 +28,9 @@ void RuleDatabase::setConflicted()
 
 bool RuleDatabase::finalize()
 {
+    // Ensure no more references to RuleDatabase exist after this function.
+    TScopeExitCallback cb([&](){ lockVariableCreation(); });
+    
     if (m_hasAbstract)
     {
         makeConcrete();
@@ -84,24 +87,24 @@ bool RuleDatabase::finalize()
         // Note the heads.empty() check - typically this is the case, but since we share BodyInfos for
         // statements that have identitical bodies, we could be both a negative constraint and have heads.
         // This is handled at the bottom of the outer loop.
-        // if (bodyInfo->isNegativeConstraint && bodyInfo->heads.empty())
-        // {
-        //     for (auto& bodyLit : bodyInfo->atomLits)
-        //     {
-        //         if (isLiteralAssumed(bodyLit))
-        //         {
-        //             // literal is known, no need to include.
-        //             continue;
-        //         }
-        //
-        //         auto bodyLitAtom = getAtom(bodyLit.id());
-        //         
-        //         ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
-        //         m_nogoodBuilder.add(atomLit, false, bodyLitAtom->getTopology());
-        //     }
-        //     m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
-        //     continue;
-        // }
+        if (bodyInfo->isNegativeConstraint && bodyInfo->heads.empty())
+        {
+            for (auto& bodyLit : bodyInfo->atomLits)
+            {
+                if (isLiteralAssumed(bodyLit))
+                {
+                    // literal is known, no need to include.
+                    continue;
+                }
+        
+                auto bodyLitAtom = getAtom(bodyLit.id());
+                
+                ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
+                m_nogoodBuilder.add(atomLit, false, bodyLitAtom->getTopology());
+            }
+            m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
+            continue;
+        }
 
         //
         // For all literals Bv1...BvN in the body:
@@ -309,6 +312,25 @@ bool RuleDatabase::finalize()
     }
 
     return !m_conflict;
+}
+
+void RuleDatabase::lockVariableCreation()
+{
+    for (auto& body : m_bodies)
+    {
+        if (auto absBody = body->asAbstract())
+        {
+            absBody->lockVariableCreation();
+        }
+    }
+
+    for (auto& atom : m_atoms)
+    {
+        if (auto absAtom = atom->asAbstract())
+        {
+            absAtom->lockVariableCreation();
+        }
+    }
 }
 
 bool RuleDatabase::isLiteralAssumed(const AtomLiteral& literal) const
@@ -1531,6 +1553,14 @@ bool RuleDatabase::AbstractAtomInfo::isFullyKnown() const
     return numUnknownConcretes == 0;
 }
 
+void RuleDatabase::AbstractAtomInfo::lockVariableCreation()
+{
+    for (auto& absLit : abstractLiterals)
+    {
+        absLit.first->literalRelation->lockVariableCreation();
+    }
+}
+
 RuleDatabase::ALiteral RuleDatabase::ConcreteBodyInfo::getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) const
 {
     if (!equivalence.variable.isValid())
@@ -1582,30 +1612,51 @@ RuleDatabase::ALiteral RuleDatabase::AbstractBodyInfo::getLiteral(RuleDatabase& 
 
     if (allowCreation)
     {
-        GraphLiteralRelationPtr rel = make_shared<BodyInstantiatorRelation>(bodyMapper, true);
+        if (createRelation == nullptr)
+        {
+            createRelation = make_shared<BodyInstantiatorRelation>(bodyMapper, true);
+        }
+
         if (inverted)
         {
-            rel = make_shared<InvertLiteralGraphRelation>(rel);
+            if (createInverseRelation == nullptr)
+            {
+                createInverseRelation = make_shared<InvertLiteralGraphRelation>(createRelation);
+            }
+            return createInverseRelation;
         }
-        return rel;
-    }
-    
-    if (relation == nullptr)
-    {
-        relation = make_shared<BodyInstantiatorRelation>(bodyMapper, false);
-    }
-
-    if (inverted)
-    {
-        if (invRelation == nullptr)
+        else
         {
-            invRelation = make_shared<InvertLiteralGraphRelation>(relation);
+            return createRelation;
         }
-        return invRelation;
     }
     else
     {
-        return relation;
+        if (noCreateRelation == nullptr)
+        {
+            noCreateRelation = make_shared<BodyInstantiatorRelation>(bodyMapper, false);
+        }
+
+        if (inverted)
+        {
+            if (noCreateInverseRelation == nullptr)
+            {
+                noCreateInverseRelation = make_shared<InvertLiteralGraphRelation>(noCreateRelation);
+            }
+            return noCreateInverseRelation;
+        }
+        else
+        {
+            return noCreateRelation;
+        }
+    }
+}
+
+void RuleDatabase::AbstractBodyInfo::lockVariableCreation()
+{
+    if (bodyMapper != nullptr)
+    {
+        bodyMapper->lockVariableCreation();
     }
 }
 
@@ -1771,10 +1822,17 @@ void RuleDatabase::NogoodBuilder::emit(RuleDatabase& rdb, const IGraphRelationPt
 }
 
 AbstractBodyMapper::AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::AbstractBodyInfo* bodyInfo, const AbstractAtomRelationInfoPtr& headRelationInfo)
-    : m_rdb(rdb)
+    : m_rdb(&rdb)
     , m_headRelationInfo(headRelationInfo)
     , m_bodyInfo(bodyInfo)
 {
+}
+
+void AbstractBodyMapper::lockVariableCreation()
+{
+    // We have created all necessary body variables at this point, and the RDB is being destroyed.
+    // Clear our pointer so that we don't attempt to create any more variables.
+    m_rdb = nullptr;
 }
 
 bool AbstractBodyMapper::getForHead(const vector<int>& concreteHeadArgs, Literal& outLiteral)
@@ -1824,20 +1882,20 @@ bool AbstractBodyMapper::getForVertex(ITopology::VertexID vertex, bool allowCrea
         return true;
     }
 
-    if (!allowCreation)
+    if (!allowCreation || m_rdb == nullptr)
     {
         return false;
     }
     
     vxy_assert(m_headRelationInfo != nullptr || m_bodyInfo->isNegativeConstraint);
 
-    if (!m_rdb.getLiteralForBody(*m_bodyInfo, *args, outLit))
+    if (!m_rdb->getLiteralForBody(*m_bodyInfo, *args, outLit))
     {
         return false;
     }
     vxy_assert(outLit.isValid());
 
-    m_bindMap.insert(argHash, nullptr, {*args, outLit}).first;
+    m_bindMap.insert(argHash, nullptr, {*args, outLit});
     return true;
 }
 

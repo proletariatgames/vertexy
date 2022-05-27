@@ -121,6 +121,7 @@ public:
         virtual FactGraphFilterPtr getFilter(ETruthStatus truthStatus) const override;
 
         virtual bool isFullyKnown() const override;
+        void lockVariableCreation();
 
         // Set of relations where this atom was in the head of a rule
         RelationMap<ETruthStatus> abstractLiterals;
@@ -223,10 +224,14 @@ public:
         virtual FactGraphFilterPtr getFilter() const override;
         virtual bool fullyKnown() const override;
 
+        void lockVariableCreation();
+
         ITopologyPtr topology;
         mutable shared_ptr<AbstractBodyMapper> bodyMapper;
-        mutable GraphLiteralRelationPtr relation;
-        mutable GraphLiteralRelationPtr invRelation;
+        mutable GraphLiteralRelationPtr createRelation;
+        mutable GraphLiteralRelationPtr createInverseRelation;
+        mutable GraphLiteralRelationPtr noCreateRelation;
+        mutable GraphLiteralRelationPtr noCreateInverseRelation;
         mutable FactGraphFilterPtr filter;
 
         struct ChildBodyHasher
@@ -291,6 +296,7 @@ public:
 
 protected:
     void setConflicted();
+    void lockVariableCreation();
     
     // IVariableDomainProvider
     virtual const SolverVariableDomain& getDomain(VarID varID) const override;
@@ -446,8 +452,11 @@ public:
     bool getForVertex(ITopology::VertexID vertex, bool allowCreation, Literal& outLit);
     const RuleDatabase::AbstractBodyInfo* getBodyInfo() const { return m_bodyInfo; }
 
+    // Called when the RDB is destroyed, which happens before solving.
+    void lockVariableCreation();
+
 protected:
-    RuleDatabase& m_rdb;
+    RuleDatabase* m_rdb;
     AbstractAtomRelationInfoPtr m_headRelationInfo;
     const RuleDatabase::AbstractBodyInfo* m_bodyInfo;
     mutable hash_map<vector<int>, Literal, RuleDatabase::ArgumentHasher> m_bindMap;
