@@ -492,6 +492,16 @@ public:
 		}
 		return out;
 	}
+
+	static GraphCulledVector allOptional(std::initializer_list<T> initList)
+	{
+		GraphCulledVector out;
+		for (auto i = initList.begin(); i != initList.end(); ++i)
+		{
+			out.push_back(make_pair(*i, false));
+		}
+		return out;
+	}
 	
 	GraphCulledVector& operator=(const GraphCulledVector& rhs)
 	{

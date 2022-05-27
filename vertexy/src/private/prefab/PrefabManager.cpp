@@ -49,8 +49,8 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 	m_tilePrefabData = m_solver->makeVariableGraph(TEXT("TilePrefabVars"), ITopology::adapt(m_grid), prefabDomain, TEXT("TilePrefabID"));
 	m_tilePrefabPosData = m_solver->makeVariableGraph(TEXT("TilePrefabPosVars"), ITopology::adapt(m_grid), positionDomain, TEXT("TilePrefabPos"));
 
-	auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(m_tilePrefabData);
-	auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(m_tilePrefabPosData);
+	auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(m_grid), m_tilePrefabData);
+	auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(m_grid), m_tilePrefabPosData);
 
 	// No prefab constraint
 	m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood,
