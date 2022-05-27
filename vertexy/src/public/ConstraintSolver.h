@@ -124,7 +124,7 @@ class ConstraintSolver : public IVariableDomainProvider
 	using RandomStreamType = std::mt19937;
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
-	ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
+	explicit ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
 	virtual ~ConstraintSolver() override;
 
 	//
@@ -415,7 +415,7 @@ class ConstraintSolver : public IVariableDomainProvider
 		m_graphConstraints.push_back(graphConstraintData);
 		return GraphConstraintID(m_graphConstraints.size());
 	}
-
+	
 	// Generic method for constructing a constraint.
 	// Usage: Solver.MakeConstraint<FMyConstraintType>(ConstructorParam1, ConstructorParam2, ...);
 	template <typename T, typename... ArgsType>
