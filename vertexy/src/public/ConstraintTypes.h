@@ -288,7 +288,9 @@ class TValueGuard
 public:
 	TValueGuard() = delete;
 	TValueGuard(const TValueGuard&) = delete;
+	TValueGuard(TValueGuard&&) = delete;
 	TValueGuard& operator=(const TValueGuard&) = delete;
+	TValueGuard& operator=(TValueGuard&&) = delete;
 
 	TValueGuard(T& destination, const T& newValue)
 		: m_dest(destination)
@@ -305,6 +307,30 @@ public:
 private:
 	T& m_dest;
 	T m_oldVal;
+};
+
+//
+// Utility class that calls a function when it leaves scope.
+//
+template<typename Fun>
+class TScopeExitCallback
+{
+public:
+	TScopeExitCallback() = delete;
+	TScopeExitCallback(const TScopeExitCallback&) = delete;
+	TScopeExitCallback(TScopeExitCallback&&) = delete;
+	TScopeExitCallback& operator=(const TScopeExitCallback&) = delete;
+	TScopeExitCallback& operator=(TScopeExitCallback&&) = delete;
+	
+	explicit TScopeExitCallback(Fun&& fun) : m_fun(forward<Fun>(fun)) {}
+
+	~TScopeExitCallback()
+	{
+		m_fun();
+	}
+
+protected:
+	Fun m_fun;
 };
 
 ///

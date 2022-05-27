@@ -1250,11 +1250,16 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
 }
 
 FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder)
-    : m_rdb(rdb)
+    : m_rdb(&rdb)
     , m_formulaUID(formulaUID)
     , m_formulaName(formulaName)
     , m_binder(binder)
 {
+}
+
+void FormulaMapper::lockVariableCreation()
+{
+    m_rdb = nullptr;
 }
 
 Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, CreationType creationType) const
@@ -1263,7 +1268,7 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
     auto found = m_bindMap.find_by_hash(concrete, argHash);
     if (found == m_bindMap.end())
     {
-        if (creationType == NeverCreate)
+        if (creationType == NeverCreate || m_rdb == nullptr)
         {
             return {};
         }
@@ -1271,7 +1276,7 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
         Literal lit;
         if (m_binder != nullptr)
         {
-            lit = m_binder->call(m_rdb, concrete);
+            lit = m_binder->call(*m_rdb, concrete);
         }
 
         if (!lit.isValid())
@@ -1293,7 +1298,7 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
             }
             name.append(TEXT(")"));
 
-            lit = Literal(m_rdb.getSolver().makeBoolean(name), SolverVariableDomain(0,1).getBitsetForValue(1));
+            lit = Literal(m_rdb->getSolver().makeBoolean(name), SolverVariableDomain(0,1).getBitsetForValue(1));
             if (lit.isValid() && LOG_VAR_INSTANTIATION)
             {
                 VERTEXY_LOG("  Created %s", name.c_str());
@@ -1360,6 +1365,11 @@ bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral)
     }
     outLiteral = m_formulaMapper->getLiteral(m_concrete, FormulaMapper::CreateIfBound);
     return outLiteral.isValid();
+}
+
+void FormulaGraphRelation::lockVariableCreation() const
+{
+    m_formulaMapper->lockVariableCreation();
 }
 
 bool FormulaGraphRelation::makeConcrete(int vertex, vector<ProgramSymbol>& outConcrete) const

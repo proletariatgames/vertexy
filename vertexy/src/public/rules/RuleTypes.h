@@ -45,6 +45,8 @@ public:
     virtual bool needsInstantiation() const = 0;    
     // Bind the variable for this vertex and assign its deduced value.
     virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const = 0;
+    // Notify the relation that it should not create any more variables/that the RDB has been destroyed.
+    virtual void lockVariableCreation() const = 0;
 };
 
 using AtomGraphRelationPtr = shared_ptr<const IAtomGraphRelation>;

@@ -42,6 +42,8 @@ public:
     AtomID getAtomID() const { return m_atomId; }
 
     bool hasBinder() const { return m_binder != nullptr; }
+
+    void lockVariableCreation();
     
 private:
     struct ArgumentHasher
@@ -58,7 +60,7 @@ private:
     };
 
     AtomID m_atomId;
-    RuleDatabase& m_rdb;
+    RuleDatabase* m_rdb;
     FormulaUID m_formulaUID;
     const wchar_t* m_formulaName;
     BindCaller* m_binder = nullptr;
@@ -77,6 +79,7 @@ public:
 
     virtual bool needsInstantiation() const override { return false; }    
     virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override { return false; }
+    virtual void lockVariableCreation() const override {}
     
 protected:
     AbstractAtomRelationInfoPtr m_relationInfo;
@@ -98,6 +101,7 @@ public:
 
     virtual bool needsInstantiation() const override;
     virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override;
+    virtual void lockVariableCreation() const override;
 
 private:
     bool makeConcrete(int vertex, vector<ProgramSymbol>& outConcrete) const;
