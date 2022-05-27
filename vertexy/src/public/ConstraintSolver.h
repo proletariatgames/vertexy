@@ -52,7 +52,7 @@ enum class EConstraintSolverResult : uint8_t
 struct SolvedVariableRecord
 {
 	wstring name;
-	int value;
+	int value {};
 };
 
 /** For hashing learned constraints */
@@ -125,7 +125,7 @@ class ConstraintSolver : public IVariableDomainProvider
 
 	// Constructor: if RandomSeed is 0, a random value will be chosen as the seed.
 	ConstraintSolver(const wstring& name = TEXT("[unnamed]"), int randomSeed = 0, const shared_ptr<ISolverDecisionHeuristic>& baseHeuristic = nullptr);
-	virtual ~ConstraintSolver();
+	virtual ~ConstraintSolver() override;
 
 	//
 	// Solving API
@@ -717,7 +717,6 @@ protected:
 		translatedArray.reserve(argArray.size());
 		for (auto& arg : argArray)
 		{
-			bool hadSuccess = success;
 			auto translatedArg = translateGraphConsArgument(arg, relationInfo, success);
 			if (success)
 			{
