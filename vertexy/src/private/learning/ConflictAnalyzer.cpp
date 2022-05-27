@@ -107,6 +107,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 	m_nodes.clear();
 	m_nodes.reserve(inOutExplanation.size());
 	m_graph = initialConflict->getGraph();
+	m_graphFilter = initialConflict->getGraphRelationInfo() != nullptr ? initialConflict->getGraphRelationInfo()->getFilter() : nullptr;
 	m_anchorGraphVertex = initialConflict->getGraphRelationInfo() != nullptr ? initialConflict->getGraphRelationInfo()->getSourceGraphVertex() : -1;
 
 	ConstraintGraphRelationInfo initialConflictRelationInfo;
@@ -262,7 +263,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 			});
 			if (isPromotable)
 			{
-				m_resolvedRelationInfo = move(make_unique<ConstraintGraphRelationInfo>(m_graph, m_anchorGraphVertex));
+				m_resolvedRelationInfo = move(make_unique<ConstraintGraphRelationInfo>(m_graph, m_anchorGraphVertex, m_graphFilter));
 				for (int i = 0; i < m_nodes.size(); ++i)
 				{
 					const ImplicationNode& node = m_nodes[i];
@@ -417,6 +418,18 @@ void ConflictAnalyzer::resolve(const vector<Literal>& newClauses, const Constrai
 	int pivotVarIndex = getNodeIndexForVar(pivotVar);
 	SolverTimestamp pivotModTime = m_nodes[pivotVarIndex].time;
 
+	if (relationInfo.getFilter() != nullptr)
+	{
+		if (m_graphFilter == nullptr)
+		{
+			m_graphFilter = relationInfo.getFilter();
+		}
+		else
+		{
+			m_graphFilter = TManyToOneGraphRelation<bool>::combine(m_graphFilter, relationInfo.getFilter());
+		}
+	}
+	
 	//
 	// Insert all clauses into the disjunction, except for the pivot variable
 	//

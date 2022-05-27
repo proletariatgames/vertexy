@@ -28,6 +28,8 @@
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
 
+#include "topology/GraphRelations.h"
+
 namespace Vertexy
 {
 class IRestartPolicy;
@@ -370,13 +372,34 @@ class ConstraintSolver : public IVariableDomainProvider
 	template <typename ConstraintType, typename... ArgsType>
 	GraphConstraintID makeGraphConstraint(const shared_ptr<ITopology>& graph, ArgsType&&... args)
 	{
+		return makeGraphConstraintWithFilter<ConstraintType>(graph, nullptr, args...);
+	}
+
+	template <typename ConstraintType, typename Topo, typename... ArgsType>
+	GraphConstraintID makeGraphConstraint(const shared_ptr<Topo>& graph, ArgsType&&... args)
+	{
+		return makeGraphConstraint<ConstraintType>(ITopology::adapt(graph), forward<ArgsType>(args)...);
+	}
+	
+	template<typename ConstraintType, typename... ArgsType>
+	GraphConstraintID makeGraphConstraintWithFilter(const shared_ptr<ITopology>& graph, const IGraphRelationPtr<bool>& filter, ArgsType&&... args)
+	{
 		bool anyMade = false;
 
 		auto graphConstraintData = make_shared<TTopologyVertexData<IConstraint*>>(graph, nullptr);
 
 		for (int vertex = 0; vertex < graph->getNumVertices(); ++vertex)
 		{
-			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, vertex, forward<ArgsType>(args)...);
+			if (filter != nullptr)
+			{
+				bool isValid;
+				if (!filter->getRelation(vertex, isValid) || !isValid)
+				{
+					continue;
+				}
+			}
+			
+			IConstraint* cons = maybeInstanceGraphConstraint<ConstraintType>(graph, filter, vertex, forward<ArgsType>(args)...);
 			if (cons != nullptr)
 			{
 				anyMade = true;
@@ -392,13 +415,7 @@ class ConstraintSolver : public IVariableDomainProvider
 		m_graphConstraints.push_back(graphConstraintData);
 		return GraphConstraintID(m_graphConstraints.size());
 	}
-
-	template <typename ConstraintType, typename Topo, typename... ArgsType>
-	GraphConstraintID makeGraphConstraint(const shared_ptr<Topo>& graph, ArgsType&&... args)
-	{
-		return makeGraphConstraint<ConstraintType>(ITopology::adapt(graph), forward<ArgsType>(args)...);
-	}
-
+	
 	// Generic method for constructing a constraint.
 	// Usage: Solver.MakeConstraint<FMyConstraintType>(ConstructorParam1, ConstructorParam2, ...);
 	template <typename T, typename... ArgsType>
@@ -749,9 +766,9 @@ protected:
 	}
 
 	template <typename T, typename... ArgsType>
-	IConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, uint32_t vertexIndex, ArgsType&&... args)
+	IConstraint* maybeInstanceGraphConstraint(const shared_ptr<ITopology>& graph, const IGraphRelationPtr<bool>& filter, uint32_t vertexIndex, ArgsType&&... args)
 	{
-		ConstraintGraphRelationInfo graphRelationInfo(graph, vertexIndex);
+		ConstraintGraphRelationInfo graphRelationInfo(graph, vertexIndex, filter);
 
 		IConstraint* out = nullptr;
 

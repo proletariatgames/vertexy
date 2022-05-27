@@ -434,6 +434,15 @@ public:
 	// Given two relations, creates a TManyToOneRelation containing both of them.
 	static shared_ptr<const IGraphRelation<T>> combine(const shared_ptr<const IGraphRelation<T>>& first, const shared_ptr<const IGraphRelation<T>>& second)
 	{
+		if (first == nullptr)
+		{
+			return second;
+		}
+		else if (second == nullptr)
+		{
+			return first;
+		}
+		
 		if (first->equals(*second))
 		{
 			return first;

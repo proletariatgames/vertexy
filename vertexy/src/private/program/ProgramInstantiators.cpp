@@ -261,13 +261,17 @@ void EqualityInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 
     // all variables in right hand side should be fully bound now
     ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
-    if (rhsSym.isAbstract())
+    if (rhsSym.isAbstract() || (dynamic_cast<VertexTerm*>(m_term.lhs.get()) != nullptr))
     {
-        // If the right hand side is abstract, we may need to create an abstract relation.
+        // Create an abstract relation
         ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
         if (sym.isInvalid())
         {
             m_hitEnd = true;
+        }
+        else
+        {
+            vxy_assert(sym.isAbstract());
         }
     }
     else

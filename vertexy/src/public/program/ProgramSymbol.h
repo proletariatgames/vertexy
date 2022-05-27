@@ -114,7 +114,7 @@ private:
     GraphVertexRelationPtr* getAbstractRelationPtr();
 
     uint64_t m_packed;
-    uint64_t m_smartPtrBytes[sizeof(std::shared_ptr<int>)/sizeof(uint64_t)] {};
+    uint64_t m_smartPtrBytes[sizeof(shared_ptr<int>)/sizeof(uint64_t)] {};
 };
 
 // Represents a unique grounded formula call.
