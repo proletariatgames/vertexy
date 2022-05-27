@@ -11,6 +11,7 @@
 using namespace Vertexy;
 static constexpr bool LOG_RULE_INSTANTIATION = false;
 static constexpr bool LOG_MATH_REWRITE = false;
+static constexpr bool LOG_VAR_INSTANTIATION = false;
 
 struct VariableNameAllocator
 {
@@ -588,7 +589,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 auto& domain = m_groundedAtoms[bodySym.getFormula()->uid]; 
                 vxy_assert(domain->abstractTopology == nullptr || domain->abstractTopology == stmtNode->stmt->topology);
                 domain->abstractTopology = stmtNode->stmt->topology; 
-                domain->isAbstract = true;
+                domain->containsAbstract = true;
             }
         }
         else
@@ -777,7 +778,7 @@ void ProgramCompiler::exportRules()
         auto exportMapIt = m_exportedLits.insert({formulaUID, make_unique<ExportMap>()}).first;
         
         auto foundBinder = m_binders.find(formulaUID);
-        if (domain->isAbstract)
+        if (domain->containsAbstract)
         {
             vxy_sanity(m_exportedFormulas.find(formulaUID) == m_exportedFormulas.end());
             auto mapper = make_unique<FormulaMapper>(
@@ -945,7 +946,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
 
     // Handle concrete symbols
     auto domainIt = m_groundedAtoms.find(symbol.getFormula()->uid);
-    if (domainIt != m_groundedAtoms.end() && !domainIt->second->isAbstract)
+    if (domainIt != m_groundedAtoms.end() && !domainIt->second->containsAbstract)
     {
         vxy_sanity(!symbol.containsAbstract());
         
@@ -1067,9 +1068,9 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
 
         if (atom.symbol.containsAbstract())
         {
-            if (!domain.isAbstract)
+            if (!domain.containsAbstract)
             {
-                domain.isAbstract = true;
+                domain.containsAbstract = true;
                 domain.abstractTopology = topology;
             }
             else
@@ -1256,13 +1257,13 @@ FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wch
 {
 }
 
-Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, bool createIfNotFound) const
+Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, CreationType creationType) const
 {
     size_t argHash = ArgumentHasher()(concrete);
     auto found = m_bindMap.find_by_hash(concrete, argHash);
     if (found == m_bindMap.end())
     {
-        if (!createIfNotFound)
+        if (creationType == NeverCreate)
         {
             return {};
         }
@@ -1275,6 +1276,11 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, bool cr
 
         if (!lit.isValid())
         {
+            if (creationType == CreateIfBound)
+            {
+                return {};
+            }
+            
             wstring name = m_formulaName;
             name.append(TEXT("("));
             for (int i = 0; i < concrete.size(); ++i)
@@ -1288,8 +1294,11 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, bool cr
             name.append(TEXT(")"));
 
             lit = Literal(m_rdb.getSolver().makeBoolean(name), SolverVariableDomain(0,1).getBitsetForValue(1));
+            if (lit.isValid() && LOG_VAR_INSTANTIATION)
+            {
+                VERTEXY_LOG("  Created %s", name.c_str());
+            }
         }
-
         found = m_bindMap.insert(argHash, nullptr, {concrete, move(lit)}).first;
     }
     vxy_assert(found->second.isValid());
@@ -1304,24 +1313,16 @@ FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, c
     vxy_assert(symbol.isNormalFormula());
     vxy_assert(symbol.isPositive());
     vxy_assert(m_formulaMapper->getFormulaUID() == symbol.getFormula()->uid);
-    m_concrete.resize(symbol.getFormula()->args.size());
 }
 
 bool FormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
 {
-    auto formula = m_symbol.getFormula();
-
-    const int numArgs = formula->args.size();
-    for (int i = 0; i < numArgs; ++i)
+    if (!makeConcrete(sourceVertex, m_concrete))
     {
-        m_concrete[i] = formula->args[i].makeConcrete(sourceVertex);
-        if (!m_concrete[i].isValid())
-        {
-            return false;
-        }
+        return false;
     }
 
-    out = m_formulaMapper->getLiteral(m_concrete, m_isHeadTerm);
+    out = m_formulaMapper->getLiteral(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
     return out.isValid();
 }
 
@@ -1344,6 +1345,38 @@ wstring FormulaGraphRelation::toString() const
     wstring out = TEXT("F:");
     out.append(m_symbol.toString());
     return out;
+}
+
+bool FormulaGraphRelation::needsInstantiation() const
+{
+    return m_formulaMapper->hasBinder();
+}
+
+bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral) const
+{
+    if (!makeConcrete(vertex, m_concrete))
+    {
+        return false;
+    }
+    outLiteral = m_formulaMapper->getLiteral(m_concrete, FormulaMapper::CreateIfBound);
+    return outLiteral.isValid();
+}
+
+bool FormulaGraphRelation::makeConcrete(int vertex, vector<ProgramSymbol>& outConcrete) const
+{
+    auto formula = m_symbol.getFormula();
+    const int numArgs = formula->args.size();
+    m_concrete.resize(numArgs);
+    
+    for (int i = 0; i < numArgs; ++i)
+    {
+        outConcrete[i] = formula->args[i].makeConcrete(vertex);
+        if (!outConcrete[i].isValid())
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const Literal& trueValue)

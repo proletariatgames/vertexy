@@ -1360,7 +1360,7 @@ void ConstraintSolver::notifyVariableModification(VarID variable, IConstraint* c
 
 	if (LOG_VARIABLE_PROPAGATIONS)
 	{
-		VERTEXY_LOG("    %s[%d] -> %s", m_variableDB.getVariableName(variable).c_str(), variable.raw(), m_variableDB.getPotentialValues(variable).toString().c_str());
+		VERTEXY_LOG("    mod %s[%d] -> %s", m_variableDB.getVariableName(variable).c_str(), variable.raw(), m_variableDB.getPotentialValues(variable).toString().c_str());
 	}
 }
 
@@ -1648,6 +1648,8 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 
 	bool success = true;
 
+	auto& filter = constraint.getGraphRelationInfo()->getFilter();
+
 	static vector<Literal> nodeClauses;
 	vxy_sanity(startVertex < graph->getNumVertices());
 	for (int nodeIndex = startVertex; nodeIndex < graph->getNumVertices(); ++nodeIndex)
@@ -1656,6 +1658,15 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 		if (nodeIndex == promotingNode)
 		{
 			continue;
+		}
+
+		if (filter != nullptr)
+		{
+			bool isValid;
+			if (!filter->getRelation(nodeIndex, isValid) || !isValid)
+			{
+				continue;
+			}
 		}
 
 		ConstraintGraphRelationInfo newRelationInfo;

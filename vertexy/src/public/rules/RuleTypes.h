@@ -37,10 +37,23 @@ struct AtomID
     int32_t value;
 };
 
-struct AbstractAtomRelationInfo
+// Relation type for abstract atom literals.
+class IAtomGraphRelation : public IGraphRelation<Literal>
 {
+public:
+    // Whether we need to instantiate this atom. Only true if the underlying formula has a binder.
+    virtual bool needsInstantiation() const = 0;    
+    // Bind the variable for this vertex and assign its deduced value.
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const = 0;
+};
+
+using AtomGraphRelationPtr = shared_ptr<const IAtomGraphRelation>;
+
+class AbstractAtomRelationInfo
+{
+public:
     // Maps the abstract atom literal to the variable/value it is bound to.
-    GraphLiteralRelationPtr literalRelation;
+    AtomGraphRelationPtr literalRelation;
     // The set of relations used to map this abstract literal to its body
     vector<GraphVertexRelationPtr> argumentRelations;
 
@@ -72,15 +85,15 @@ struct AbstractAtomRelationInfo
 
     const GraphLiteralRelationPtr& getInverseRelation() const
     {
-        if (invRelation == nullptr)
+        if (m_invRelation == nullptr)
         {
-            invRelation = make_shared<InvertLiteralGraphRelation>(literalRelation);
+            m_invRelation = make_shared<InvertLiteralGraphRelation>(literalRelation);
         }
-        return invRelation;
+        return m_invRelation;
     }
 
 private:
-    mutable GraphLiteralRelationPtr invRelation;
+    mutable GraphLiteralRelationPtr m_invRelation;
 };
 using AbstractAtomRelationInfoPtr = shared_ptr<AbstractAtomRelationInfo>;
 

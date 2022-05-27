@@ -37,7 +37,7 @@ public:
 	};
 
 	ConstraintGraphRelationInfo();
-	ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex);
+	ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex, const IGraphRelationPtr<bool>& filter=nullptr);
 
 	void invalidate();
 	void reset(const shared_ptr<ITopology>& graph, int sourceVertex);
@@ -59,8 +59,13 @@ public:
 
 	const vector<VariableRelation>& getVariableRelations() const { return m_variableRelations; }
 	const vector<LiteralRelation>& getLiteralRelations() const { return m_literalRelations; }
+
+	const IGraphRelationPtr<bool>& getFilter() const { return m_filter; }
 	
 protected:
+	// The filter for this relation: which vertices it can apply to.
+	IGraphRelationPtr<bool> m_filter;
+	
 	// Graph this constraint is associated with.
 	shared_ptr<ITopology> m_graph;
 	// The vertex within the graph this constraint was instantiated for.

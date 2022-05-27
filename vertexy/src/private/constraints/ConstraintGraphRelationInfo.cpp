@@ -9,8 +9,9 @@ ConstraintGraphRelationInfo::ConstraintGraphRelationInfo()
 {
 }
 
-ConstraintGraphRelationInfo::ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex)
-	: m_graph(graph)
+ConstraintGraphRelationInfo::ConstraintGraphRelationInfo(const shared_ptr<ITopology>& graph, int sourceVertex, const IGraphRelationPtr<bool>& filter)
+	: m_filter(filter)
+	, m_graph(graph)
 	, m_sourceGraphVertex(sourceVertex)
 {
 }

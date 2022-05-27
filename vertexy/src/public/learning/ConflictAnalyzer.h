@@ -103,6 +103,7 @@ protected:
 	SolverDecisionLevel m_topLevel = -1;
 	int m_numTopLevelNodes = -1;
 	shared_ptr<ITopology> m_graph = nullptr;
+	IGraphRelationPtr<bool> m_graphFilter = nullptr;
 	int m_anchorGraphVertex = -1;
 
 	vector<ImplicationNode> m_nodes;

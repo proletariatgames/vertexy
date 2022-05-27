@@ -22,8 +22,15 @@ class DigraphTopology;
 class FormulaMapper
 {
 public:
+    enum CreationType
+    {
+        NeverCreate,
+        AlwaysCreate,
+        CreateIfBound
+    };
+    
     FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder);
-    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, bool createIfNotFound) const;
+    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, CreationType creationType) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
 
     bool contains(const vector<ProgramSymbol>& concreteArgs) const
@@ -34,6 +41,8 @@ public:
     void setAtomID(AtomID id) { m_atomId = id; }
     AtomID getAtomID() const { return m_atomId; }
 
+    bool hasBinder() const { return m_binder != nullptr; }
+    
 private:
     struct ArgumentHasher
     {
@@ -58,7 +67,7 @@ private:
 };
 using FormulaMapperPtr = shared_ptr<FormulaMapper>;
 
-class AbstractAtomLiteralRelation : public IGraphRelation<Literal>
+class AbstractAtomLiteralRelation : public IAtomGraphRelation
 {
 public:
     void setAtomID(AtomID atomID) { m_atomID = atomID; }
@@ -66,6 +75,9 @@ public:
     void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
 
+    virtual bool needsInstantiation() const override { return false; }    
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override { return false; }
+    
 protected:
     AbstractAtomRelationInfoPtr m_relationInfo;
     AtomID m_atomID;
@@ -84,7 +96,12 @@ public:
     virtual size_t hash() const override;
     virtual wstring toString() const override;
 
+    virtual bool needsInstantiation() const override;
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override;
+
 private:
+    bool makeConcrete(int vertex, vector<ProgramSymbol>& outConcrete) const;
+    
     FormulaMapperPtr m_formulaMapper;
     ProgramSymbol m_symbol;
     bool m_isHeadTerm;
@@ -140,7 +157,7 @@ public:
     {
         FormulaUID uid = FormulaUID(-1);
 
-        bool isAbstract = false;
+        bool containsAbstract = false;
         bool isExternal = false;
         ITopologyPtr abstractTopology = nullptr;
 

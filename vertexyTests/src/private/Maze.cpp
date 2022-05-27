@@ -85,8 +85,11 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		// define the entrance/exit positions, based on the program inputs.
 		VXY_FORMULA(entrance, 1);
 		VXY_FORMULA(exit, 1);
-		entrance(entranceVertex);
-		exit(exitVertex);
+		entrance(vertex) <<= vertex == entranceVertex;
+		exit(vertex) <<= vertex == exitVertex;
+		// TODO: Fix so this works
+		// entrance(entranceVertex);
+		// exit(exitVertex);
 
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
 		VXY_FORMULA(border, 1);
