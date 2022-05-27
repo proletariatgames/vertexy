@@ -120,7 +120,7 @@ private:
 // Represents a unique grounded formula call.
 class ConstantFormula
 {
-    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args);
+    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, size_t hash);
 
 public:
     FormulaUID uid;
@@ -131,8 +131,11 @@ public:
     static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args);
 
     wstring toString() const;
+    size_t hash() const { return m_hash; }
 
 private:
+    size_t m_hash;
+    
     static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, size_t& outHash);
     static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args);
 

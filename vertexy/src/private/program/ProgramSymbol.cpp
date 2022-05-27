@@ -51,7 +51,13 @@ uint32_t ProgramSymbol::hash() const
     case ESymbolType::Abstract:
         return getAbstractRelation()->hash();
     case ESymbolType::External:
-        return combineHashes(eastl::hash<uint64_t>()(m_packed), getExternalFormulaProvider()->hash());
+        return combineHashes(getFormula()->hash(), getExternalFormulaProvider()->hash());
+    case ESymbolType::Formula:
+        return getFormula()->hash();
+    case ESymbolType::ID:
+        return eastl::hash<wstring>()(getID()); 
+    case ESymbolType::Integer:
+    case ESymbolType::Invalid:
     default:
         return eastl::hash<uint64_t>()(m_packed);
     }
@@ -68,11 +74,14 @@ bool ProgramSymbol::operator==(const ProgramSymbol& rhs) const
         return getAbstractRelation()->equals(*rhs.getAbstractRelation());
     case ESymbolType::External:
         return m_packed == rhs.m_packed && getExternalFormulaProvider() == rhs.getExternalFormulaProvider();
+    case ESymbolType::Integer:
+    case ESymbolType::ID:
+    case ESymbolType::Formula:
+    case ESymbolType::Invalid:
     default:
         return m_packed == rhs.m_packed;
     }
 }
-
 
 ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& provider)
 {
@@ -83,7 +92,7 @@ ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, con
         provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
         reinterpret_cast<intptr_t>(f)
     ) | (negated ? 0 : 1);
-    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
+    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);  // NOLINT(performance-no-int-to-ptr)
 }
 
 ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& provider)
@@ -95,7 +104,7 @@ ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<Pro
         provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
         reinterpret_cast<intptr_t>(f)
     ) | (negated ? 0 : 1);
-    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);
+    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == f);  // NOLINT(performance-no-int-to-ptr)
 }
 
 ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& provider)
@@ -106,7 +115,7 @@ ProgramSymbol::ProgramSymbol(const ConstantFormula* formula, bool negated, const
         provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
         reinterpret_cast<intptr_t>(formula)
     ) | (negated ? 0 : 1);
-    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == formula);
+    vxy_sanity(reinterpret_cast<ConstantFormula*>(decode(m_packed)) == formula);  // NOLINT(performance-no-int-to-ptr)
 }
 
 ProgramSymbol::ProgramSymbol(const ProgramSymbol& other)
@@ -157,6 +166,10 @@ void ProgramSymbol::destroySmartPointer()
         }
         break;
 
+    case ESymbolType::Integer:
+    case ESymbolType::ID:
+    case ESymbolType::Formula:
+    case ESymbolType::Invalid:
     default:
         // No need to do anything
         break;
@@ -357,9 +370,11 @@ IExternalFormulaProviderPtr* ProgramSymbol::getExternalFormulaProviderPtr()
     return reinterpret_cast<IExternalFormulaProviderPtr*>(m_smartPtrBytes);
 }
 
-ConstantFormula::ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args): uid(formula)
+ConstantFormula::ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, size_t hash)
+    : uid(formula)
     , name(formulaName)
     , args(args)
+    , m_hash(hash)
 {
 }
 
@@ -371,7 +386,7 @@ ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, c
         return existing;
     }
 
-    s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, args)));
+    s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, args, hash)));
     s_lookup.insert(hash, nullptr, s_formulas.back().get());
     return s_formulas.back().get();
 }
@@ -384,7 +399,7 @@ ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, v
         return existing;
     }
 
-    s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, move(args))));
+    s_formulas.push_back(unique_ptr<ConstantFormula>(new ConstantFormula(formula, name, move(args), hash)));
     s_lookup.insert(hash, nullptr, s_formulas.back().get());
     return s_formulas.back().get();
 }
@@ -439,7 +454,7 @@ ConstantFormula* ConstantFormula::getExisting(FormulaUID formula, const wchar_t*
 
 uint32_t ConstantFormula::makeHash(FormulaUID formula, const vector<ProgramSymbol>& args)
 {
-    uint32_t out = hash<int>()(formula);
+    uint32_t out = eastl::hash<int>()(formula);
     for (auto& arg : args)
     {
         out ^= arg.hash();
@@ -469,7 +484,7 @@ bool ConstantFormula::Hash::operator()(const ConstantFormula* consA, const Const
 
 uint32_t ConstantFormula::Hash::operator()(const ConstantFormula* cons) const
 {
-    uint32_t out = hash<int>()(cons->uid);
+    uint32_t out = eastl::hash<int>()(cons->uid);
     for (auto& arg : cons->args)
     {
         out ^= arg.hash();

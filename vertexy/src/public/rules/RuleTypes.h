@@ -76,7 +76,7 @@ public:
         }
         for (int i = 0; i < argumentRelations.size(); ++i)
         {
-            if (argumentRelations[i]->equals(*rhs.argumentRelations[i]))
+            if (!argumentRelations[i]->equals(*rhs.argumentRelations[i]))
             {
                 return false;
             }

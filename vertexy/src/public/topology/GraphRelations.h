@@ -616,8 +616,7 @@ public:
 
 	virtual size_t hash() const override
 	{
-		size_t dataHash = eastl::hash<TTopologyVertexData<T>*>()(m_data.get());
-		return combineHashes(dataHash, m_link.hash());
+		return m_link.hash();
 	}
 
 protected:
@@ -670,7 +669,7 @@ public:
 
 	virtual size_t hash() const override
 	{
-		return eastl::hash<EdgeTopology*>()(m_edgeTopology.get());
+		return 0;
 	}
 
 protected:
@@ -726,9 +725,7 @@ public:
 
 	virtual size_t hash() const override
 	{
-		size_t hash = eastl::hash<TOPO_TYPE*>()(m_topo.get());
-		hash = combineHashes(hash, eastl::hash<int>()(m_edgeIndex));
-		return hash;
+		return eastl::hash<int>()(m_edgeIndex);
 	}
 
 protected:
@@ -792,10 +789,7 @@ public:
 
 	virtual size_t hash() const override
 	{
-		size_t hash = eastl::hash<TOPO_TYPE*>()(m_vertexTopo.get());
-		hash = combineHashes(hash, eastl::hash<EdgeTopology*>()(m_edgeTopo.get()));
-		hash = combineHashes(hash, eastl::hash<int>()(m_edgeIndex));
-		return hash;
+		return eastl::hash<int>()(m_edgeIndex);
 	}
 
 protected:

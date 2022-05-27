@@ -37,6 +37,19 @@ public:
     template<typename ValueType>
     using RelationMap = hash_map<AbstractAtomRelationInfoPtr, ValueType, RelationSetHasher, pointer_value_equality>;
 
+    struct ArgumentHasher
+    {
+        size_t operator()(const vector<int>& concreteArgs) const
+        {
+            size_t hash = 0;
+            for (auto& arg : concreteArgs)
+            {
+                hash = combineHashes(hash, eastl::hash<int>()(arg));
+            }
+            return hash;
+        }
+    };
+
     struct AtomInfo
     {
         AtomInfo() {}
@@ -54,7 +67,7 @@ public:
         virtual const ConcreteAtomInfo* asConcrete() const { return nullptr; }
 
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) = 0;
-        virtual FactGraphFilterPtr getFilter(ETruthStatus truthStatus) const = 0;
+        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
         virtual bool isFullyKnown() const { return status != ETruthStatus::Undetermined; }
@@ -92,7 +105,7 @@ public:
 
         virtual const ConcreteAtomInfo* asConcrete() const override { return this; }
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
-        virtual FactGraphFilterPtr getFilter(ETruthStatus truthStatus) const override { return nullptr; }        
+        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const override { return nullptr; }        
         virtual ITopologyPtr getTopology() const override { return nullptr; }        
         
         bool synchronize(RuleDatabase& rdb);
@@ -118,7 +131,7 @@ public:
         virtual const AbstractAtomInfo* asAbstract() const override { return this; }
         virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
         virtual ITopologyPtr getTopology() const override { return topology; }
-        virtual FactGraphFilterPtr getFilter(ETruthStatus truthStatus) const override;
+        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const override;
 
         virtual bool isFullyKnown() const override;
         void lockVariableCreation();
@@ -128,14 +141,10 @@ public:
         // The topology used for making this atom concrete
         ITopologyPtr topology;
         
-        vector<ConcreteAtomInfo*> concreteAtoms;
+        hash_map<vector<int>, ConcreteAtomInfo*, ArgumentHasher> concreteAtoms;
         int numUnknownConcretes = 0;
         bool hasTrueConcretes = false;
         bool hasFalseConcretes = false;
-
-        mutable FactGraphFilterPtr excludeTrueFilter;
-        mutable FactGraphFilterPtr excludeFalseFilter;
-        mutable FactGraphFilterPtr excludeKnownFilter;
     };
 
     struct ConcreteBodyInfo;
@@ -253,20 +262,7 @@ public:
         bool hasTrueConcretes = false;
         bool hasFalseConcretes = false;
     };
-
-    struct ArgumentHasher
-    {
-        size_t operator()(const vector<int>& concreteArgs) const
-        {
-            size_t hash = 0;
-            for (auto& arg : concreteArgs)
-            {
-                hash = combineHashes(hash, eastl::hash<int>()(arg));
-            }
-            return hash;
-        }
-    };
-
+    
     explicit RuleDatabase(ConstraintSolver& solver);
     RuleDatabase(const RuleDatabase&) = delete;
     RuleDatabase(RuleDatabase&&) = delete;
@@ -293,6 +289,8 @@ public:
     const BodyInfo* getBody(int32_t id) const { return m_bodies[id].get(); }
 
     bool getLiteralForBody(const AbstractBodyInfo& body, const vector<int>& headArguments, Literal& outLiteral);
+
+    static bool getConcreteArgumentsForRelation(const AbstractAtomRelationInfoPtr& relationInfo, int vertex, vector<int>& outArgs);
 
 protected:
     void setConflicted();
@@ -337,11 +335,9 @@ protected:
         GroundingData(int numOldAtoms, int numOldBodies)
         {
             bodyMappings.resize(numOldBodies);
-            abstractAtomMappings.resize(numOldAtoms);
         }
 
         vector<vector<int32_t>> bodyMappings;
-        vector<hash_map<vector<int>, AtomID, ArgumentHasher>> abstractAtomMappings;
     };
 
     static bool isConcreteLiteral(const ALiteral& lit);
@@ -503,8 +499,8 @@ class FactGraphFilter : public IGraphRelation<bool>
     FactGraphFilter() {}
     
 public:
-    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, RuleDatabase::ETruthStatus excludeStatus);
-    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo);
+    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo, RuleDatabase::ETruthStatus excludeStatus);
+    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo);
     FactGraphFilter(const RuleDatabase::AbstractBodyInfo* bodyInfo);
 
     virtual bool getRelation(VertexID sourceVertex, bool& out) const override;

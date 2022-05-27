@@ -147,7 +147,7 @@ bool RuleDatabase::finalize()
             FactGraphFilterPtr filter;
             if (bodyLitAtom->isFullyKnown())
             {
-                filter = bodyLitAtom->getFilter(bodyLit.sign() ? ETruthStatus::True : ETruthStatus::False);
+                filter = bodyLitAtom->getFilter(bodyLit.getRelationInfo(), bodyLit.sign() ? ETruthStatus::True : ETruthStatus::False);
             }
             else
             {
@@ -177,7 +177,7 @@ bool RuleDatabase::finalize()
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, true), true, bodyInfo->getTopology());
             m_nogoodBuilder.add(headLit, true, headAtomInfo->getTopology());
 
-            auto filter = FactGraphFilter::combine(headAtomInfo->getFilter(ETruthStatus::Undetermined), bodyInfo->getFilter());
+            auto filter = FactGraphFilter::combine(headAtomInfo->getFilter(ith->getRelationInfo(), ETruthStatus::Undetermined), bodyInfo->getFilter());
             m_nogoodBuilder.emit(*this, filter);
         }
 
@@ -271,7 +271,7 @@ bool RuleDatabase::finalize()
                     continue;
                 }
 
-                auto filter = abstractAtom->getFilter(ETruthStatus::Undetermined);
+                auto filter = abstractAtom->getFilter(absLit.first, ETruthStatus::Undetermined);
 
                 for (auto bodyInfo : abstractAtom->supports)
                 {
@@ -542,6 +542,35 @@ bool RuleDatabase::getLiteralForBody(const AbstractBodyInfo& body, const vector<
         concreteBody->equivalence = outLit;
     }    
     return true; 
+}
+
+bool RuleDatabase::getConcreteArgumentsForRelation(const AbstractAtomRelationInfoPtr& relationInfo, int vertex, vector<int>& outArgs)
+{
+    outArgs.clear();    
+    if (relationInfo->argumentRelations.empty())
+    {
+        outArgs.push_back(vertex);
+    }
+    else
+    {
+        outArgs.reserve(relationInfo->argumentRelations.size());
+        for (auto& arg : relationInfo->argumentRelations)
+        {
+            int resolved;
+            if (!arg->getRelation(vertex, resolved))
+            {
+                break;
+            }
+            outArgs.push_back(resolved);                
+        }
+
+        if (outArgs.size() != relationInfo->argumentRelations.size())
+        {
+            return false;
+        }
+    }
+
+    return true;    
 }
 
 AtomID RuleDatabase::getTrueAtom()
@@ -1110,6 +1139,8 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
     outSomeFailed = false;
     
     vector<AtomLiteral> newLits;
+    vector<int> args;
+
     for (auto& oldLit : oldLits)
     {
         if (m_trueAtom.isValid() && oldLit.id() == m_trueAtom)
@@ -1133,37 +1164,16 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
             auto& relationInfo = oldLit.getRelationInfo();
             auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(*this, oldLit));
             
-            vector<int> args;
-            if (relationInfo->argumentRelations.empty())
+            if (!getConcreteArgumentsForRelation(relationInfo, vertex, args))
             {
-                args.push_back(vertex);
-            }
-            else
-            {
-                args.reserve(relationInfo->argumentRelations.size());
-                for (auto& arg : relationInfo->argumentRelations)
+                if (oldLit.sign())
                 {
-                    int resolved;
-                    if (!arg->getRelation(vertex, resolved))
-                    {
-                        break;
-                    }
-                    args.push_back(resolved);
+                    outSomeFailed = true;
                 }
-
-                if (args.size() != relationInfo->argumentRelations.size())
-                {
-                    // No relation
-                    if (oldLit.sign())
-                    {
-                        outSomeFailed = true;
-                    }
-
-                    continue;
-                }
+                continue;
             }
             
-            auto& mappings = groundingData.abstractAtomMappings[oldLit.id().value]; 
+            auto& mappings = oldAbsInfo->concreteAtoms; 
             auto found = mappings.find(args);
             if (found == mappings.end())
             {
@@ -1176,7 +1186,7 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
                 continue;
             }
 
-            auto foundAtom = getAtom(found->second);
+            auto foundAtom = found->second;
             if (foundAtom->status != ETruthStatus::Undetermined)
             {
                 if ((foundAtom->status == ETruthStatus::True && !oldLit.sign()) ||
@@ -1190,7 +1200,7 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
                 }
             }
 
-            newLits.push_back(AtomLiteral(found->second, oldLit.sign(), oldLit.getRelationInfo()));
+            newLits.push_back(AtomLiteral(found->second->id, oldLit.sign(), oldLit.getRelationInfo()));
         }
     }
     
@@ -1205,8 +1215,6 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
         auto& bodyMapping = groundingData.bodyMappings[oldBody.id];
         bodyMapping.resize(oldAbstractBody->topology->getNumVertices(), -1);
 
-        auto& bodyHeadRelInfo = oldAbstractBody->headRelationInfo;
-        
         for (int vertex = 0; vertex < oldAbstractBody->topology->getNumVertices(); ++vertex)
         {
             vector<int> headArgs;
@@ -1323,31 +1331,12 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
 
         vector<int> args;
 
-        auto& vertexMap = groundingData.abstractAtomMappings[oldAbstractAtom->id.value];
+        auto& vertexMap = oldAbstractAtom->concreteAtoms;
         for (int vertex = 0; vertex < oldAbstractAtom->topology->getNumVertices(); ++vertex)
         {
-            args.clear();
-            if (relationInfo->argumentRelations.empty())
+            if (!getConcreteArgumentsForRelation(relationInfo, vertex, args))
             {
-                args.push_back(vertex);
-            }
-            else
-            {
-                args.reserve(relationInfo->argumentRelations.size());
-                for (auto& argRel : relationInfo->argumentRelations)
-                {
-                    int resolved;
-                    if (!argRel->getRelation(vertex, resolved))
-                    {
-                        break;
-                    }
-                    args.push_back(resolved);
-                }
-
-                if (args.size() != relationInfo->argumentRelations.size())
-                {
-                    continue;
-                }
+                continue;
             }
 
             ETruthStatus truthStatus;
@@ -1371,7 +1360,7 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             if (auto found = vertexMap.find(args);
                 found != vertexMap.end())
             {
-                auto existing = getAtom(found->second)->asConcrete();
+                auto existing = found->second;
                 if (existing->status == ETruthStatus::Undetermined)
                 {
                     setAtomStatus(existing, truthStatus);
@@ -1398,9 +1387,7 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             oldAbstractAtom->numUnknownConcretes++;
             setAtomStatus(newAtom.get(), truthStatus);
             
-            oldAbstractAtom->concreteAtoms.push_back(newAtom.get());
-
-            vertexMap[args] = AtomID(newAtom->id);
+            oldAbstractAtom->concreteAtoms.insert({args, newAtom.get()});
             m_atoms.push_back(move(newAtom));
         }
     }
@@ -1501,46 +1488,33 @@ RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(RuleDatabase& 
     return atomLit.sign() ? atomLit.getRelationInfo()->literalRelation : atomLit.getRelationInfo()->getInverseRelation();
 }
 
-FactGraphFilterPtr RuleDatabase::AbstractAtomInfo::getFilter(ETruthStatus truthStatus) const
+FactGraphFilterPtr RuleDatabase::AbstractAtomInfo::getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const
 {
-    if (truthStatus == ETruthStatus::True)
+    switch (truthStatus)
     {
-        // We want to exclude all vertices where the atom is known to be true.
+    case ETruthStatus::True:
         if (!hasTrueConcretes)
         {
             return nullptr;
         }
-        if (excludeTrueFilter == nullptr)
-        {
-            excludeTrueFilter = make_shared<FactGraphFilter>(this, ETruthStatus::True);
-        }
-        return excludeTrueFilter;
-    }
-    else if (truthStatus == ETruthStatus::False)
-    {
-        // We want to exclude all vertices where the atom is known to be false.
+        break;
+
+    case ETruthStatus::False:
         if (!hasFalseConcretes)
         {
             return nullptr;
         }
-        if (excludeFalseFilter == nullptr)
-        {
-            excludeFalseFilter = make_shared<FactGraphFilter>(this, ETruthStatus::False);
-        }
-        return excludeFalseFilter;
-    }
-    else
-    {
+        break;
+        
+    case ETruthStatus::Undetermined:
         if (!hasTrueConcretes && !hasFalseConcretes)
         {
             return nullptr;
         }
-        if (excludeKnownFilter == nullptr)
-        {
-            excludeKnownFilter = make_shared<FactGraphFilter>(this);
-        }
-        return excludeKnownFilter;
+        return make_shared<FactGraphFilter>(this, litRelationInfo);
     }
+    
+    return make_shared<FactGraphFilter>(this, litRelationInfo, truthStatus);
 }
 
 bool RuleDatabase::AbstractAtomInfo::isFullyKnown() const
@@ -1973,30 +1947,44 @@ size_t BodyInstantiatorRelation::hash() const
     return 0;
 }
 
-FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, RuleDatabase::ETruthStatus excludeStatus)
+FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo, RuleDatabase::ETruthStatus excludeStatus)
 {
     m_topology = atomInfo->getTopology();
     m_filter.pad(atomInfo->getTopology()->getNumVertices(), true);
-    
-    for (auto concreteAtom : atomInfo->concreteAtoms) 
+
+    vector<int> args;
+    for (int vertex = 0; vertex < m_topology->getNumVertices(); ++vertex)
     {
-        if (concreteAtom->status == excludeStatus)
+        if (!RuleDatabase::getConcreteArgumentsForRelation(relationInfo, vertex, args))
         {
-            m_filter[concreteAtom->parentVertex] = false;
+            continue;
+        }
+
+        auto it = atomInfo->concreteAtoms.find(args);
+        if (it != atomInfo->concreteAtoms.end() && it->second->status == excludeStatus)
+        {
+            m_filter[vertex] = false;
         }
     }
 }
 
-FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo)
+FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo)
 {
     m_topology = atomInfo->getTopology();
     m_filter.pad(atomInfo->getTopology()->getNumVertices(), true);
-    
-    for (auto concreteAtom : atomInfo->concreteAtoms) 
+
+    vector<int> args;
+    for (int vertex = 0; vertex < m_topology->getNumVertices(); ++vertex)
     {
-        if (concreteAtom->status != RuleDatabase::ETruthStatus::Undetermined)
+        if (!RuleDatabase::getConcreteArgumentsForRelation(relationInfo, vertex, args))
         {
-            m_filter[concreteAtom->parentVertex] = false;
+            continue;
+        }
+
+        auto it = atomInfo->concreteAtoms.find(args);
+        if (it != atomInfo->concreteAtoms.end() && it->second->status != RuleDatabase::ETruthStatus::Undetermined)
+        {
+            m_filter[vertex] = false;
         }
     }
 }
