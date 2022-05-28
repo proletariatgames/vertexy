@@ -175,18 +175,16 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
 void ProgramCompiler::createDependencyGraph(const vector<RelationalRuleStatement>& stmts)
 {
     m_depGraph = make_shared<DigraphTopology>();
-    m_depGraph->reset(stmts.size()+1);
+    m_depGraph->reset(stmts.size());
 
     m_depGraphData.initialize(ITopology::adapt(m_depGraph));
 
     m_edges.clear();
-    m_edges.resize(m_depGraph->getNumVertices()-1);
-
-    const int abstractSourceVertex = stmts.size();
+    m_edges.resize(m_depGraph->getNumVertices());
 
     // Build a graph, where each node is a Statement.
     // Create edges between Statements where a rule head points toward the bodies those heads appear in.
-    for (int vertex = 0; vertex < m_depGraph->getNumVertices()-1; ++vertex)
+    for (int vertex = 0; vertex < m_depGraph->getNumVertices(); ++vertex)
     {
         auto& stmt = stmts[vertex];
 
@@ -195,7 +193,7 @@ void ProgramCompiler::createDependencyGraph(const vector<RelationalRuleStatement
 
         stmt.statement->visitHead<FunctionHeadTerm>([&](const FunctionHeadTerm* headTerm)
         {
-            for (int otherVertex = 0; otherVertex < m_depGraph->getNumVertices()-1; ++otherVertex)
+            for (int otherVertex = 0; otherVertex < m_depGraph->getNumVertices(); ++otherVertex)
             {
                 auto& otherStmt = stmts[otherVertex];
                 otherStmt.statement->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
@@ -209,20 +207,7 @@ void ProgramCompiler::createDependencyGraph(const vector<RelationalRuleStatement
                 });
             }
         });
-
-        // Any body literals referring to an Abstract symbol should depend on the Abstract source.
-        stmt.statement->visitBody<FunctionTerm>([&](const FunctionTerm* bodyTerm)
-        {
-           if (bodyTerm->hasAbstractArgument())
-           {
-               m_depGraph->addEdge(abstractSourceVertex, vertex);
-               return Term::EVisitResponse::Abort;
-           }
-            return Term::EVisitResponse::Continue;
-        });
     }
-
-    vxy_assert(m_depGraph->getNumIncoming(abstractSourceVertex) == 0);
 }
 
 // Builds the set of components, where each component is a SCC of the dependency graph of positive literals.
@@ -460,9 +445,54 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     VariableMap bound;
     vector<UInstantiator> instantiators;
 
+    //
+    // Terms will bind variables in the following precedence:
+    // 1) External terms will always bind variables first (if they can).
+    // 2) Function terms that contain abstract terms (either previously bound abstract variables or VertexTerms) are next.
+    // 3) Finally, precedence follows right-to-left order.
+    // 
+    auto shouldTakePrecedence = [&](const LitNode* testLit, const LitNode* checkLit)
+    {
+        auto testLitFnTerm = dynamic_cast<const FunctionTerm*>(testLit->lit);
+        auto checkLitFnTerm = dynamic_cast<const FunctionTerm*>(checkLit->lit);
+        
+        bool testIsExternal = testLitFnTerm != nullptr && testLitFnTerm->provider != nullptr;
+        bool checkIsExternal = checkLitFnTerm != nullptr && checkLitFnTerm->provider != nullptr;
+        if (testIsExternal && !checkIsExternal)
+        {
+            return true;
+        }
+        else if (!testIsExternal && checkIsExternal)
+        {
+            return false;
+        }
+
+        bool testIsAbstract = testLit->lit->hasBoundAbstracts(*this, bound);
+        bool checkIsAbstract = checkLit->lit->hasBoundAbstracts(*this, bound);
+        if (testIsAbstract && !checkIsAbstract)
+        {
+            return true;
+        }
+        else if (!testIsAbstract && checkIsAbstract)
+        {
+            return false;
+        }
+
+        return false;
+    };
+    
     // go through each literal in dependency order.
     while (!openLits.empty())
     {
+        // Ensure precedence is satisfied.
+        for (auto it = openLits.begin(), itEnd = openLits.end()-1; it != itEnd; ++it)
+        {
+            if (shouldTakePrecedence(*it, openLits.back()))
+            {
+                swap(*it, openLits.back());
+            }
+        }
+        
         LitNode* litNode = openLits.back();
         openLits.pop_back();
 

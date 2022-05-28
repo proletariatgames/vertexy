@@ -172,7 +172,7 @@ public:
         virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) const = 0;
         virtual FactGraphFilterPtr getFilter() const = 0;
         virtual ITopologyPtr getTopology() const = 0;
-        virtual bool fullyKnown() const { return status != ETruthStatus::Undetermined; }
+        virtual bool isFullyKnown() const { return status != ETruthStatus::Undetermined; }
 
         bool isChoiceBody() const { return status == ETruthStatus::Undetermined; }
 
@@ -231,7 +231,7 @@ public:
         GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo);
         bool getHeadArgumentsForVertex(int vertex, vector<int>& outArgs) const;
         virtual FactGraphFilterPtr getFilter() const override;
-        virtual bool fullyKnown() const override;
+        virtual bool isFullyKnown() const override;
 
         void lockVariableCreation();
 
@@ -259,8 +259,6 @@ public:
         // Maps concrete head arguments to the associated concrete body
         hash_map<vector<int>, ConcreteBodyInfo*, ChildBodyHasher> concreteBodies;
         int numUnknownConcretes = 0;
-        bool hasTrueConcretes = false;
-        bool hasFalseConcretes = false;
     };
     
     explicit RuleDatabase(ConstraintSolver& solver);
@@ -361,7 +359,7 @@ protected:
     void makeConcrete();
     void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
     void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
-    vector<AtomLiteral> groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool filterKnown, bool& outSomeFailed);
+    vector<AtomLiteral> groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed);
     void hookupGroundedDependencies(ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
     // Solver that owns us

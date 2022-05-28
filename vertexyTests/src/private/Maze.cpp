@@ -85,12 +85,14 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		// define the entrance/exit positions, based on the program inputs.
 		VXY_FORMULA(entrance, 1);
 		VXY_FORMULA(exit, 1);
-		entrance(vertex) <<= vertex == entranceVertex;
-		exit(vertex) <<= vertex == exitVertex;
-		// TODO: Fix so this works
-		// entrance(entranceVertex);
-		// exit(exitVertex);
+		entrance(entranceVertex);
+		exit(exitVertex);
 
+		auto up = Program::graphLink(PlanarGridTopology::moveUp());
+		auto down = Program::graphLink(PlanarGridTopology::moveDown());
+		auto left = Program::graphLink(PlanarGridTopology::moveLeft());
+		auto right = Program::graphLink( PlanarGridTopology::moveRight());
+		
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
 		VXY_FORMULA(border, 1);
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveUp());
@@ -111,26 +113,31 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		emptyType(vertex) <<= entrance(vertex);
 		emptyType(vertex) <<= exit(vertex);
 
-		// // disallow a 2x2 block of walls
-		// Program::disallow(wall(X,Y) && wall(X1, Y) && wall(X, Y1) && wall(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-		// // disallow a 2x2 block of empty
-		// Program::disallow(emptyType(X,Y) && emptyType(X1, Y) && emptyType(X, Y1) && emptyType(X1, Y1) && X1 == X+1 && Y1 == Y+1);
-		//
-		// // If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
-		// Program::disallow(wall(X,Y) && wall(X+1,Y+1) && emptyType(X+1,Y) && emptyType(X, Y+1));
-		// Program::disallow(emptyType(X, Y) && emptyType(X+1, Y+1) && wall(X+1,Y) && wall(X,Y+1));
-		//
-		// // wallWithAdjacentWall(x,y) is only true when there is an adjacent cell that is a wall.
-		// VXY_FORMULA(wallWithAdjacentWall, 2);
-		// wallWithAdjacentWall(X,Y) <<= wall(X,Y) && adjacent(X, Y, X1, Y1) && wall(X1, Y1);
-		//
-		// // disallow walls that don't have any adjacent walls
-		// Program::disallow(wall(X,Y) && ~border(X,Y) && ~wallWithAdjacentWall(X,Y));
+		// disallow a 2x2 block of walls
+		VXY_VARIABLE(Right); VXY_VARIABLE(Down); VXY_VARIABLE(Down_Right);
+		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
+			wall(vertex) && wall(Right) && wall(Down) && wall(Down_Right));
+		// disallow a 2x2 block of empty
+		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
+			emptyType(vertex) && emptyType(Right) && emptyType(Down) && emptyType(Down_Right));
+		
+		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
+		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
+			wall(vertex) && wall(Down_Right) && emptyType(Right) && emptyType(Down));
+		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
+			emptyType(vertex) && emptyType(Down_Right) && wall(Right) && wall(Down));
+
+		// hasAdjacentWall(x) is only true when there is an adjacent cell that is a wall.
+		VXY_FORMULA(hasAdjacentWall, 1);
+		hasAdjacentWall(vertex) <<= Program::graphEdge(vertex, X) && wall(X);
+		
+		// disallow walls that don't have any adjacent walls
+		Program::disallow(wall(vertex) && ~border(vertex) && ~hasAdjacentWall(vertex));
 
 		// encode reachability (faster to do this with a reachability constraint)
 		VXY_FORMULA(reach, 1);
 		reach(vertex) <<= entrance(vertex);
-		reach(vertex) <<= reach(X) && emptyType(vertex) && Program::graphEdge(X, vertex);
+		reach(vertex) <<= Program::graphEdge(X, vertex) && reach(X) && emptyType(vertex);
 		Program::disallow(emptyType(vertex) && ~reach(vertex));
 
 		return MazeResult {wall, blank, entrance, exit};

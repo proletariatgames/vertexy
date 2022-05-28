@@ -173,6 +173,11 @@ bool VariableTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     return false;
 }
 
+bool VariableTerm::containsAbstracts() const
+{
+    return sharedBoundRef != nullptr && sharedBoundRef->containsAbstract();
+}
+
 ProgramSymbol VariableTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     auto found = overrideMap.find(sharedBoundRef.get());
@@ -360,16 +365,37 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     return true;
 }
 
-bool FunctionTerm::hasAbstractArgument() const
+bool FunctionTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
 {
     for (auto& arg : arguments)
     {
-        if (auto symTerm = dynamic_cast<const SymbolTerm*>(arg.get()))
+        if (arg->hasBoundAbstracts(compiler, varBindings))
         {
-            if (symTerm->sym.isAbstract())
+            return true;
+        }
+
+        if (auto varArg = dynamic_cast<const VariableTerm*>(arg.get()))
+        {
+            auto found = varBindings.find(varArg->var);
+            if (found != varBindings.end())
             {
-                return true;
+                if (compiler.getDomain(functionUID).containsAbstract)
+                {
+                    return true;
+                }
             }
+        }
+    }
+    return false;
+}
+
+bool FunctionTerm::containsAbstracts() const
+{
+    for (auto& arg : arguments)
+    {
+        if (arg->containsAbstracts())
+        {
+            return true;
         }
     }
     return false;
@@ -506,6 +532,16 @@ ProgramSymbol UnaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const Pr
     }
 
     return {};
+}
+
+bool UnaryOpTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
+{
+    return child->hasBoundAbstracts(compiler, varBindings);
+}
+
+bool UnaryOpTerm::containsAbstracts() const
+{
+    return child->containsAbstracts();
 }
 
 wstring UnaryOpTerm::toString() const
@@ -657,6 +693,16 @@ ProgramSymbol BinaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const P
 
         return ProgramSymbol(make_shared<BinOpGraphRelation>(leftRel, rightRel, op));
     }
+}
+
+bool BinaryOpTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
+{
+    return lhs->hasBoundAbstracts(compiler, varBindings) || rhs->hasBoundAbstracts(compiler, varBindings);
+}
+
+bool BinaryOpTerm::containsAbstracts() const
+{
+    return lhs->containsAbstracts() || rhs->containsAbstracts();
 }
 
 UTerm BinaryOpTerm::clone() const

@@ -16,7 +16,7 @@ void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol
     m_hitEnd = false;
     m_index = 0;
     m_subIndex = 0;
-    m_abstractCheckState = -1;
+    m_forceConcrete = !m_term.containsAbstracts();
     match(overrideMap, boundVertex);
 }
 
@@ -60,32 +60,28 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
             {
                 continue;
             }
+
+            if (m_forceConcrete && atom.symbol.containsAbstract())
+            {
+                // This term contains no abstracts, so we need to ground the abstract domain atom
+                for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
+                {
+                    ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
+                    if (!concreteSymbol.isValid())
+                    {
+                        continue;
+                    }
+        
+                    bool isFact = atom.isFact;
+                    if (m_term.match(concreteSymbol, overrideMap, boundVertex))
+                    {
+                        ++m_subIndex;
+                        return;
+                    }
+                }
             
-            // if (atom.symbol.containsAbstract())
-            // {
-            //     checkForTermAbstracts();
-            //     if (m_abstractCheckState == 0)
-            //     {
-            //         // This term contains no abstracts, so we need to ground the abstract domain atom
-            //         for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
-            //         {
-            //             ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
-            //             if (!concreteSymbol.isValid())
-            //             {
-            //                 continue;
-            //             }
-            //
-            //             bool isFact = atom.isFact;
-            //             if (m_term.match(concreteSymbol, isFact))
-            //             {
-            //                 ++m_subIndex;
-            //                 return;
-            //             }
-            //         }
-            //
-            //         continue;
-            //     }
-            // }
+                continue;
+            }
 
             bool isFact = atom.isFact;
             if (m_term.match(atom.symbol, overrideMap, boundVertex))
@@ -102,34 +98,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 void FunctionInstantiator::moveNextDomainAtom()
 {
     ++m_index;
-    m_abstractCheckState = -1;
     m_subIndex = 0;
-}
-
-void FunctionInstantiator::checkForTermAbstracts()
-{
-    if (m_abstractCheckState < 0)
-    {
-        // See if this term (now) contains abstracts
-        m_abstractCheckState = 0;
-        m_term.visit([&](const Term* term)
-        {
-            if (dynamic_cast<const VertexTerm*>(term) != nullptr)
-            {
-               m_abstractCheckState = 1;
-               return Term::EVisitResponse::Abort;
-            }
-            else if (auto varTerm = dynamic_cast<const VariableTerm*>(term))
-            {
-                if (varTerm->sharedBoundRef != nullptr && varTerm->sharedBoundRef->isAbstract())
-                {
-                    m_abstractCheckState = 1;
-                    return Term::EVisitResponse::Abort;
-                }
-            }
-            return Term::EVisitResponse::Continue;
-        });
-    }
 }
 
 bool FunctionInstantiator::hitEnd() const

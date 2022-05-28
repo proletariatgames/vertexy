@@ -49,7 +49,7 @@ bool RuleDatabase::finalize()
     //
     for (auto& bodyInfo : m_bodies)
     {
-        if (bodyInfo->asAbstract() != nullptr || bodyInfo->fullyKnown())
+        if (bodyInfo->asAbstract() != nullptr)
         {
             continue;
         }
@@ -57,13 +57,38 @@ bool RuleDatabase::finalize()
         static Literal tempLit;
         for (auto& head : bodyInfo->heads)
         {
-            AtomInfo* headAtomInfo = getAtom(head.id())->asConcrete();
-            if (isLiteralAssumed(head) || headAtomInfo->isFullyKnown())
+            auto headAtomInfo = getAtom(head.id())->asConcrete();
+            
+            if (headAtomInfo->abstractParent && headAtomInfo->abstractParent->isFullyKnown())
             {
+                // This is a concrete instantiation of an abstract that is fully known.
+                // No constraints will be created for the abstract, so we can safely skip creating a variable.
                 continue;
             }
-            
+
+            // Fully-known heads can't always be skipped, because they can be necessary for graph constraint
+            // construction. We can skip only if this head is NOT referred to by any bodies that aren't fully known.
+            if (headAtomInfo->isFullyKnown())
+            {
+                auto& checkDeps = headAtomInfo->status == ETruthStatus::True
+                    ? headAtomInfo->positiveDependencies
+                    : headAtomInfo->negativeDependencies;
+
+                if (!containsPredicate(checkDeps.begin(), checkDeps.end(), [&](auto&& bodyDep){ return !bodyDep->isFullyKnown(); }))
+                {
+                    // All dependencies for the literal are fully known, which means it won't be necessary
+                    // for any graph constraints, since those bodies are filtered out of any constraints we create.
+                    continue;
+                }
+            }
+
+            // Force the solver variable to be created.
             headAtomInfo->getLiteral(*this, head);
+            // We may need to synchronize at this point in the case of fully known atoms that still have dependencies.
+            if (headAtomInfo->isFullyKnown())
+            {
+                headAtomInfo->synchronize(*this);
+            }
         }
     }
 
@@ -73,7 +98,7 @@ bool RuleDatabase::finalize()
     //
     for (auto& bodyInfo : m_bodies)
     {
-        if (bodyInfo->fullyKnown())
+        if (bodyInfo->isFullyKnown())
         {
             continue;
         }
@@ -100,7 +125,7 @@ bool RuleDatabase::finalize()
                 auto bodyLitAtom = getAtom(bodyLit.id());
                 
                 ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
-                m_nogoodBuilder.add(atomLit, false, bodyLitAtom->getTopology());
+                m_nogoodBuilder.add(atomLit, bodyLit.sign(), bodyLitAtom->getTopology());
             }
             m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
             continue;
@@ -123,7 +148,7 @@ bool RuleDatabase::finalize()
 
                 auto bodyLitAtom = getAtom(bodyLit.id());
                 ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
-                m_nogoodBuilder.add(atomLit, false, bodyLitAtom->getTopology());
+                m_nogoodBuilder.add(atomLit, bodyLit.sign(), bodyLitAtom->getTopology());
             }
 
             m_nogoodBuilder.emit(*this, filter);
@@ -141,22 +166,9 @@ bool RuleDatabase::finalize()
             }
 
             auto bodyLitAtom = getAtom(bodyLit.id());
-
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), true, bodyInfo->getTopology());            
-
-            FactGraphFilterPtr filter;
-            if (bodyLitAtom->isFullyKnown())
-            {
-                filter = bodyLitAtom->getFilter(bodyLit.getRelationInfo(), bodyLit.sign() ? ETruthStatus::True : ETruthStatus::False);
-            }
-            else
-            {
-                ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit);
-                m_nogoodBuilder.add(atomLit, true, bodyLitAtom->getTopology());
-            }
-
-            filter = FactGraphFilter::combine(filter, bodyInfo->getFilter());
-            m_nogoodBuilder.emit(*this, filter);
+            m_nogoodBuilder.add(bodyLitAtom->getLiteral(*this, bodyLit), true, bodyLitAtom->getTopology());
+            m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
         }
         
         //
@@ -283,7 +295,7 @@ bool RuleDatabase::finalize()
                         continue;
                     }
 
-                    if (bodyInfo->fullyKnown())
+                    if (bodyInfo->isFullyKnown())
                     {
                         continue;
                     }
@@ -714,7 +726,7 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
     {
         AtomID atom(node+1);
         const AtomInfo* atomInfo = getAtom(atom)->asConcrete();
-        if (atomInfo == nullptr)
+        if (atomInfo == nullptr || atomInfo->isFullyKnown())
         {
             return;
         }
@@ -739,6 +751,10 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
         // visit each head that this body is supporting.
         for (auto& head : refBodyInfo->heads)
         {
+            if (getAtom(head.id())->isFullyKnown())
+            {
+                continue;
+            }
             visitor(head.id().value-1);
         }
     }
@@ -828,14 +844,6 @@ bool RuleDatabase::setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status)
             {
                 vxy_assert(body->abstractParent->numUnknownConcretes > 0);
                 body->abstractParent->numUnknownConcretes--;
-                if (status == ETruthStatus::True)
-                {
-                    body->abstractParent->hasTrueConcretes = true;
-                }
-                else if (status == ETruthStatus::False)
-                {
-                    body->abstractParent->hasFalseConcretes = true;
-                }
             }
         }
         else
@@ -925,7 +933,11 @@ bool RuleDatabase::propagateFacts()
             return false;
         }
     }
-
+    
+    //
+    // Debug output:
+    //
+    
     auto litToString = [&](const AtomLiteral& lit)
     {
         wstring out;
@@ -1134,7 +1146,7 @@ void RuleDatabase::makeConcrete()
     }
 }
 
-vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool filterKnown, bool& outSomeFailed)
+vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed)
 {
     outSomeFailed = false;
     
@@ -1187,17 +1199,11 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
             }
 
             auto foundAtom = found->second;
-            if (foundAtom->status != ETruthStatus::Undetermined)
+            if ( foundAtom->status != ETruthStatus::Undetermined &&
+                 ((foundAtom->status == ETruthStatus::True && !oldLit.sign()) ||
+                  (foundAtom->status == ETruthStatus::False && oldLit.sign())) )
             {
-                if ((foundAtom->status == ETruthStatus::True && !oldLit.sign()) ||
-                    (foundAtom->status == ETruthStatus::False && oldLit.sign()))
-                {
-                    outSomeFailed = true;
-                }
-                else if (filterKnown)
-                {
-                    continue;
-                }
+                outSomeFailed = true;
             }
 
             newLits.push_back(AtomLiteral(found->second->id, oldLit.sign(), oldLit.getRelationInfo()));
@@ -1228,14 +1234,14 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
             }
 
             bool someValsFailed;
-            vector<AtomLiteral> newValues = groundLiteralsToConcrete(vertex, oldAbstractBody->atomLits, groundingData, true, someValsFailed);
+            vector<AtomLiteral> newValues = groundLiteralsToConcrete(vertex, oldAbstractBody->atomLits, groundingData, someValsFailed);
             if (someValsFailed)
             {
                 continue;
             }
             
             bool someHeadsFailed;
-            vector<AtomLiteral> newHeads = groundLiteralsToConcrete(vertex, oldAbstractBody->heads, groundingData, true, someHeadsFailed);
+            vector<AtomLiteral> newHeads = groundLiteralsToConcrete(vertex, oldAbstractBody->heads, groundingData, someHeadsFailed);
             if (newHeads.empty() && !oldAbstractBody->heads.empty())
             {
                 continue;
@@ -1372,7 +1378,11 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             for (int i = 0; i < args.size(); ++i)
             {
                 if (i > 0) name += TEXT(", ");
-                name += to_wstring(args[i]);
+                // !!FIXME!! This isn't quite right: we're assuming all arguments are abstracts, but you could do
+                // something like this:
+                //     f(vertex, 2) <<= blah(vertex);
+                // in which case we don't want to translate the "2"
+                name += oldAtomInfo->getTopology()->vertexIndexToString(args[i]);
             }
             name += TEXT(")");
             
@@ -1455,7 +1465,7 @@ bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
         {
             equivalence = Literal{};
             return true;
-        }        
+        }
     }
 
     if (!equivalence.variable.isValid())
@@ -1652,11 +1662,6 @@ bool RuleDatabase::AbstractBodyInfo::getHeadArgumentsForVertex(int vertex, vecto
 
 FactGraphFilterPtr RuleDatabase::AbstractBodyInfo::getFilter() const
 {
-    if (!hasTrueConcretes && !hasFalseConcretes)
-    {
-        return nullptr;
-    }
-
     if (filter == nullptr)
     {
         filter = make_shared<FactGraphFilter>(this);
@@ -1664,9 +1669,9 @@ FactGraphFilterPtr RuleDatabase::AbstractBodyInfo::getFilter() const
     return filter;
 }
 
-bool RuleDatabase::AbstractBodyInfo::fullyKnown() const
+bool RuleDatabase::AbstractBodyInfo::isFullyKnown() const
 {
-    if (BodyInfo::fullyKnown())
+    if (BodyInfo::isFullyKnown())
     {
         return true;
     }
@@ -1993,12 +1998,12 @@ FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractBodyInfo* bodyInfo)
 {
     m_topology = bodyInfo->getTopology();
     
-    m_filter.pad(bodyInfo->getTopology()->getNumVertices(), true);
+    m_filter.pad(bodyInfo->getTopology()->getNumVertices(), false);
     for (auto& concreteBodyEntry : bodyInfo->concreteBodies)
     {
-        if (concreteBodyEntry.second->status != RuleDatabase::ETruthStatus::Undetermined)
+        if (concreteBodyEntry.second->status == RuleDatabase::ETruthStatus::Undetermined)
         {
-            m_filter[concreteBodyEntry.second->parentVertex] = false;
+            m_filter[concreteBodyEntry.second->parentVertex] = true;
         }
     }
 }

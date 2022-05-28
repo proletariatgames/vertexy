@@ -218,7 +218,7 @@ IConstraint* ConstraintSolver::registerConstraint(IConstraint* constraint)
 		m_backtrackingConstraints.push_back(static_cast<IBacktrackingSolverConstraint*>(constraint));
 	}
 
-	if constexpr (LOG_CLAUSE_CONSTRAINTS)
+	if (LOG_CLAUSE_CONSTRAINTS && m_currentStatus == EConstraintSolverResult::Uninitialized)
 	{
 		if (auto cc = constraint->asClauseConstraint())
 		{

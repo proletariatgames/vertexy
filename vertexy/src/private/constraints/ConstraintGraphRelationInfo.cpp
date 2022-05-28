@@ -72,7 +72,10 @@ void ConstraintGraphRelationInfo::addLiteralRelation(const Literal& lit, const I
 		if (it->lit.values == lit.values)
 		{
 			// Multiple relations referring to same literal. Resolve the two relations into one.
-			it->relation = TManyToOneGraphRelation<Literal>::combine(it->relation, relation); 
+			auto unionRel = make_shared<LiteralUnionGraphRelation>();
+			unionRel->add(it->relation);
+			unionRel->add(relation);
+			it->relation = unionRel; 
 		}
 		else
 		{

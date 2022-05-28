@@ -19,7 +19,6 @@ public:
     virtual bool hitEnd() const override;
 
 protected:
-    void checkForTermAbstracts();
     void moveNextDomainAtom();
 
     FunctionTerm& m_term;
@@ -27,7 +26,7 @@ protected:
     const ITopologyPtr& m_topology;
     int m_index = 0;
     int m_subIndex = 0;
-    int m_abstractCheckState = -1;
+    bool m_forceConcrete = false;
     mutable bool m_hitEnd = false;
 };
 
