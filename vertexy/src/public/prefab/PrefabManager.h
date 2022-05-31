@@ -7,6 +7,7 @@
 namespace Vertexy
 {
 	class Prefab;
+	class Tile;
 
 	class PrefabManager : public enable_shared_from_this<PrefabManager>
 	{
@@ -18,7 +19,7 @@ namespace Vertexy
 		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
-		void createPrefab(const vector<vector<int>>& inTiles);
+		void createPrefab(const vector<vector<Tile>>& inTiles);
 
 		// Generates constraints for all prefabs associated with this manager
 		void generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData);

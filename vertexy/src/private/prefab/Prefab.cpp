@@ -5,10 +5,11 @@
 #include "ConstraintTypes.h"
 #include "prefab/PrefabManager.h"
 #include "variable/SolverVariableDomain.h"
+#include "prefab/Tile.h"
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<int>>& inTiles)
+Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<Tile>> inTiles)
 {
 	m_id = inID;
 	m_manager = inManager;
@@ -23,7 +24,7 @@ Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vecto
 		for (int y = 0; y < m_tiles[x].size(); y++)
 		{
 			// Skip elements that aren't in the prefab
-			if (m_tiles[x][y] == INVALID_TILE)
+			if (m_tiles[x][y].id() == INVALID_TILE)
 			{
 				continue;
 			}
@@ -60,7 +61,7 @@ void Prefab::generatePrefabConstraints(ConstraintSolver* solver, const shared_pt
 
 		// Self
 		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
-			GraphRelationClause(selfTile, EClauseSign::Outside, { m_tiles[currLoc.x][currLoc.y] }),
+			GraphRelationClause(selfTile, EClauseSign::Outside, { m_tiles[currLoc.x][currLoc.y].id() }),
 			GraphRelationClause(selfTilePrefab, { m_id }),
 			GraphRelationClause(selfTilePrefabPos, { pos + 1 })
 		);
@@ -126,5 +127,54 @@ int Prefab::getTileValAtPos(int x, int y)
 {
 	vxy_assert(x >= 0 && x < m_tiles.size());
 	vxy_assert(y >= 0 && y < m_tiles[x].size());
-	return m_tiles[x][y];
+	return m_tiles[x][y].id();
+}
+
+void Prefab::rotate()
+{
+	transpose();
+	reverse();
+	for (int i = 0; i < m_tiles.size(); i++)
+	{
+		for (int j = 0; j < m_tiles[0].size(); j++)
+		{
+			m_tiles[i][j].rotate();
+		}
+	}
+}
+
+void Prefab::reflect()
+{
+	reverse();
+	for (int i = 0; i < m_tiles.size(); i++)
+	{
+		for (int j = 0; j < m_tiles[0].size(); j++)
+		{
+			m_tiles[i][j].reflect();
+		}
+	}
+}
+
+void Prefab::transpose()
+{
+	vector<vector<Tile>> tmp(m_tiles[0].size(), vector<Tile>());
+	for (int i = 0; i < m_tiles.size(); i++)
+	{
+		for (int j = 0; j < m_tiles[0].size(); j++)
+		{
+			tmp[j].push_back(m_tiles[i][j]);
+		}
+	}
+	m_tiles = tmp;
+}
+
+void Prefab::reverse()
+{
+	for (int i = 0; i < m_tiles.size(); i++)
+	{
+		for (int j = 0, k = m_tiles[0].size() - 1; j < k; j++, k--)
+		{
+			swap(m_tiles[i][j], m_tiles[i][k]);
+		}
+	}
 }

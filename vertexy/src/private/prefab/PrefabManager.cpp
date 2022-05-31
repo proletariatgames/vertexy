@@ -5,6 +5,7 @@
 #include "ConstraintTypes.h"
 #include "prefab/Prefab.h"
 #include "variable/SolverVariableDomain.h"
+#include "prefab/Tile.h"
 
 using namespace Vertexy;
 
@@ -24,7 +25,7 @@ PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<Planar
 	m_grid = inGrid;
 }
 
-void PrefabManager::createPrefab(const vector<vector<int>>& inTiles)
+void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles)
 {
 	// Create the prefab with its unique ID
 	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, shared_from_this(), inTiles);
@@ -87,20 +88,23 @@ int PrefabManager::getMaxPrefabSize()
 
 void PrefabManager::createDefaultTestPrefab(int index)
 {
+	Tile tx(-1);
+	Tile t0(0);
+	Tile t1(1);
 	switch (index)
 	{
 	case 0: 
 		createPrefab({
-			{0, 0},
-			{1, 1}
+			{ t0, t0 },
+			{ t1, t1 }
 		});
 		break;
 
 	case 1:
 		createPrefab({
-			{ 1, -1, 1 },
-			{-1, -1, -1},
-			{ 1, -1, -1}
+			{ t1, tx, t1 },
+			{ tx, tx, tx },
+			{ t1, tx, tx }
 		});
 		break;
 
