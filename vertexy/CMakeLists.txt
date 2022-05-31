@@ -30,6 +30,7 @@ file(GLOB VERTEXY_SOURCES
 add_subdirectory(../thirdParty/EABase ./thirdParty/EABase)
 add_subdirectory(../thirdParty/eastl ./thirdParty/eastl)
 add_subdirectory(../thirdParty/EAAssert ./thirdParty/EAAssert)
+add_subdirectory(../thirdParty/nlohmann_json ./thirdParty/nlohmann_json)
 
 file(GLOB_RECURSE VERTEXY_HEADERS "*.h")
 
@@ -38,6 +39,6 @@ target_compile_definitions(EAAssert PRIVATE _CRT_SECURE_NO_WARNINGS)
 
 add_library(VertexyLib ${VERTEXY_SOURCES} ${VERTEXY_HEADERS})
 target_compile_definitions(VertexyLib PUBLIC VERTEXY_SANITY_CHECKS=$<CONFIG:Debug>)
-target_link_libraries(VertexyLib EASTL EAAssert)
+target_link_libraries(VertexyLib EASTL EAAssert nlohmann_json::nlohmann_json)
 target_include_directories(VertexyLib PRIVATE "src/private")
 target_include_directories(VertexyLib PUBLIC "src/public")
