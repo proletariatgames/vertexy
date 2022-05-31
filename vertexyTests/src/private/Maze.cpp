@@ -18,7 +18,7 @@ using namespace VertexyTests;
 // Interval of solver steps to print out current maze status. Set to 1 to see each solver step.
 static constexpr int MAZE_REFRESH_RATE = 0;
 // The number of keys/doors that should exist in the maze.
-static constexpr int NUM_KEYS = 1;
+static constexpr int NUM_KEYS = 2;
 // True to print edge variables in FMaze::Print
 static constexpr bool PRINT_EDGES = false;
 // Whether to write a decision log as DecisionLog.txt
@@ -76,14 +76,12 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	VXY_FORMULA(solidType, 1);
 	VXY_FORMULA(deadEnd, 1);
 
-	constexpr int NumKeys = 1;
-	
 	constexpr int BLANK_IDX = 0;
 	constexpr int WALL_IDX = 1;
 	constexpr int ENTRANCE_IDX = 2;
 	constexpr int EXIT_IDX = 3;
 	constexpr int FIRST_KEY_IDX = 4;
-	constexpr int FIRST_DOOR_IDX = FIRST_KEY_IDX + NumKeys;
+	constexpr int FIRST_DOOR_IDX = FIRST_KEY_IDX + NUM_KEYS;
 	
 	// Rule formulas can only be defined within a Program::define() block
 	auto baseProgram = Program::define([&](ProgramVertex vertex, int entranceVertex, int exitVertex)
@@ -110,7 +108,8 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveRight());
 
 		// Specify types that each cell could be
-		(wall(vertex) | blank(vertex) | key(vertex, 0)) | door(vertex, 0) <<= ~border(vertex) && ~entrance(vertex) && ~exit(vertex);
+		// !!FIXME!! HACK: need a way to specify e.g. door(vertex, range(0,NUM_KEYS)) in head term.
+		(wall(vertex) | blank(vertex) | key(vertex, 0) | door(vertex, 0) | key(vertex, 1) | door(vertex, 1)) <<= ~border(vertex) && ~entrance(vertex) && ~exit(vertex);
 		
 		// border is a wall as long as it's not the entrance or exit.
 		wall(vertex) <<= border(vertex) && ~entrance(vertex) && ~exit(vertex);
@@ -198,17 +197,22 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		stepReach(vertex) <<= entrance(vertex);
 		stepReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X) && stepPassable(vertex);
 
+		// adjacentReach is true only if the cell is adjacent to a reachable cell. 
 		VXY_FORMULA(adjacentReach, 1);
 		adjacentReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X);
 		
 		// Key for this step must be reachable
 		Program::disallow(key(vertex, step) && ~stepReach(vertex));
+		// Keys for later steps cannot be reachable 
+		Program::disallow(key(vertex, X) && stepReach(vertex) && X > step);
 		// Door for this step must be reachable
 		Program::disallow(door(vertex, step) && ~adjacentReach(vertex));
+		// Door for later steps cannot be reachable
+		Program::disallow(door(vertex, X) && adjacentReach(vertex) && X > step);
 		// If this is not the last step, the exit should not be reachable
-		Program::disallow(step < NumKeys && exit(vertex) && stepReach(vertex));
+		Program::disallow(step < NUM_KEYS && exit(vertex) && stepReach(vertex));
 		// If this is the last step, any empty tile (including exit) must be reachable.
-		Program::disallow(step == NumKeys && emptyType(vertex) && ~stepReach(vertex));
+		Program::disallow(step == NUM_KEYS && emptyType(vertex) && ~stepReach(vertex));
 	});
 
 	ConstraintSolver solver(TEXT("mazeProgram"), seed);
@@ -225,7 +229,7 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	// 2) We can combine multiple (boolean, mutually-exclusive) variables into a single solver non-boolean variable.
 
 	// Create the grid representation and solver variables for each cell in the grid.
-	SolverVariableDomain cellDomain(0, 3 + NumKeys + NumKeys);
+	SolverVariableDomain cellDomain(0, 3 + NUM_KEYS + NUM_KEYS);
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
 
 	//
@@ -254,11 +258,13 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 
 	key.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
 	{
+		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
 		return SignedClause(cells->get(vert.getInt()), vector{FIRST_KEY_IDX+step.getInt()});
 	});
 
 	door.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
 	{
+		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
 		return SignedClause(cells->get(vert.getInt()), vector{FIRST_DOOR_IDX+step.getInt()});
 	});
 
@@ -269,7 +275,7 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	hash_map<int, tuple<int, int>> globalCardinalities;
 	globalCardinalities[ENTRANCE_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
 	globalCardinalities[EXIT_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
-	for (int step = 0; step < NumKeys; ++step)
+	for (int step = 0; step < NUM_KEYS; ++step)
 	{
 		globalCardinalities[FIRST_KEY_IDX+step] = make_tuple(1, 1);
 		globalCardinalities[FIRST_DOOR_IDX+step] = make_tuple(1, 1);
@@ -283,7 +289,7 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	);
 	solver.addProgram(move(baseProgramInst));
 
-	for (int step = 0; step <= NumKeys; ++step)
+	for (int step = 0; step <= NUM_KEYS; ++step)
 	{
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
 		solver.addProgram(move(stepInst));
