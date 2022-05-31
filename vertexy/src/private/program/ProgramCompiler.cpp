@@ -453,6 +453,17 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     // 
     auto shouldTakePrecedence = [&](const LitNode* testLit, const LitNode* checkLit)
     {
+        auto testLitSymTerm = dynamic_cast<const SymbolTerm*>(testLit->lit);
+        auto checkLitSymTerm = dynamic_cast<const SymbolTerm*>(checkLit->lit);
+        if (testLitSymTerm && !checkLitSymTerm)
+        {
+            return true;
+        }
+        else if (!testLitSymTerm && checkLitSymTerm)
+        {
+            return false;
+        }
+        
         auto testLitFnTerm = dynamic_cast<const FunctionTerm*>(testLit->lit);
         auto checkLitFnTerm = dynamic_cast<const FunctionTerm*>(checkLit->lit);
         
@@ -815,7 +826,7 @@ void ProgramCompiler::exportRules()
                 m_rdb,
                 formulaUID,
                 formulaName,
-                foundBinder != m_binders.end() ? foundBinder->second : nullptr
+                foundBinder != m_binders.end() ? foundBinder->second.get() : nullptr
             );
            
             vxy_assert(domain->abstractTopology != nullptr);

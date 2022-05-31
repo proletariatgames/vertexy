@@ -74,7 +74,7 @@ public:
         }
         else
         {
-            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::tuple(syms[I])), syms);
+            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::make_tuple(syms[I])), syms);
         }
     }
 
@@ -121,7 +121,7 @@ public:
         }
         else
         {
-            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::tuple(syms[I])), syms);
+            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::make_tuple(syms[I])), syms);
         }
     }
 
@@ -134,7 +134,7 @@ class ProgramInstance
 public:
     using BinderMap = hash_map<FormulaUID, unique_ptr<BindCaller>>;
 
-    ProgramInstance(const ITopologyPtr& topology=nullptr);
+    explicit ProgramInstance(const ITopologyPtr& topology=nullptr);
     virtual ~ProgramInstance();
 
     void addRule(URuleStatement&& rule);
@@ -142,6 +142,7 @@ public:
 
     const vector<URuleStatement>& getRuleStatements() const { return m_ruleStatements; }
     const BinderMap& getBinders() const { return m_binders; }
+    BinderMap& getBinders() { return m_binders; }
     const ITopologyPtr& getTopology() const { return m_topology; }
 
 protected:
@@ -150,6 +151,40 @@ protected:
     vector<URuleStatement> m_ruleStatements;
 };
 
+template<typename ReturnType>
+class RProgramInstance : public ProgramInstance
+{
+public:
+    explicit RProgramInstance(const ITopologyPtr& topology = nullptr)
+        : ProgramInstance(topology)
+    {
+    }
+
+    void setResult(ReturnType&& result)
+    {
+        m_result = move(result);
+    }
+
+    const ReturnType& getResult() const { return m_result; }
+    
+protected:
+    ReturnType m_result;
+};
+
+// Specialization for void return type
+template<>
+class RProgramInstance<void> : public ProgramInstance
+{
+public:
+    explicit RProgramInstance(const ITopologyPtr& topology = nullptr)
+        : ProgramInstance(topology)
+    {
+    }
+};
+
 using UProgramInstance = unique_ptr<ProgramInstance>;
+
+template<typename ReturnType>
+using URProgramInstance = unique_ptr<RProgramInstance<ReturnType>>;
 
 }

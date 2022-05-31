@@ -98,16 +98,16 @@ bool RuleDatabase::finalize()
     //
     for (auto& bodyInfo : m_bodies)
     {
-        if (bodyInfo->isFullyKnown())
-        {
-            continue;
-        }
-
         if (bodyInfo->asConcrete() && bodyInfo->asConcrete()->abstractParent)
         {
             continue;
         }
         
+        if (bodyInfo->isFullyKnown())
+        {
+            continue;
+        }
+       
         // Check if we can just encode this as a simple nogood.
         // Note the heads.empty() check - typically this is the case, but since we share BodyInfos for
         // statements that have identitical bodies, we could be both a negative constraint and have heads.
@@ -1267,6 +1267,10 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
                     }
                 }
                 oldAbstractBody->concreteBodies.insert({move(headArgs), existingBody->asConcrete()});
+                if (existingBody->status == ETruthStatus::Undetermined)
+                {
+                    oldAbstractBody->numUnknownConcretes++;
+                }
             }
             else
             {

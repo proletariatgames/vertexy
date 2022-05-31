@@ -12,11 +12,6 @@ using URuleStatement = unique_ptr<RuleStatement>;
 
 class ProgramSymbol;
 
-// unique ID to identify a ProgramVariable
-enum VariableUID : int32_t { };
-// unique ID to identify a named Formula
-enum FormulaUID : int32_t { };
-
 // Represents an ungrounded variable within a rule program
 class ProgramVariable
 {

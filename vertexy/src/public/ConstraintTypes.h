@@ -228,6 +228,12 @@ struct Literal
 	ValueSet values;
 };
 
+// unique ID to identify a ProgramVariable
+enum VariableUID : int32_t { };
+
+// unique ID to identify a named Formula
+enum FormulaUID : int32_t { };
+
 // Parameters passed to constraint explanation functions
 struct NarrowingExplanationParams
 {

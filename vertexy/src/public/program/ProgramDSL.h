@@ -261,22 +261,22 @@ public:
     static ProgramInstance* getCurrentInstance() { return s_currentInstance; }
 
     template<typename R, typename... ARGS>
-    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
+    static URProgramInstance<R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
     {
-        auto inst = make_unique<ProgramInstance>();
+        auto inst = make_unique<RProgramInstance<R>>();
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
         s_currentInstance = inst.get();
 
-        tuple<UProgramInstance, R> out;
+        URProgramInstance<R> out;
         if constexpr (is_same_v<R, void>)
         {
             fn(forward<ARGS>(args)...);
-            out = make_tuple(move(inst), (void)0);
+            out = move(inst);
         }
         else
         {
-            R result = fn(forward<ARGS>(args)...);
-            out = make_tuple(move(inst), move(result));
+            inst->setResult(fn(forward<ARGS>(args)...));
+            out = move(inst);
         }
 
         s_currentInstance = nullptr;
@@ -288,24 +288,24 @@ public:
     // The definition function should take a ProgramVertex in place of this argument, which represents
     // any vertex on the graph.
     template<typename R, typename... ARGS>
-    static tuple<UProgramInstance, R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
+    static URProgramInstance<R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
     {
-        auto inst = make_unique<ProgramInstance>(topo);
+        auto inst = make_unique<RProgramInstance<R>>(topo);
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
         s_currentInstance = inst.get();
 
-        tuple<UProgramInstance, R> out;
+        URProgramInstance<R> out;
         if constexpr (is_same_v<R, void>)
         {
             fn(ProgramVertex(), forward<ARGS>(args)...);
-            out = make_tuple(move(inst), (void)0);
+            out = move(inst);
         }
         else
         {
-            R result = fn(ProgramVertex(), forward<ARGS>(args)...);
-            out = make_tuple(move(inst), move(result));
+            inst->setResult(fn(ProgramVertex(), forward<ARGS>(args)...));
+            out = move(inst);
         }
-
+        
         s_currentInstance = nullptr;
         return out;
     }
@@ -358,18 +358,18 @@ public:
     }
 
     // "parse" the definition, returning the ProgramInstance.
-    inline tuple<UProgramInstance, R> apply(ARGS&&... args)
+    inline URProgramInstance<R> apply(ARGS&&... args)
     {
         return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
     }
 
-    inline tuple<UProgramInstance, R> operator()(ARGS&&... args)
+    inline URProgramInstance<R> operator()(ARGS&&... args)
     {
         return apply(eastl::move(args)...);
     }
 
     template<typename... REMARGS>
-    inline tuple<UProgramInstance, R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
+    inline URProgramInstance<R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
     {
         static_assert(sizeof...(REMARGS) == sizeof...(ARGS)-1, "Incorrect number of arguments");
         return Program::runDefinition<R, REMARGS...>(m_definition, topology, forward<REMARGS>(args)...);
@@ -429,7 +429,42 @@ public:
     FormulaUID getUID() const { return m_uid; }
     const wchar_t* getName() const { return m_name; }
 
+    // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
+    // the solver variable + value that should be linked with the truth of this formula.
+    void bind(ConstraintSolver& solver, typename FormulaBinder<SignedClause, ARITY>::type&& binder) const
+    {
+        solver.bindFormula(m_uid, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
+    // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
+    void bind(ConstraintSolver& solver, typename FormulaBinder<VarID, ARITY>::type&& binder) const
+    {
+        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    template<typename... ARGS>
+    wstring toString(ARGS&&... args) const
+    {
+        static_assert(sizeof...(args) == ARITY, "Wrong number of toString arguments");
+        vector<ProgramSymbol> argVec;
+        argVec.reserve(ARITY);
+        return toStringHelper(move(argVec), args...);
+    }
+
 private:
+    template<typename... ARGS>
+    wstring toStringHelper(vector<ProgramSymbol>&& args, const ProgramSymbol& sym, ARGS&&... rem) const
+    {
+        args.push_back(sym);
+        return toStringHelper(move(args), rem...);
+    }
+    wstring toStringHelper(vector<ProgramSymbol>&& args) const
+    {
+        ProgramSymbol formulaSym(m_uid, m_name, args, false);
+        return formulaSym.toString();
+    }
+    
     template<typename T, typename... REM>
     detail::ProgramFunctionTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs, T&& arg, REM&&... rem)
     {
@@ -508,7 +543,7 @@ public:
 
     // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
     // the solver variable + value that should be linked with the truth of this formula.
-    void bind(typename FormulaBinder<SignedClause, ARITY>::type&& binder)
+    void bind(typename FormulaBinder<SignedClause, ARITY>::type&& binder) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
@@ -516,14 +551,14 @@ public:
 
     // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
     // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
-    void bind(typename FormulaBinder<VarID, ARITY>::type&& binder)
+    void bind(typename FormulaBinder<VarID, ARITY>::type&& binder) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
     }
 
     template<typename... ARGS>
-    wstring toString(ARGS&&... args)
+    wstring toString(ARGS&&... args) const
     {
         static_assert(sizeof...(args) == ARITY, "Wrong number of toString arguments");
         vector<ProgramSymbol> argVec;
@@ -533,12 +568,12 @@ public:
 
 private:
     template<typename... ARGS>
-    wstring toStringHelper(vector<ProgramSymbol>&& args, const ProgramSymbol& sym, ARGS&&... rem)
+    wstring toStringHelper(vector<ProgramSymbol>&& args, const ProgramSymbol& sym, ARGS&&... rem) const
     {
         args.push_back(sym);
         return toStringHelper(move(args), rem...);
     }
-    wstring toStringHelper(vector<ProgramSymbol>&& args)
+    wstring toStringHelper(vector<ProgramSymbol>&& args) const
     {
         ProgramSymbol formulaSym(m_formulaUID, m_formulaName, args, false);
         return formulaSym.toString();
@@ -740,11 +775,15 @@ inline detail::ProgramHeadDisjunctionTerm operator|(detail::ProgramHeadTerm&& lh
     return detail::ProgramHeadDisjunctionTerm(make_unique<DisjunctionTerm>(move(children)));
 }
 
-inline detail::ProgramHeadDisjunctionTerm& operator|(detail::ProgramHeadDisjunctionTerm& lhs, detail::ProgramHeadTerm&& rhs)
+inline detail::ProgramHeadDisjunctionTerm operator|(detail::ProgramHeadDisjunctionTerm&& lhs, detail::ProgramHeadTerm&& rhs)
 {
+    lhs.bound = true;
     rhs.bound = true;
-    lhs.add(move(rhs.term));
-    return lhs;
+
+    vector<UFunctionHeadTerm> children = move(static_cast<DisjunctionTerm*>(lhs.term.get())->children);
+    children.push_back(move(rhs.term));
+    
+    return detail::ProgramHeadDisjunctionTerm(make_unique<DisjunctionTerm>(move(children)));
 }
 
 inline void operator<<=(detail::ProgramHeadTerm&& head, detail::ProgramBodyTerms&& body)

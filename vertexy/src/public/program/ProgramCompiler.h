@@ -155,7 +155,7 @@ protected:
 class ProgramCompiler
 {
 public:
-    using BindMap = hash_map<FormulaUID, BindCaller*>;
+    using BindMap = hash_map<FormulaUID, unique_ptr<BindCaller>>;
 
     struct AtomDomain
     {

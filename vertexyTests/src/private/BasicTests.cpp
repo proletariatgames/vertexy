@@ -563,28 +563,28 @@ int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
 	vector<VarID> negRightTestVars;
 	negRightTestVars.resize(WIDTH, VarID::INVALID);
 	
-	get<Output>(inst).graphEdgeTest.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
+	inst->getResult().graphEdgeTest.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
 		VarID* dest = y < x ? &graphEdgeTestVars[x].left : &graphEdgeTestVars[x].right; 
 		EATEST_VERIFY(!dest->isValid());
-		VarID var = solver.makeBoolean(get<Output>(inst).graphEdgeTest.toString(x,y));
+		VarID var = solver.makeBoolean(inst->getResult().graphEdgeTest.toString(x,y));
 		*dest = var;
 		return var;
 	});
-	get<Output>(inst).rightTest.bind([&](const ProgramSymbol& _x)
+	inst->getResult().rightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
 		EATEST_VERIFY(!rightTestVars[x].isValid());
-		VarID var = solver.makeBoolean(get<Output>(inst).rightTest.toString(x));
+		VarID var = solver.makeBoolean(inst->getResult().rightTest.toString(x));
 		rightTestVars[x] = var;
 		return var;
 	});
-	get<Output>(inst).negRightTest.bind([&](const ProgramSymbol& _x)
+	inst->getResult().negRightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
 		EATEST_VERIFY(!negRightTestVars[x].isValid());
-		VarID var = solver.makeBoolean(get<Output>(inst).negRightTest.toString(x));
+		VarID var = solver.makeBoolean(inst->getResult().negRightTest.toString(x));
 		negRightTestVars[x] = var;
 		return var;
 	});
@@ -728,10 +728,10 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 	//
 
 	VarID pathVars[4][4];
-	get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	inst->getResult().path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
 	{
 		// Create a boolean solver variable to hold the result of this path(x,y).
-		wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
+		wstring varName = inst->getResult().path.toString(x,y);
 		VarID var = solver.makeBoolean(varName);
 
 		// Store it and return it as the variable to bind to.
@@ -818,10 +818,10 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 	auto inst = hamiltonian(ITopology::adapt(topology));
 
 	VarID pathVars[4][4];
-	get<HamiltonianOutput>(inst).path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
+	inst->getResult().path.bind([&](const ProgramSymbol& x, const ProgramSymbol& y)
 	{
 		// Create a boolean solver variable to hold the result of this path(x,y).
-		wstring varName = get<HamiltonianOutput>(inst).path.toString(x,y);
+		wstring varName = inst->getResult().path.toString(x,y);
 		VarID var = solver.makeBoolean(varName);
 
 		// Store it and return it as the variable to bind to.

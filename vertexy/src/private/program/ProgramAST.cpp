@@ -189,6 +189,11 @@ SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
 {
 }
 
+UInstantiator SymbolTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
+{
+    return make_unique<ConstInstantiator>(sym.getInt() > 0);
+}
+
 bool SymbolTerm::operator==(const LiteralTerm& rhs) const
 {
     if (auto srhs = dynamic_cast<const SymbolTerm*>(&rhs))

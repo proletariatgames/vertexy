@@ -421,8 +421,21 @@ RuleDatabase& ConstraintSolver::getRuleDB()
 	return *m_ruleDB;
 }
 
+void ConstraintSolver::bindFormula(FormulaUID formula, unique_ptr<BindCaller>&& binder)
+{
+	vxy_assert_msg(m_formulaBinders.find(formula) == m_formulaBinders.end(), "Duplicate binder for formula %d", formula);
+	m_formulaBinders.insert({formula, move(binder)});	
+}
+
 void ConstraintSolver::addProgram(UProgramInstance&& instance)
 {
+	for (auto& binderEntry : instance->getBinders())
+	{
+		vxy_assert_msg(m_formulaBinders.find(binderEntry.first) == m_formulaBinders.end(), "Duplicate binder for formula %d", binderEntry.first);
+		m_formulaBinders.insert({binderEntry.first, move(binderEntry.second)});
+	}
+	instance->getBinders().clear();
+	
 	m_programInsts.push_back(move(instance));
 }
 
@@ -988,20 +1001,11 @@ bool ConstraintSolver::finalizeRules()
 		{
 			ruleStatements.push_back({stmt.get(), prgInst->getTopology()});
 		}
-		for (auto& entry : prgInst->getBinders())
-		{
-			if (binders[entry.first] != nullptr)
-			{
-				vxy_fail_msg("Formula bound twice");
-				return false;
-			}
-			binders[entry.first] = entry.second.get();
-		}
 	}
 
 	if (!ruleStatements.empty())
 	{
-		if (!ProgramCompiler::compile(getRuleDB(), ruleStatements, binders))
+		if (!ProgramCompiler::compile(getRuleDB(), ruleStatements, m_formulaBinders))
 		{
 			return false;
 		}
