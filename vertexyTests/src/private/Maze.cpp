@@ -287,12 +287,12 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		grid->coordinateToIndex(entranceLocation.first, entranceLocation.second),
 		grid->coordinateToIndex(exitLocation.first, exitLocation.second)
 	);
-	solver.addProgram(move(baseProgramInst));
+	solver.addProgram(baseProgramInst);
 
 	for (int step = 0; step <= NUM_KEYS; ++step)
 	{
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
-		solver.addProgram(move(stepInst));
+		solver.addProgram(stepInst);
 	}
 	
 	// Create N solutions

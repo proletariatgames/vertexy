@@ -427,7 +427,7 @@ void ConstraintSolver::bindFormula(FormulaUID formula, unique_ptr<BindCaller>&& 
 	m_formulaBinders.insert({formula, move(binder)});	
 }
 
-void ConstraintSolver::addProgram(UProgramInstance&& instance)
+void ConstraintSolver::addProgram(const ProgramInstancePtr& instance)
 {
 	for (auto& binderEntry : instance->getBinders())
 	{
@@ -436,7 +436,7 @@ void ConstraintSolver::addProgram(UProgramInstance&& instance)
 	}
 	instance->getBinders().clear();
 	
-	m_programInsts.push_back(move(instance));
+	m_programInsts.push_back(instance);
 }
 
 bool ConstraintSolver::simplify()

@@ -182,9 +182,9 @@ public:
     }
 };
 
-using UProgramInstance = unique_ptr<ProgramInstance>;
+using ProgramInstancePtr = shared_ptr<ProgramInstance>;
 
 template<typename ReturnType>
-using URProgramInstance = unique_ptr<RProgramInstance<ReturnType>>;
+using RProgramInstancePtr = shared_ptr<RProgramInstance<ReturnType>>;
 
 }

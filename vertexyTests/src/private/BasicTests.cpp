@@ -589,7 +589,7 @@ int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
 		return var;
 	});
 	
-	solver.addProgram(move(inst));
+	solver.addProgram(inst);
 	solver.solve();
 	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 
@@ -741,7 +741,7 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 
 	// Add the program to the solver. You can add more than one program; the solver will only
 	// report a solution once all added programs have been solved.
-	solver.addProgram(move(inst));
+	solver.addProgram(inst);
 	solver.solve();
 	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 
@@ -829,7 +829,7 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 		return var;
 	});
 
-	solver.addProgram(move(inst));
+	solver.addProgram(inst);
 	solver.solve();
 	EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 

@@ -251,23 +251,23 @@ namespace detail
 class Program
 {
 protected:
-    static ProgramInstance* s_currentInstance;
+    static shared_ptr<ProgramInstance> s_currentInstance;
     static int s_nextFormulaUID;
     static int s_nextVarUID;
 public:
     Program() = delete;
     ~Program() = delete;
 
-    static ProgramInstance* getCurrentInstance() { return s_currentInstance; }
+    static ProgramInstance* getCurrentInstance() { return s_currentInstance.get(); }
 
     template<typename R, typename... ARGS>
-    static URProgramInstance<R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
+    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
     {
-        auto inst = make_unique<RProgramInstance<R>>();
+        auto inst = make_shared<RProgramInstance<R>>();
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
-        s_currentInstance = inst.get();
+        s_currentInstance = inst;
 
-        URProgramInstance<R> out;
+        RProgramInstancePtr<R> out;
         if constexpr (is_same_v<R, void>)
         {
             fn(forward<ARGS>(args)...);
@@ -288,13 +288,13 @@ public:
     // The definition function should take a ProgramVertex in place of this argument, which represents
     // any vertex on the graph.
     template<typename R, typename... ARGS>
-    static URProgramInstance<R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
+    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
     {
-        auto inst = make_unique<RProgramInstance<R>>(topo);
+        auto inst = make_shared<RProgramInstance<R>>(topo);
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
-        s_currentInstance = inst.get();
+        s_currentInstance = inst;
 
-        URProgramInstance<R> out;
+        RProgramInstancePtr<R> out;
         if constexpr (is_same_v<R, void>)
         {
             fn(ProgramVertex(), forward<ARGS>(args)...);
@@ -358,18 +358,18 @@ public:
     }
 
     // "parse" the definition, returning the ProgramInstance.
-    inline URProgramInstance<R> apply(ARGS&&... args)
+    inline RProgramInstancePtr<R> apply(ARGS&&... args)
     {
         return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
     }
 
-    inline URProgramInstance<R> operator()(ARGS&&... args)
+    inline RProgramInstancePtr<R> operator()(ARGS&&... args)
     {
         return apply(eastl::move(args)...);
     }
 
     template<typename... REMARGS>
-    inline URProgramInstance<R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
+    inline RProgramInstancePtr<R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
     {
         static_assert(sizeof...(REMARGS) == sizeof...(ARGS)-1, "Incorrect number of arguments");
         return Program::runDefinition<R, REMARGS...>(m_definition, topology, forward<REMARGS>(args)...);
