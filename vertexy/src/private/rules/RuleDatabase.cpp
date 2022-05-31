@@ -482,15 +482,6 @@ RuleDatabase::BodyInfo* RuleDatabase::findOrCreateBodyInfo(const vector<AtomLite
         vxy_assert_msg(topology != nullptr, "must supply a topology for an abstract rule");
         newBodyInfo = make_unique<AbstractBodyInfo>(m_bodies.size(), body, topology);
 
-        for (auto& lit : body)
-        {
-            auto litAtomInfo = getAtom(lit.id())->asAbstract();
-            if (litAtomInfo && litAtomInfo->isExternal)
-            {
-                m_abstractExternals.insert({lit.getRelationInfo(), lit.sign() ? lit : lit.inverted()});
-            }
-        }
-
         m_hasAbstract = true;
     }
     else
@@ -1105,18 +1096,7 @@ bool RuleDatabase::isConcreteLiteral(const ALiteral& alit)
 void RuleDatabase::makeConcrete()
 {
     GroundingData groundingData(m_atoms.size(), m_bodies.size());
-
-    //
-    // First ground any abstract atoms
-    //
-    for (auto entry : m_abstractExternals)
-    {
-        auto abstractAtom = getAtom(entry.second.id())->asAbstract();
-        vxy_assert(abstractAtom->isExternal);
-
-        groundAtomToConcrete(entry.second, groundingData);
-    }
-    
+   
     //
     // First ground all heads
     //
@@ -1167,21 +1147,50 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
         auto oldAtomInfo = getAtom(oldLit.id());
         if (oldAtomInfo->asConcrete() != nullptr)
         {
-            newLits.push_back(oldLit);
+            if (oldAtomInfo->isExternal)
+            {
+                vxy_assert(oldAtomInfo->status == ETruthStatus::True);
+                if (!oldLit.sign())
+                {
+                    outSomeFailed = true;
+                }                
+            }
+            else
+            {
+                newLits.push_back(oldLit);
+            }
         }
         else
         {
             auto oldAbsInfo = oldAtomInfo->asAbstract();
 
             auto& relationInfo = oldLit.getRelationInfo();
-            auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(*this, oldLit));
-            
             if (!getConcreteArgumentsForRelation(relationInfo, vertex, args))
             {
                 if (oldLit.sign())
                 {
                     outSomeFailed = true;
                 }
+                continue;
+            }
+
+            if (oldAbsInfo->isExternal)
+            {
+                auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(*this, oldLit));
+
+                Literal lit;
+                if (!rel->getRelation(vertex, lit))
+                {
+                    if (oldLit.sign())
+                    {
+                        outSomeFailed = true;
+                    }
+                }
+                else if (!m_solver.getVariableDB()->anyPossible(lit))
+                {
+                    outSomeFailed = true;
+                }
+
                 continue;
             }
             
