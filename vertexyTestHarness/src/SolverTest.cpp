@@ -264,7 +264,7 @@ static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
 static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
-static constexpr bool PRINT_VERBOSE = true;
+static constexpr bool PRINT_VERBOSE = false;
 
 int main(int argc, char* argv[])
 {
@@ -272,7 +272,7 @@ int main(int argc, char* argv[])
 	using namespace VertexyTests;
 	
 	TestApplication Suite("Solver Tests", argc, argv);
-	/*Suite.AddTest("ValueBitset", test_ValueBitset);
+	Suite.AddTest("ValueBitset", test_ValueBitset);
 	Suite.AddTest("Digraph", test_Digraph);
 	Suite.AddTest("RuleSCCs", test_ruleSCCs);
 	Suite.AddTest("Clause-Basic", []() { return TestSolvers::solveClauseBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
@@ -297,10 +297,10 @@ int main(int argc, char* argv[])
 	Suite.AddTest("KnightTour", []() { return KnightTourSolver::solveAtomic(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-AllDifferent", []() { return NQueensSolvers::solveUsingAllDifferent(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });*/
+	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Basic", []() { return PrefabTestSolver::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Rot/Refl", []() { return PrefabTestSolver::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	/*Suite.AddTest("MazeProgram", []() { return MazeSolver::solveProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });*/
+	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	return Suite.Run();
 }
