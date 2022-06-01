@@ -9,15 +9,10 @@
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<Tile>> inTiles)
+Prefab::Prefab(int inID, const vector<vector<Tile>> inTiles, bool rotation, bool reflection):
+	m_id(inID),
+	m_tiles(inTiles)
 {
-	m_id = inID;
-	m_manager = inManager;
-	m_tiles = inTiles;
-
-	// Ensure that this prefab is created with a manager
-	vxy_assert(m_manager != nullptr);
-
 	// Instantiate the positions
 	for (int x = 0; x < m_tiles.size(); x++)
 	{
@@ -36,80 +31,80 @@ Prefab::Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vecto
 
 void Prefab::generatePrefabConstraints(ConstraintSolver* solver, const shared_ptr<PlanarGridTopology>& grid, const shared_ptr<TTopologyVertexData<VarID>>& tileData)
 {
-	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), tileData);
-	auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), m_manager->getTilePrefabData());
-	auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), m_manager->getTilePrefabPosData());
+	//auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), tileData);
+	//auto selfTilePrefab = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), m_manager->getTilePrefabData());
+	//auto selfTilePrefabPos = make_shared<TVertexToDataGraphRelation<VarID>>(ITopology::adapt(grid), m_manager->getTilePrefabPosData());
 
-	// Ensure we have a real position if we have a prefab
-	solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
-		GraphRelationClause(selfTilePrefab, { m_id }),
-		GraphRelationClause(selfTilePrefabPos, { NO_PREFAB_POS })
-	);
+	//// Ensure we have a real position if we have a prefab
+	//solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+	//	GraphRelationClause(selfTilePrefab, { m_id }),
+	//	GraphRelationClause(selfTilePrefabPos, { NO_PREFAB_POS })
+	//);
 
-	// Ensure we don't use invalid values over this prefab's max
-	for (int x = m_positions.size() + 1; x <= m_manager->getMaxPrefabSize(); x++)
-	{
-		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
-			GraphRelationClause(selfTilePrefab, { m_id }),
-			GraphRelationClause(selfTilePrefabPos, { x })
-		);
-	}
-	
-	for (int pos = 0; pos < m_positions.size(); pos++)
-	{
-		Position currLoc = m_positions[pos];
+	//// Ensure we don't use invalid values over this prefab's max
+	//for (int x = m_positions.size() + 1; x <= m_manager->getMaxPrefabSize(); x++)
+	//{
+	//	solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+	//		GraphRelationClause(selfTilePrefab, { m_id }),
+	//		GraphRelationClause(selfTilePrefabPos, { x })
+	//	);
+	//}
+	//
+	//for (int pos = 0; pos < m_positions.size(); pos++)
+	//{
+	//	Position currLoc = m_positions[pos];
 
-		// Self
-		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
-			GraphRelationClause(selfTile, EClauseSign::Outside, { m_tiles[currLoc.x][currLoc.y].id() }),
-			GraphRelationClause(selfTilePrefab, { m_id }),
-			GraphRelationClause(selfTilePrefabPos, { pos + 1 })
-		);
+	//	// Self
+	//	solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+	//		GraphRelationClause(selfTile, EClauseSign::Outside, { m_tiles[currLoc.x][currLoc.y].id() }),
+	//		GraphRelationClause(selfTilePrefab, { m_id }),
+	//		GraphRelationClause(selfTilePrefabPos, { pos + 1 })
+	//	);
 
-		// Prev
-		if (pos > 0)
-		{
-			Position prevLoc = m_positions[pos - 1];
-			int diffX = currLoc.x - prevLoc.x;
-			int diffY = currLoc.y - prevLoc.y;
-			auto horizontalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffY >= 0 ? PlanarGridTopology::moveLeft(diffY) : PlanarGridTopology::moveRight(-diffY)));
-			auto verticalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffX >= 0 ? PlanarGridTopology::moveUp(diffX) : PlanarGridTopology::moveDown(-diffX)));
+	//	// Prev
+	//	if (pos > 0)
+	//	{
+	//		Position prevLoc = m_positions[pos - 1];
+	//		int diffX = currLoc.x - prevLoc.x;
+	//		int diffY = currLoc.y - prevLoc.y;
+	//		auto horizontalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffY >= 0 ? PlanarGridTopology::moveLeft(diffY) : PlanarGridTopology::moveRight(-diffY)));
+	//		auto verticalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffX >= 0 ? PlanarGridTopology::moveUp(diffX) : PlanarGridTopology::moveDown(-diffX)));
 
-			solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
-					GraphRelationClause(selfTilePrefab, { m_id }),
-					GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
-					GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, { m_id })
-			}));
+	//		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
+	//				GraphRelationClause(selfTilePrefab, { m_id }),
+	//				GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
+	//				GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, { m_id })
+	//		}));
 
-			solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
-				GraphRelationClause(selfTilePrefab, { m_id }),
-				GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
-				GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefabPos), EClauseSign::Outside, { pos })
-			}));
-		}
-		
-		// Next
-		if (pos < m_positions.size() - 1)
-		{
-			Position nextLoc = m_positions[pos + 1];
-			int diffX = currLoc.x - nextLoc.x;
-			int diffY = currLoc.y - nextLoc.y;
-			auto horizontalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffY >= 0 ? PlanarGridTopology::moveLeft(diffY) : PlanarGridTopology::moveRight(-diffY)));
-			auto verticalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffX >= 0 ? PlanarGridTopology::moveUp(diffX) : PlanarGridTopology::moveDown(-diffX)));
+	//		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
+	//			GraphRelationClause(selfTilePrefab, { m_id }),
+	//			GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
+	//			GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefabPos), EClauseSign::Outside, { pos })
+	//		}));
+	//	}
+	//	
+	//	// Next
+	//	if (pos < m_positions.size() - 1)
+	//	{
+	//		Position nextLoc = m_positions[pos + 1];
+	//		int diffX = currLoc.x - nextLoc.x;
+	//		int diffY = currLoc.y - nextLoc.y;
+	//		auto horizontalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffY >= 0 ? PlanarGridTopology::moveLeft(diffY) : PlanarGridTopology::moveRight(-diffY)));
+	//		auto verticalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(grid), (diffX >= 0 ? PlanarGridTopology::moveUp(diffX) : PlanarGridTopology::moveDown(-diffX)));
 
-			solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
-					GraphRelationClause(selfTilePrefab, { m_id }),
-					GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
-					GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, { m_id })
-			}));
+	//		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
+	//				GraphRelationClause(selfTilePrefab, { m_id }),
+	//				GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
+	//				GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, { m_id })
+	//		}));
 
-			solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
-				GraphRelationClause(selfTilePrefab, { m_id }),
-				GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
-				GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefabPos), EClauseSign::Outside, { pos + 2 })
-			}));
-		}
-	}
+	//		solver->makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional({
+	//			GraphRelationClause(selfTilePrefab, { m_id }),
+	//			GraphRelationClause(selfTilePrefabPos, { pos + 1 }),
+	//			GraphRelationClause(horizontalShift->map(verticalShift)->map(selfTilePrefabPos), EClauseSign::Outside, { pos + 2 })
+	//		}));
+	//	}
+	// }
 }
 
 const Position& Prefab::getPositionForIndex(int index)
@@ -130,17 +125,21 @@ int Prefab::getTileValAtPos(int x, int y)
 	return m_tiles[x][y].id();
 }
 
-void Prefab::rotate()
+void Prefab::rotate(int times)
 {
-	transpose();
-	reverse();
-	for (int i = 0; i < m_tiles.size(); i++)
+	for (int t = 0; t < times; t++)
 	{
-		for (int j = 0; j < m_tiles[0].size(); j++)
+		transpose();
+		reverse();
+		for (int i = 0; i < m_tiles.size(); i++)
 		{
-			m_tiles[i][j].rotate();
+			for (int j = 0; j < m_tiles[0].size(); j++)
+			{
+				m_tiles[i][j].rotate();
+			}
 		}
 	}
+	
 }
 
 void Prefab::reflect()

@@ -21,11 +21,7 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, shared_ptr<PrefabManager> inManager, const vector<vector<Tile>> inTiles);
-		
-		Prefab(const Prefab& rhs) = delete;
-		Prefab(Prefab&& rhs) = delete;
-		Prefab& operator=(const Prefab& rhs) = delete;
+		Prefab(int inID, const vector<vector<Tile>> inTiles, bool rotation = false, bool reflection = false);
 		
 		// Given a solver, grid, and tileData, converts this prefab into a list of constraints and adds them to the solver
 		void generatePrefabConstraints(ConstraintSolver* solver, const shared_ptr<PlanarGridTopology>& grid, const shared_ptr<TTopologyVertexData<VarID>>& tileData);
@@ -40,12 +36,15 @@ namespace Vertexy
 		int getNumTiles();
 
 		// Rotate the prefab 90 degrees clockwise
-		void rotate();
+		void rotate(int times = 1);
 
 		// mirror the prefab horizontally
 		void reflect();
 
-
+		// getters
+		const int id() const { return m_id; };
+		const vector<Position> &positions() const { return m_positions; };
+		const vector<vector<Tile>> &tiles() const { return m_tiles; };
 
 	private:
 		// The tiles that make up the Prefab, in 2D array form; the indices represent the tile type
@@ -56,9 +55,6 @@ namespace Vertexy
 
 		// This prefab's identifier, uniquely assigned by its manager
 		int m_id;
-
-		// This prefab's manager
-		shared_ptr<PrefabManager> m_manager;
 
 		// Transpose the prefab
 		void transpose();
