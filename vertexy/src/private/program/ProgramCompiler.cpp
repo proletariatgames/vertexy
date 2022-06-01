@@ -677,9 +677,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             return found != domain->map.end() && domain->list[found->second].isFact;
         };
 
-        bool headHasAbstracts = false;
-        bool headHasIdentityAbstract = false;
-
         int j = 0;
         for (int i = 0; i < headSymbols.size(); ++i)
         {
@@ -693,24 +690,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 // Otherwise, if this is already a fact, no need to include.
                 continue;
             }
-
-            // Check whether this is an abstract formula. If so, we should only ground it if it 
-            // includes an identity relation as one of its arguments.
-            if (headSymbols[i].containsAbstract())
-            {
-                headHasAbstracts = true;
-                if (!headHasIdentityAbstract)
-                {
-                    for (auto& arg : headSymbols[i].getFormula()->args)
-                    {
-                        if (arg.isAbstract() && arg.getAbstractRelation()->equals(*IdentityGraphRelation::get()))
-                        {
-                            headHasIdentityAbstract = true;
-                            break;
-                        }
-                    }
-                }
-            }
             headSymbols[j++] = headSymbols[i];
         }
         headSymbols.resize(j);
@@ -720,12 +699,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             // If all heads are facts, no need to include this statement.
             return;
         }
-
-        // If this head is abstract, it needs to include an identity term.
-        // if (headHasAbstracts && !headHasIdentityAbstract)
-        // {
-        //     return;
-        // }
     }
 
     //
@@ -830,7 +803,7 @@ void ProgramCompiler::exportRules()
             );
            
             vxy_assert(domain->abstractTopology != nullptr);
-            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, domain->isExternal);
+            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, 1, domain->isExternal);
             mapper->setAtomID(atomID);
 
             m_exportedFormulas.insert({formulaUID, move(mapper)});
@@ -846,7 +819,7 @@ void ProgramCompiler::exportRules()
                     Literal lit = foundBinder->second->call(m_rdb, atom.symbol.getFormula()->args);
                     if (lit.variable.isValid())
                     {
-                        AtomLiteral atomLit(m_rdb.createBoundAtom(lit, atom.symbol.toString().c_str()), true);
+                        AtomLiteral atomLit(m_rdb.createBoundAtom(lit, atom.symbol.toString().c_str()), true, ValueSet(1,true));
                         exportMap->concreteExports.insert({atom.symbol, atomLit.id()});
 
                         continue;
@@ -981,8 +954,8 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
         auto relationInfo = make_shared<AbstractAtomRelationInfo>();
         relationInfo->literalRelation = make_shared<HasRelationGraphRelation>(symbol.getAbstractRelation(), m_rdb.getSolver().getTrue());
 
-        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->literalRelation->toString().c_str(), true);
-        return AtomLiteral(abstractID, symbol.isPositive(), relationInfo);
+        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->literalRelation->toString().c_str(), 1, true);
+        return AtomLiteral(abstractID, symbol.isPositive(), ValueSet(1, true), relationInfo);
     }
 
     // Handle concrete symbols
@@ -993,7 +966,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
         
         AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute()];
         vxy_assert(atomID.isValid());
-        return AtomLiteral(atomID, symbol.isPositive());
+        return AtomLiteral(atomID, symbol.isPositive(), ValueSet(1,true));
     }
 
     vxy_sanity(symbol.isFormula());
@@ -1013,7 +986,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     if (foundExport != exportMap.end())
     {
         auto& relationInfo = foundExport->second->getRelationInfo();
-        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), relationInfo);
+        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), ValueSet(1, true), relationInfo);
     }
 
     //
@@ -1053,7 +1026,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     litRelation->setRelationInfo(relationInfo);
     exportMap[make_tuple(symbol.absolute(), forHead)] = litRelation;
     
-    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), relationInfo);
+    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), ValueSet(1, true), relationInfo);
 }
 
 void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopologyPtr& topology)

@@ -236,15 +236,18 @@ int test_ruleSCCs()
 	auto c = rdb.createAtom(TEXT("c"));
 	auto d = rdb.createAtom(TEXT("d"));
 	auto e = rdb.createAtom(TEXT("e"));
+
+	auto pos = [&](AtomID atom) { return AtomLiteral(atom, true, ValueSet(1, true)); };
+	auto neg = [&](AtomID atom) { return AtomLiteral(atom, false, ValueSet(1, true)); };
 	
-	rdb.addRule(a.pos(), vector{b.neg()});
-	rdb.addRule(b.pos(), vector{a.neg()});
-	rdb.addRule(c.pos(), vector{a.pos()});
-	rdb.addRule(c.pos(), vector{b.pos(), d.pos()});
-	rdb.addRule(d.pos(), vector{b.pos(), c.pos()});
-	rdb.addRule(d.pos(), vector{e.pos()});
-	rdb.addRule(e.pos(), vector{b.pos(), a.neg()});
-	rdb.addRule(e.pos(), vector{c.pos(), d.pos()});
+	rdb.addRule(pos(a), vector{neg(b)});
+	rdb.addRule(pos(b), vector{neg(a)});
+	rdb.addRule(pos(c), vector{pos(a)});
+	rdb.addRule(pos(c), vector{pos(b), pos(d)});
+	rdb.addRule(pos(d), vector{pos(b), pos(c)});
+	rdb.addRule(pos(d), vector{pos(e)});
+	rdb.addRule(pos(e), vector{pos(b), neg(a)});
+	rdb.addRule(pos(e), vector{pos(c), pos(d)});
 	
 	rdb.finalize();
 	

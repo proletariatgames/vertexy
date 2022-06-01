@@ -31,8 +31,6 @@ struct AtomID
     bool isValid() const { return value > 0; }
     bool operator==(const AtomID& other) const { return value == other.value; }
     bool operator!=(const AtomID& other) const { return value != other.value; }
-    AtomLiteral pos() const;
-    AtomLiteral neg() const;
 
     int32_t value;
 };
@@ -84,6 +82,10 @@ public:
 
         return true;
     }
+    bool operator!=(const AbstractAtomRelationInfo& rhs) const
+    {
+        return !(operator==(rhs));
+    }
 
     const GraphLiteralRelationPtr& getInverseRelation() const
     {
@@ -104,37 +106,67 @@ struct AtomLiteral
     using IDType = AtomID;
 
     AtomLiteral() : m_value(0) {}
-    explicit AtomLiteral(AtomID id, bool value=true, const AbstractAtomRelationInfoPtr& relationInfo=nullptr)
+    explicit AtomLiteral(AtomID id, bool value, const ValueSet& mask, const AbstractAtomRelationInfoPtr& relationInfo=nullptr)
         : m_value(value ? id.value : -id.value)
+        , m_mask(mask)
         , m_relationInfo(relationInfo)
     {
     }
 
-    AtomLiteral inverted() const { return AtomLiteral(id(), !sign(), m_relationInfo); }
+    AtomLiteral inverted() const { return AtomLiteral(id(), !sign(), m_mask, m_relationInfo); }
     bool sign() const { return m_value > 0; }
     AtomID id() const { return AtomID(m_value < 0 ? -m_value : m_value); }
     bool isValid() const { return m_value != 0; }
 
+    const ValueSet& getMask() const { return m_mask; }
+    void includeMask(const ValueSet& mask)
+    {
+        m_mask.include(mask);
+    }
+
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
     void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
 
-    bool operator==(const AtomLiteral& other) const { return m_value == other.m_value; }
+    bool operator==(const AtomLiteral& other) const
+    {
+        if (this == &other) { return true; }
+        if (m_value != other.m_value)
+        {
+            return false;
+        }
+        if ((m_relationInfo == nullptr) != (other.m_relationInfo == nullptr))
+        {
+            return false;
+        }
+        if (m_relationInfo != nullptr && *m_relationInfo != *other.m_relationInfo)
+        {
+            return false;
+        }
+        if (m_mask != other.m_mask)
+        {
+            return false;
+        }
+        return true;
+    }
     bool operator!=(const AtomLiteral& other) const { return m_value != other.m_value; }
+
+    size_t hash() const
+    {
+        size_t out = eastl::hash<int32_t>()(m_value);
+        out = combineHashes(out, eastl::hash<ValueSet>()(m_mask));
+        if (m_relationInfo != nullptr)
+        {
+            out = combineHashes(out, m_relationInfo->hash());
+        }
+               
+        return out;
+    }
 
 protected:
     int32_t m_value;
+    ValueSet m_mask;
     AbstractAtomRelationInfoPtr m_relationInfo;
 };
-
-inline AtomLiteral AtomID::pos() const
-{
-    return AtomLiteral(*this, true);
-}
-
-inline AtomLiteral AtomID::neg() const
-{
-    return AtomLiteral(*this, false);
-}
 
 enum class ERuleHeadType : uint8_t
 {
