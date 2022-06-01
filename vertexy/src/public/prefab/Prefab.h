@@ -32,16 +32,16 @@ namespace Vertexy
 		// Returns the number of tiles in this prefab
 		int getNumTiles();
 
-		// Rotate the prefab 90 degrees clockwise
+		// Rotate the prefab 90 degrees clockwise N times
 		void rotate(int times = 1);
 
-		// mirror the prefab horizontally
+		// Mirror the prefab horizontally
 		void reflect();
 
-		// getters
+		// Getters
 		const int id() const { return m_id; };
-		const vector<Position> &positions() const { return m_positions; };
-		const vector<vector<Tile>> &tiles() const { return m_tiles; };
+		const vector<Position>& positions() const { return m_positions; };
+		const vector<vector<Tile>>& tiles() const { return m_tiles; };
 
 	private:
 		// The tiles that make up the Prefab, in 2D array form; the indices represent the tile type
@@ -59,6 +59,7 @@ namespace Vertexy
 		// Reverse the prefab row wise
 		void reverse();
 
+		// Set m_positions
 		void updatePositions();
 	};
 }

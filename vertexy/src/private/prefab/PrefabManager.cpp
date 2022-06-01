@@ -39,10 +39,11 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 	// Add to our internal list of prefabs
 	m_prefabs.push_back(prefab);
 
-	// if we allow rotation and/or reflection, create configurations
-	vector<shared_ptr<Prefab>> temp;
+	// if we allow rotation and/or reflection, create prefab configurations
 	if (!allowRotation && !allowReflection)
 		return;
+	
+	vector<shared_ptr<Prefab>> temp;
 	if (allowRotation && allowReflection)
 	{
 		for (int i = 0; i < 7; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
@@ -63,6 +64,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 	}
 	else
 	{
+		//Create horizontal and vertical reflections.
 		for (int i = 0; i < 2; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
 		temp[0]->reflect();
 		temp[1]->rotate(2);
