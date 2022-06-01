@@ -49,7 +49,6 @@ void Prefab::rotate(int times)
 			}
 		}
 	}
-	
 }
 
 void Prefab::reflect()

@@ -5,8 +5,6 @@
 
 using namespace Vertexy;
 
-const Tile INVALID(-1);
-
 Tile::Tile(int id, string name, char symmetry, int configuration):
 	m_id(id),
 	m_name(name),
