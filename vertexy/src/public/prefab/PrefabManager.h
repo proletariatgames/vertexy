@@ -37,7 +37,7 @@ namespace Vertexy
 		int getMaxPrefabSize();
 
 		// Create some basic sample prefabs used for testing
-		void createDefaultTestPrefab(int index);
+		void createDefaultTestPrefab(int index, bool rot = false, bool refl = false);
 
 	private:
 		PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
@@ -47,10 +47,6 @@ namespace Vertexy
 
 		// The largest prefab associated with this manager (in terms of number of tiles in the prefab)
 		int m_maxPrefabSize;
-
-		// The original prefabs rotation/reflection associated with this manager
-		// It is counted as a different list to avoid shifting posterior prefabs ids
-		vector<shared_ptr<Prefab>> m_prefabs_configs;
 
 		// Correlation map for original prefabs and their rotated/reflected states
 		hash_map<int, vector<int>> prefabStateMap;

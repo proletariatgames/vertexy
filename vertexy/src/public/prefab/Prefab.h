@@ -21,10 +21,7 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, const vector<vector<Tile>> inTiles, bool rotation = false, bool reflection = false);
-		
-		// Given a solver, grid, and tileData, converts this prefab into a list of constraints and adds them to the solver
-		void generatePrefabConstraints(ConstraintSolver* solver, const shared_ptr<PlanarGridTopology>& grid, const shared_ptr<TTopologyVertexData<VarID>>& tileData);
+		Prefab(int inID, const vector<vector<Tile>> inTiles);
 
 		// Returns the <x,y> grid position for the index-th tile in this prefab
 		const Position& getPositionForIndex(int index);
@@ -61,5 +58,7 @@ namespace Vertexy
 
 		// Reverse the prefab row wise
 		void reverse();
+
+		void updatePositions();
 	};
 }

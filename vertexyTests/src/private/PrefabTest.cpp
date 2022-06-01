@@ -87,6 +87,74 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
+int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVerbose /*= true*/)
+{
+	int nErrorCount = 0;
+
+	int numRows = 3;
+	int numCols = 3;
+
+	for (int time = 0; time < times; ++time)
+	{
+		ConstraintSolver solver(TEXT("PrefabTest"), seed);
+
+		// Create the topology for the grid
+		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
+
+		// Create the PrefabManager
+		shared_ptr<PrefabManager> prefabManager = PrefabManager::create(&solver, grid);
+
+		// Generate test prefabs (with rotation and reflection)
+		prefabManager->createDefaultTestPrefab(0, true, true);
+		prefabManager->createDefaultTestPrefab(1, true, true);
+
+		// The domains for the various types of variables
+		SolverVariableDomain tileDomain(0, 1);
+
+		// Create a variable for each tile in the grid
+		auto tileData = solver.makeVariableGraph(TEXT("TileVars"), ITopology::adapt(grid), tileDomain, TEXT("Tile"));
+
+		// Generate the prefab constraints
+		prefabManager->generatePrefabConstraints(tileData);
+
+		// Set some initial values (allows any rotation/reflection for both prefabs).
+		// First prefab can have 8 configurations (1 to 8).
+		// Second prefab can have 8 configurations (9 to 16).
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[8], { 9,10,11,12,13,14,15,16 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[4], { 1,2,3,4,5,6,7,8 });
+
+		shared_ptr<SolverDecisionLog> outputLog;
+		if constexpr (WRITE_BREADCRUMB_LOG)
+		{
+			outputLog = make_shared<SolverDecisionLog>();
+		}
+
+		if (outputLog != nullptr)
+		{
+			solver.setOutputLog(outputLog);
+		}
+
+		solver.solve();
+		solver.dumpStats(printVerbose);
+
+		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+		if (printVerbose)
+		{
+			print(&solver, grid, tileData, prefabManager);
+		}
+
+		if (outputLog != nullptr)
+		{
+			outputLog->write(TEXT("PrefabTestOutput.txt"));
+		}
+
+		nErrorCount += check(&solver, tileData, prefabManager);
+	}
+
+	return nErrorCount;
+}
+
+
 void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
 {
 	vector<shared_ptr<TTopologyVertexData<VarID>>> graphVars = { tileData, prefabManager->getTilePrefabData(), prefabManager->getTilePrefabPosData() };
