@@ -30,15 +30,22 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 	// Create the prefab with its unique ID
 	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, inTiles);
 
+	// Update the largest size for the domain
+	if (prefab->getNumTiles() > m_maxPrefabSize)
+	{
+		m_maxPrefabSize = prefab->getNumTiles();
+	}
 
+	// Add to our internal list of prefabs
+	m_prefabs.push_back(prefab);
 
-	/*vector<shared_ptr<Prefab>> temp;
+	// if we allow rotation and/or reflection, create configurations
+	vector<shared_ptr<Prefab>> temp;
 	if (!allowRotation && !allowReflection)
 		return;
-	
 	if (allowRotation && allowReflection)
 	{
-		for (int i = 0; i < 7; i++) { temp.push_back(prefab->clone()); }
+		for (int i = 0; i < 7; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
 		temp[0]->rotate(1);
 		temp[1]->rotate(2);
 		temp[2]->rotate(3);
@@ -49,30 +56,19 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 	}
 	else if (allowRotation && !allowReflection)
 	{
-		for (int i = 0; i < 3; i++) { temp.push_back(prefab->clone()); }
+		for (int i = 0; i < 3; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
 		temp[0]->rotate(1);
 		temp[1]->rotate(2);
 		temp[2]->rotate(3);
 	}
 	else
 	{
-		for (int i = 0; i < 2; i++) { temp.push_back(prefab->clone()); }
+		for (int i = 0; i < 2; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
 		temp[0]->reflect();
+		temp[1]->rotate(2);
 		temp[1]->reflect();
-		temp[1]->rotate(3);
-	}*/
-
-
-
-
-	// Update the largest size for the domain
-	if (prefab->getNumTiles() > m_maxPrefabSize)
-	{
-		m_maxPrefabSize = prefab->getNumTiles();
 	}
-
-	// Add to our internal list of prefabs
-	m_prefabs.push_back(prefab);
+	m_prefabs.insert(m_prefabs.end(), temp.begin(), temp.end());
 }
 
 void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData)
@@ -191,7 +187,7 @@ int PrefabManager::getMaxPrefabSize()
 	return m_maxPrefabSize;
 }
 
-void PrefabManager::createDefaultTestPrefab(int index)
+void PrefabManager::createDefaultTestPrefab(int index, bool rot, bool refl)
 {
 	Tile tx(-1);
 	Tile t0(0);
@@ -202,7 +198,7 @@ void PrefabManager::createDefaultTestPrefab(int index)
 		createPrefab({
 			{ t0, t0 },
 			{ t1, t1 }
-		});
+		}, rot, refl);
 		break;
 
 	case 1:
@@ -210,10 +206,9 @@ void PrefabManager::createDefaultTestPrefab(int index)
 			{ t1, tx, t1 },
 			{ tx, tx, tx },
 			{ t1, tx, tx }
-		});
+		}, rot, refl);
 		break;
 
 	default: vxy_assert(false);
 	}
-
 }
