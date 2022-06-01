@@ -19,7 +19,7 @@ namespace Vertexy
 		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
-		void createPrefab(const vector<vector<Tile>>& inTiles);
+		void createPrefab(const vector<vector<Tile>>& inTiles, bool allowRotation = false, bool allowReflection = false);
 
 		// Generates constraints for all prefabs associated with this manager
 		void generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData);
@@ -47,6 +47,13 @@ namespace Vertexy
 
 		// The largest prefab associated with this manager (in terms of number of tiles in the prefab)
 		int m_maxPrefabSize;
+
+		// The original prefabs rotation/reflection associated with this manager
+		// It is counted as a different list to avoid shifting posterior prefabs ids
+		vector<shared_ptr<Prefab>> m_prefabs_configs;
+
+		// Correlation map for original prefabs and their rotated/reflected states
+		hash_map<int, vector<int>> prefabStateMap;
 
 		// The solver for which the prefab constraints will be created
 		ConstraintSolver* m_solver;
