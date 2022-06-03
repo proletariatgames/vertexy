@@ -7,6 +7,16 @@
 
 #define VXY_VARIABLE(name) ProgramVariable name(L#name)
 #define VXY_FORMULA(name, arity) Formula<arity> name(L#name)
+#define VXY_DOMAIN_FORMULA(name, domain, arity) Formula<arity, _VXY_DOMAIN_##domain> name(L#name)
+
+#define VXY_DOMAIN_BEGIN(name) struct _VXY_DOMAIN_##name : public FormulaDomainDescriptor { \
+    _VXY_DOMAIN_##name() : FormulaDomainDescriptor(L#name) {} \
+    const _VXY_DOMAIN_##name* get() { static _VXY_DOMAIN_##name inst; return &inst; }
+
+#define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name);
+#define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size);
+
+#define VXY_DOMAIN_END() };
 
 /**
  * Implementation of the mini language for defining rules inside a Program::define() block
@@ -14,9 +24,9 @@
 namespace Vertexy
 {
 
-template<int ARITY> class Formula;
+template<int ARITY, typename FORMULA_DOMAIN> class Formula;
+template<int ARITY, typename FORMULA_DOMAIN> class FormulaResult;
 template<int ARITY> class ExternalFormula;
-template<int ARITY> class FormulaResult;
 
 //
 // Internal types for enforcing language rules
@@ -55,10 +65,52 @@ namespace detail
         ULiteralTerm term;
     };
 
+    class ExplicitDomainArgument
+    {
+    public:
+        ExplicitDomainArgument(const FormulaDomainValue& val)
+            : descriptor(val.getDescriptor())
+            , values(val.toValues())
+        {
+        }
+        ExplicitDomainArgument(const FormulaDomainValueArray& array)
+            : descriptor(array.getDescriptor())
+            , values(array.toValues())
+        {            
+        }
+        ExplicitDomainArgument(const FormulaDomainDescriptor* descriptor, ValueSet&& values)
+            : descriptor(descriptor)
+            , values(move(values))
+        {
+        }
+
+        const FormulaDomainDescriptor* descriptor;
+        ValueSet values;
+    };
+
+    class ProgramDomainTerm
+    {
+    public:
+        ProgramDomainTerm(const ExplicitDomainArgument& argument)
+        {
+            term = make_unique<ExplicitDomainTerm>(argument.values);
+        }
+        explicit ProgramDomainTerm(UDomainTerm&& term)
+            : term(move(term))
+        {            
+        }
+        ProgramDomainTerm(ProgramDomainTerm&& rhs) noexcept
+            : term(move(rhs.term))
+        {            
+        }
+
+        UDomainTerm term;
+    };
+
     class ProgramRangeTerm
     {
     public:
-        ProgramRangeTerm(int min, int max) : min(min), max(max) {};
+        ProgramRangeTerm(int min, int max) : min(min), max(max) {}
         int min = 0, max = -1;
     };
 
@@ -101,10 +153,12 @@ namespace detail
     class ProgramFunctionTerm
     {
     public:
-        explicit ProgramFunctionTerm(FormulaUID uid, const wchar_t* name, vector<ProgramBodyTerm>&& args)
+        explicit ProgramFunctionTerm(FormulaUID uid, const wchar_t* name, int domainSize, vector<ProgramBodyTerm>&& args, vector<ProgramDomainTerm>&& domainTerms)
             : uid(uid)
             , name(name)
+            , domainSize(domainSize)
             , args(move(args))
+            , domainTerms(move(domainTerms))
             , bound(false)
         {
         }
@@ -112,16 +166,18 @@ namespace detail
         ~ProgramFunctionTerm();
 
         ProgramHeadChoiceTerm choice();
-
+        ProgramFunctionTerm mask(ProgramDomainTerm&& domainTerm);
+        
         FormulaUID uid;
         const wchar_t* name;
+        int domainSize;
         vector<ProgramBodyTerm> args;
+        vector<ProgramDomainTerm> domainTerms;
         bool bound;
 
     protected:
         UFunctionHeadTerm createHeadTerm();
     };
-
 
     class ProgramExternalFunctionTerm
     {
@@ -168,12 +224,19 @@ namespace detail
 
             vector<ULiteralTerm> argTerms;
             argTerms.reserve(f.args.size());
-
             for (ProgramBodyTerm& arg : f.args)
             {
                 argTerms.push_back(move(arg.term));
             }
-            term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms), false, nullptr);
+
+            vector<UDomainTerm> domain;
+            domain.reserve(f.domainTerms.size());
+            for (detail::ProgramDomainTerm& d : f.domainTerms)
+            {
+                domain.push_back(move(d.term));
+            }
+            
+            term = make_unique<FunctionTerm>(f.uid, f.name, f.domainSize, move(argTerms), move(domain), false, nullptr);
         }
         ProgramBodyTerm(ProgramExternalFunctionTerm&& f)
         {
@@ -184,7 +247,7 @@ namespace detail
             {
                 argTerms.push_back(move(arg.term));
             }
-            term = make_unique<FunctionTerm>(f.uid, f.name, move(argTerms), false, f.provider);
+            term = make_unique<FunctionTerm>(f.uid, f.name, 1, move(argTerms), vector<UDomainTerm>{}, false, f.provider);
         }
         ProgramBodyTerm(ProgramOpArgument&& h)
         {
@@ -204,7 +267,7 @@ namespace detail
     public:
         explicit ProgramBodyTerms(vector<ULiteralTerm>&& inTerms) : terms(move(inTerms))
         {
-        };
+        }
         ProgramBodyTerms(ProgramBodyTerm&& rhs)
         {
             terms.push_back(move(rhs.term));
@@ -227,12 +290,19 @@ namespace detail
 
             vector<ULiteralTerm> argTerms;
             argTerms.reserve(f.args.size());
-
             for (ProgramBodyTerm& arg : f.args)
             {
                 argTerms.push_back(move(arg.term));
             }
-            term = make_unique<FunctionHeadTerm>(f.uid, f.name, move(argTerms));
+
+            vector<UDomainTerm> domain;
+            domain.reserve(f.domainTerms.size());
+            for (detail::ProgramDomainTerm& d : f.domainTerms)
+            {
+                domain.push_back(move(d.term));
+            }
+
+            term = make_unique<FunctionHeadTerm>(f.uid, f.name, f.domainSize, move(argTerms), move(domain));
         }
 
         explicit ProgramHeadTerm(UFunctionHeadTerm&& term) : term(move(term))
@@ -380,8 +450,8 @@ protected:
 };
 
 // A formula of a given arity. Formulas form the heads and bodies of rules.
-template<int ARITY>
-class Formula
+template<int ARITY, typename FORMULA_DOMAIN=DefaultFormulaDomainDescriptor>
+class Formula : public FORMULA_DOMAIN
 {
     friend FormulaResult;
 
@@ -436,6 +506,12 @@ public:
         solver.bindFormula(m_uid, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
     }
 
+    // Same as above, but instantiation returns a literal instead of a SignedClause.
+    void bind(ConstraintSolver& solver, typename FormulaBinder<Literal, ARITY>::type&& binder) const
+    {
+        solver.bindFormula(m_uid, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
+    }
+
     // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
     // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
     void bind(ConstraintSolver& solver, typename FormulaBinder<VarID, ARITY>::type&& binder) const
@@ -461,7 +537,7 @@ private:
     }
     wstring toStringHelper(vector<ProgramSymbol>&& args) const
     {
-        ProgramSymbol formulaSym(m_uid, m_name, args, false);
+        ProgramSymbol formulaSym(m_uid, m_name, args, ValueSet(FORMULA_DOMAIN::getDomainSize(), true), false);
         return formulaSym.toString();
     }
     
@@ -474,7 +550,7 @@ private:
 
     detail::ProgramFunctionTerm foldArgs(vector<detail::ProgramBodyTerm>& outArgs)
     {
-        return detail::ProgramFunctionTerm(m_uid, m_name, move(outArgs));
+        return detail::ProgramFunctionTerm(m_uid, m_name, FORMULA_DOMAIN::getDomainSize(), move(outArgs), vector<detail::ProgramDomainTerm>{});
     }
 
     const wchar_t* m_name;
@@ -522,7 +598,7 @@ private:
 
 // Allows returning a formula outside of the Program::define() block. The bind() function allows
 // you to bind the formula atoms to existing variables.
-template<int ARITY>
+template<int ARITY, typename FORMULA_DOMAIN=DefaultFormulaDomainDescriptor>
 class FormulaResult
 {
 public:
@@ -531,14 +607,16 @@ public:
         m_instance = nullptr;
         m_formulaUID = FormulaUID(-1);
         m_formulaName = nullptr;
+        m_formulaDomainSize = 0;
     }
 
-    FormulaResult(const Formula<ARITY>& formula)
+    FormulaResult(const Formula<ARITY, FORMULA_DOMAIN>& formula)
     {
         vxy_assert_msg(Program::getCurrentInstance() != nullptr, "Cannot construct a FormulaResult outside of a Program::define block!");
         m_instance = Program::getCurrentInstance();
         m_formulaName = formula.m_name;
         m_formulaUID = formula.m_uid;
+        m_formulaDomainSize = formula.getDomainSize();
     }
 
     // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
@@ -549,6 +627,13 @@ public:
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
     }
 
+    // Same as above, but returns a Literal instead of a SignedClause
+    void bind(typename FormulaBinder<Literal, ARITY>::type&& binder) const
+    {
+        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
+    }
+    
     // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
     // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
     void bind(typename FormulaBinder<VarID, ARITY>::type&& binder) const
@@ -575,13 +660,14 @@ private:
     }
     wstring toStringHelper(vector<ProgramSymbol>&& args) const
     {
-        ProgramSymbol formulaSym(m_formulaUID, m_formulaName, args, false);
+        ProgramSymbol formulaSym(m_formulaUID, m_formulaName, args, ValueSet(m_formulaDomainSize, true), false);
         return formulaSym.toString();
     }
 
     ProgramInstance* m_instance;
     const wchar_t* m_formulaName;
     FormulaUID m_formulaUID;
+    int m_formulaDomainSize;
 };
 
 /*******************************************************
@@ -597,16 +683,30 @@ inline detail::ProgramHeadChoiceTerm detail::ProgramFunctionTerm::choice()
     return ProgramHeadChoiceTerm(move(choiceTerm));
 }
 
+inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(ProgramDomainTerm&& domainTerm)
+{
+    auto newDomain = move(domainTerms);
+    newDomain.push_back(move(domainTerm));
+    return ProgramFunctionTerm { uid, name, domainSize, move(args), move(newDomain) };   
+}
+
 inline UFunctionHeadTerm detail::ProgramFunctionTerm::createHeadTerm()
 {
     vector<ULiteralTerm> argTerms;
     argTerms.reserve(args.size());
-
     for (ProgramBodyTerm& arg : args)
     {
         argTerms.push_back(move(arg.term));
     }
-    return make_unique<FunctionHeadTerm>(uid, name, move(argTerms));
+
+    vector<UDomainTerm> domain;
+    domain.reserve(domainTerms.size());
+    for (ProgramDomainTerm& d : domainTerms)
+    {
+        domain.push_back(move(d.term));
+    }
+    
+    return make_unique<FunctionHeadTerm>(uid, name, domainSize, move(argTerms), move(domain));
 }
 
 inline detail::ProgramFunctionTerm::~ProgramFunctionTerm()
@@ -675,12 +775,19 @@ inline detail::ProgramBodyTerm operator~(detail::ProgramFunctionTerm&& rhs)
 
     vector<ULiteralTerm> argTerms;
     argTerms.reserve(rhs.args.size());
-
     for (detail::ProgramBodyTerm& arg : rhs.args)
     {
         argTerms.push_back(move(arg.term));
     }
-    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, move(argTerms), true, nullptr);
+
+    vector<UDomainTerm> domain;
+    domain.reserve(rhs.domainTerms.size());
+    for (detail::ProgramDomainTerm& d : rhs.domainTerms)
+    {
+        domain.push_back(move(d.term));
+    }
+    
+    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, rhs.domainSize, move(argTerms), move(domain), true, nullptr);
     return detail::ProgramBodyTerm(move(term));
 }
 
@@ -693,7 +800,7 @@ inline detail::ProgramBodyTerm operator~(detail::ProgramExternalFunctionTerm&& r
     {
         argTerms.push_back(move(arg.term));
     }
-    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, move(argTerms), true, rhs.provider);
+    auto term = make_unique<FunctionTerm>(rhs.uid, rhs.name, 1, move(argTerms), vector<UDomainTerm>{}, true, rhs.provider);
     return detail::ProgramBodyTerm(move(term));
 }
 
@@ -784,6 +891,18 @@ inline detail::ProgramHeadDisjunctionTerm operator|(detail::ProgramHeadDisjuncti
     children.push_back(move(rhs.term));
     
     return detail::ProgramHeadDisjunctionTerm(make_unique<DisjunctionTerm>(move(children)));
+}
+
+inline detail::ExplicitDomainArgument operator|(detail::ExplicitDomainArgument&& lhs, detail::ExplicitDomainArgument&& rhs)
+{
+    vxy_assert_msg(lhs.descriptor == rhs.descriptor, "Cannot combine domain values from different domains!");
+    vxy_sanity(lhs.values.size() == rhs.values.size());
+    return detail::ExplicitDomainArgument(lhs.descriptor, lhs.values.including(rhs.values));
+}
+
+inline detail::ProgramDomainTerm operator|(detail::ProgramDomainTerm&& lhs, detail::ProgramDomainTerm&& rhs)
+{
+    return detail::ProgramDomainTerm {make_unique<UnionDomainTerm>(move(lhs.term), move(rhs.term))};
 }
 
 inline void operator<<=(detail::ProgramHeadTerm&& head, detail::ProgramBodyTerms&& body)
