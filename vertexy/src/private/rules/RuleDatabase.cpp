@@ -83,7 +83,7 @@ bool RuleDatabase::finalize()
             }
 
             // Force the solver variable to be created.
-            headAtomInfo->getLiteral(*this, head);
+            headAtomInfo->createLiteral(*this);
             // We may need to synchronize at this point in the case of fully known atoms that still have dependencies.
             if (headAtomInfo->isFullyKnown(head.getMask()))
             {
@@ -692,23 +692,30 @@ AtomID RuleDatabase::createAtom(const wchar_t* name, int domainSize, bool extern
     return newAtom;
 }
 
-AtomID RuleDatabase::createBoundAtom(const Literal& lit, const wchar_t* name, bool external)
+AtomID RuleDatabase::createBoundAtom(const AtomBinder& binder, const wchar_t* name, int domainSize, bool external)
 {
 #if VERTEXY_RULE_NAME_ATOMS
     wstring sname;
     if (name == nullptr)
     {
-        sname = {wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(lit.variable).c_str(), lit.values.toString().c_str()};
+        sname = {wstring::CtorSprintf(), TEXT("atom%d"), m_atoms.size()};
         name = sname.c_str();
     }
 #endif
 
-    AtomID newAtom = createAtom(name, 1, external);
+    AtomID newAtom = createAtom(name, domainSize, external);
 
     auto newAtomInfo = m_atoms[newAtom.value]->asConcrete();
     vxy_assert_msg(newAtomInfo != nullptr, "expected concrete atom");
 
-    newAtomInfo->equivalence = lit;
+    if (domainSize == 1)
+    {
+        newAtomInfo->equivalence = binder(ValueSet(1,true));
+    }
+    else
+    {
+        newAtomInfo->binder = binder;
+    }
 
     return newAtom;
 }
@@ -1575,18 +1582,40 @@ RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(RuleDatabase& 
 {
     if (!equivalence.variable.isValid())
     {
+        vxy_assert(abstractParent == nullptr);
+        vxy_assert(binder != nullptr);
+    
+        Literal lit = binder(atomLit.getMask());
+        return atomLit.sign() ? lit : lit.inverted();
+    }
+    else
+    {
+        return atomLit.sign() ? equivalence : equivalence.inverted();
+    }
+}
+
+void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
+{
+    if (!equivalence.variable.isValid())
+    {
         if (abstractParent != nullptr)
-        {
-            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(rdb, atomLit.sign() ? atomLit : atomLit.inverted()));
+        {            
+            vxy_assert(binder == nullptr);
+            AtomLiteral parentLit(abstractParent->id, true, ValueSet(domainSize, true), parentRelationInfo);
+            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(rdb, parentLit));
             vxy_verify(rel->getRelation(parentVertex, equivalence));
         }
-        else
+        else if (binder == nullptr)
         {
+            vxy_assert(domainSize == 1);
             VarID var = rdb.m_solver.makeVariable(name, booleanVariableDomain);
             equivalence = Literal(var, TRUE_VALUE);
         }
+        else
+        {
+            // Binder needs to be called for each literal.
+        }
     }
-    return atomLit.sign() ? equivalence : equivalence.inverted();
 }
 
 bool RuleDatabase::ConcreteAtomInfo::isFullyKnown(const ValueSet& values) const
@@ -1605,12 +1634,20 @@ bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
 {
     vxy_assert(status != ETruthStatus::Undetermined);
 
-    if (!equivalence.isValid() && parentRelationInfo != nullptr)
+    if (!equivalence.isValid())
     {
-        if (!parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, equivalence))
+        if (parentRelationInfo != nullptr)
         {
-            equivalence = Literal{};
-            return true;
+            vxy_assert(binder == nullptr);
+            if (!parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, equivalence))
+            {
+                equivalence = Literal{};
+                return true;
+            }
+        }
+        else if (binder != nullptr)
+        {
+            equivalence = binder(ValueSet(domainSize, true));
         }
     }
 

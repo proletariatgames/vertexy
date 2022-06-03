@@ -98,23 +98,11 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
         }
     };
 
-    struct TermHasher
-    {
-        size_t operator()(const BinaryOpTerm* term) const
-        {
-            return term->hash();
-        }
-        size_t operator()(const UBinaryOpTerm& term) const
-        {
-            return term->hash();
-        }
-    };
-
     for (auto& stmt : statements)
     {
         VariableNameAllocator::reset();
 
-        hash_map<const BinaryOpTerm*, ProgramVariable, TermHasher, pointer_value_equality> replacements;
+        hash_map<const BinaryOpTerm*, ProgramVariable, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
         hash_map<ProgramVariable, UBinaryOpTerm> assignments;
 
         stmt.statement->visit<Term>([&](const Term* term)
@@ -702,7 +690,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     }
 
     //
-    // All all the head symbols to the grounded database, and mark all the rules that contain these heads
+    // Add all the head symbols to the grounded database, and mark all the rules that contain these heads
     // in the body to be (re)grounded.
     //
 
@@ -816,18 +804,22 @@ void ProgramCompiler::exportRules()
                 vxy_assert(!atom.symbol.isNegated());
                 if (foundBinder != m_binders.end())
                 {
-                    Literal lit = foundBinder->second->call(m_rdb, atom.symbol.getFormula()->args);
-                    if (lit.variable.isValid())
+                    ProgramSymbol atomSym = atom.symbol;
+                    BindCaller* bindCaller = foundBinder->second.get();
+                    auto binderCallback = [this, bindCaller, atomSym](const ValueSet& mask)
                     {
-                        AtomLiteral atomLit(m_rdb.createBoundAtom(lit, atom.symbol.toString().c_str()), true, ValueSet(1,true));
-                        exportMap->concreteExports.insert({atom.symbol, atomLit.id()});
+                        return bindCaller->call(m_rdb, atomSym.getFormula()->args, mask);
+                    };
 
-                        continue;
-                    }
+                    AtomID atomID = m_rdb.createBoundAtom(binderCallback, atom.symbol.toString().c_str());
+                    AtomLiteral atomLit(atomID, true, atom.symbol.getFormula()->mask);                                            
+                    exportMap->concreteExports.insert({atom.symbol, atomID});
                 }
-
-                AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str());
-                exportMap->concreteExports.insert({atom.symbol, atomID});
+                else
+                {
+                    AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str());
+                    exportMap->concreteExports.insert({atom.symbol, atomID});
+                }
             }
         }
     }
@@ -966,7 +958,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
         
         AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute()];
         vxy_assert(atomID.isValid());
-        return AtomLiteral(atomID, symbol.isPositive(), ValueSet(1,true));
+        return AtomLiteral(atomID, symbol.isPositive(), symbol.getFormula()->mask);
     }
 
     vxy_sanity(symbol.isFormula());
@@ -985,8 +977,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     auto foundExport = exportMap.find(make_tuple(symbol.absolute(), forHead));
     if (foundExport != exportMap.end())
     {
-        auto& relationInfo = foundExport->second->getRelationInfo();
-        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), ValueSet(1, true), relationInfo);
+        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), symbol.getFormula()->mask, foundExport->second->getRelationInfo());
     }
 
     //
@@ -1026,7 +1017,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     litRelation->setRelationInfo(relationInfo);
     exportMap[make_tuple(symbol.absolute(), forHead)] = litRelation;
     
-    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), ValueSet(1, true), relationInfo);
+    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), symbol.getFormula()->mask, relationInfo);
 }
 
 void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopologyPtr& topology)
@@ -1036,7 +1027,7 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
     {
         if (!sym.containsAbstract())
         {
-            Literal lit = found->second->call(m_rdb, sym.getFormula()->args);
+            Literal lit = found->second->call(m_rdb, sym.getFormula()->args, sym.getFormula()->mask);
             if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
             {
                 m_failure = true;
@@ -1050,7 +1041,7 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
                 ProgramSymbol concreteSym = sym.makeConcrete(vertex);
                 if (concreteSym.isValid())
                 {
-                    Literal lit = found->second->call(m_rdb, concreteSym.getFormula()->args);
+                    Literal lit = found->second->call(m_rdb, concreteSym.getFormula()->args, sym.getFormula()->mask);
                     if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
                     {
                         m_failure = true;
@@ -1074,13 +1065,16 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
     bool isNew = false;
 
     AtomDomain& domain = *domainIt->second;
-    auto atomIt = domain.map.find(atom.symbol);
+
+    auto unmaskedSym = atom.symbol.unmasked();
+    
+    auto atomIt = domain.map.find(unmaskedSym);
     if (atomIt == domain.map.end())
     {
-        domain.map.insert({atom.symbol, domain.list.size()});
+        domain.map.insert({unmaskedSym, domain.list.size()});
         domain.list.push_back(atom);
 
-        if (atom.symbol.containsAbstract())
+        if (unmaskedSym.containsAbstract())
         {
             if (!domain.containsAbstract)
             {
@@ -1091,16 +1085,16 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
             {
                 vxy_assert_msg(domain.abstractTopology == topology,
                     "Mixed topologies in a formula definition: %s: not currently supported", 
-                    atom.symbol.getFormula()->name.c_str()
+                    unmaskedSym.getFormula()->name.c_str()
                 );
             }
         }
         
-        if (!domain.isExternal && atom.symbol.isExternalFormula())
+        if (!domain.isExternal && unmaskedSym.isExternalFormula())
         {
             vxy_assert_msg(domain.list.size() == 1,
                     "Mixture of external and non-external atoms for formula %s", 
-                    atom.symbol.getFormula()->name.c_str()
+                    unmaskedSym.getFormula()->name.c_str()
             );
             domain.isExternal = true;
         }
@@ -1169,7 +1163,7 @@ void ProgramCompiler::transformChoice(GroundedRule&& rule)
         
         wstring choiceName;
         choiceName.sprintf(TEXT("not-chosen::%s"), headSym.getFormula()->name.c_str());
-        ProgramSymbol choiceSym(foundChoice->second, choiceName.c_str(), headSym.getFormula()->args, false);
+        ProgramSymbol choiceSym(foundChoice->second, choiceName.c_str(), headSym.getFormula()->args, headSym.getFormula()->mask, false);
 
         vector<ProgramSymbol> extBody = rule.bodyLits; 
         extBody.push_back(choiceSym.negatedFormula());
@@ -1276,7 +1270,7 @@ void FormulaMapper::lockVariableCreation()
     m_rdb = nullptr;
 }
 
-Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, CreationType creationType) const
+Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const ValueSet& mask, CreationType creationType) const
 {
     size_t argHash = ArgumentHasher()(concrete);
     auto found = m_bindMap.find_by_hash(concrete, argHash);
@@ -1290,7 +1284,7 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
         Literal lit;
         if (m_binder != nullptr)
         {
-            lit = m_binder->call(*m_rdb, concrete);
+            lit = m_binder->call(*m_rdb, concrete, mask);
         }
 
         if (!lit.isValid())
@@ -1341,7 +1335,7 @@ bool FormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) cons
         return false;
     }
 
-    out = m_formulaMapper->getLiteral(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
+    out = m_formulaMapper->getLiteral(m_concrete, m_symbol.getFormula()->mask, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
     return out.isValid();
 }
 
@@ -1377,7 +1371,7 @@ bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral)
     {
         return false;
     }
-    outLiteral = m_formulaMapper->getLiteral(m_concrete, FormulaMapper::CreateIfBound);
+    outLiteral = m_formulaMapper->getLiteral(m_concrete, m_symbol.getFormula()->mask, FormulaMapper::CreateIfBound);
     return outLiteral.isValid();
 }
 

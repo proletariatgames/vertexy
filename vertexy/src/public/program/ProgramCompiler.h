@@ -30,7 +30,7 @@ public:
     };
     
     FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder);
-    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, CreationType creationType) const;
+    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, const ValueSet& mask, CreationType creationType) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
 
     bool contains(const vector<ProgramSymbol>& concreteArgs) const

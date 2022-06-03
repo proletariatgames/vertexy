@@ -4,6 +4,7 @@
 
 #include "ProgramTypes.h"
 #include "ProgramSymbol.h"
+#include "FormulaDomain.h"
 #include "rules/RuleTypes.h"
 
 namespace Vertexy
@@ -49,7 +50,7 @@ public:
     }
 
     virtual unique_ptr<Term> clone() const = 0;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) = 0;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) = 0;
 
 protected:
     template<typename T>
@@ -96,7 +97,7 @@ public:
     VariableTerm(ProgramVariable param);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}    
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override {}    
     virtual UTerm clone() const override;
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
@@ -122,7 +123,7 @@ public:
     SymbolTerm(const ProgramSymbol& sym);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override {}
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const override  { return sym; }
     virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
@@ -141,7 +142,7 @@ public:
     VertexTerm();
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override {}
     virtual UTerm clone() const override;
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const override { return true; }
@@ -157,7 +158,7 @@ public:
     UnaryOpTerm(EUnaryOperatorType op, ULiteralTerm&& child);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const override;
@@ -176,7 +177,7 @@ public:
     BinaryOpTerm(EBinaryOperatorType op, ULiteralTerm&& lhs, ULiteralTerm&& rhs);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<UTerm(const Term*)> visitor) override;
+    virtual void replace(const function<UTerm(const Term*)>& visitor) override;
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const override;
@@ -194,14 +195,80 @@ public:
 
 using UBinaryOpTerm = unique_ptr<BinaryOpTerm>;
 
+class DomainTerm : public Term
+{
+public:
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, ProgramSymbol>;
+
+    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
+    virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const = 0;
+    virtual size_t hash() const = 0;
+};
+
+using UDomainTerm = unique_ptr<DomainTerm>;
+
+class ExplicitDomainTerm : public DomainTerm
+{
+public:
+    explicit ExplicitDomainTerm(const ValueSet& mask);
+    
+    virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
+    virtual wstring toString() const override;
+    virtual unique_ptr<Term> clone() const override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override {}
+
+    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
+    virtual size_t hash() const override;
+    
+    ValueSet mask;
+};
+
+class SubscriptDomainTerm : public DomainTerm
+{
+public:
+    SubscriptDomainTerm(const FormulaDomainValueArray& array, ULiteralTerm&& subscriptTerm);
+    
+    virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
+    virtual wstring toString() const override;
+    virtual unique_ptr<Term> clone() const override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
+
+    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
+    virtual size_t hash() const override;
+
+    FormulaDomainValueArray array;
+    ULiteralTerm subscriptTerm;
+};
+
+class UnionDomainTerm : public DomainTerm
+{
+public:
+    UnionDomainTerm(UDomainTerm&& left, UDomainTerm&& right);
+
+    virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
+    virtual wstring toString() const override;
+    virtual unique_ptr<Term> clone() const override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
+
+    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
+    virtual size_t hash() const override;
+
+protected:
+    UDomainTerm left;
+    UDomainTerm right;
+};
+
 class FunctionTerm : public LiteralTerm
 {
 public:
-    FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated, const IExternalFormulaProviderPtr& provider);
+    FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, int domainSize, vector<ULiteralTerm>&& arguments, vector<UDomainTerm>&& domainTerms, bool negated, const IExternalFormulaProviderPtr& provider);
 
     virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual UTerm clone() const override;
     virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
@@ -211,10 +278,14 @@ public:
     virtual wstring toString() const override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+
+    ValueSet getDomain(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const;
     
     FormulaUID functionUID;
     const wchar_t* functionName;
+    int domainSize;
     vector<ULiteralTerm> arguments;
+    vector<UDomainTerm> domainTerms;
     IExternalFormulaProviderPtr provider;
     bool negated;
     bool assignedToFact = false;
@@ -238,10 +309,10 @@ using UHeadTerm = unique_ptr<HeadTerm>;
 class FunctionHeadTerm : public HeadTerm
 {
 public:
-    FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, vector<ULiteralTerm>&& arguments);
+    FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, int domainSize, vector<ULiteralTerm>&& arguments, vector<UDomainTerm>&& domainTerms);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
     virtual UTerm clone() const override;
 
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
@@ -250,10 +321,13 @@ public:
     virtual ERuleHeadType getHeadType() const override { return ERuleHeadType::Normal; }
 
     ProgramSymbol evalSingle(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const;
+    ValueSet getDomain(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const;
 
     FormulaUID functionUID;
     const wchar_t* functionName;
+    int domainSize;
     vector<ULiteralTerm> arguments;
+    vector<UDomainTerm> domainTerms;
 };
 
 using UFunctionHeadTerm = unique_ptr<FunctionHeadTerm>;
@@ -264,7 +338,7 @@ public:
     DisjunctionTerm(vector<UFunctionHeadTerm>&& children);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
     virtual UTerm clone() const override;
 
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
@@ -281,7 +355,7 @@ public:
     ChoiceTerm(UFunctionHeadTerm&& term);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
-    virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override;
+    virtual void replace(const function<unique_ptr<Term>(const Term*)>& visitor) override;
     virtual UTerm clone() const override;
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
     virtual vector<ProgramSymbol> eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule) override;

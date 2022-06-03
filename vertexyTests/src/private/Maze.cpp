@@ -236,33 +236,33 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	// Bind the formulas to variables
 	//
 
-	wall.bind(solver, [&](const ProgramSymbol& vert)
+	wall.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{WALL_IDX});
 	});
 
-	blank.bind(solver, [&](const ProgramSymbol& vert)
+	blank.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{BLANK_IDX});
 	});
 
-	entrance.bind(solver, [&](const ProgramSymbol& vert)
+	entrance.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{ENTRANCE_IDX});
 	});
 
-	exit.bind(solver, [&](const ProgramSymbol& vert)
+	exit.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{EXIT_IDX});
 	});
 
-	key.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
+	key.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert, const ProgramSymbol& step)
 	{
 		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
 		return SignedClause(cells->get(vert.getInt()), vector{FIRST_KEY_IDX+step.getInt()});
 	});
 
-	door.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
+	door.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert, const ProgramSymbol& step)
 	{
 		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
 		return SignedClause(cells->get(vert.getInt()), vector{FIRST_DOOR_IDX+step.getInt()});

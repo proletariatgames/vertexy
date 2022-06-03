@@ -12,6 +12,8 @@ namespace Vertexy
 
 class AbstractBodyMapper;
 
+class BindCaller;
+
 class FactGraphFilter;
 using FactGraphFilterPtr = shared_ptr<const FactGraphFilter>;
 
@@ -27,6 +29,8 @@ public:
         True,
         Undetermined
     };
+
+    using AtomBinder = function<Literal(const ValueSet&)>;
 
     using ALiteral = variant<Literal, GraphLiteralRelationPtr>;
     struct ConcreteAtomInfo;
@@ -115,10 +119,13 @@ public:
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override { return nullptr; }        
         virtual ITopologyPtr getTopology() const override { return nullptr; }
         virtual bool isFullyKnown(const ValueSet& values) const override;
-        
+
+        void createLiteral(RuleDatabase& rdb);
         bool synchronize(RuleDatabase& rdb);
         bool isVariable() const { return equivalence.variable.isValid(); }
 
+        // Binder for creating equivalence
+        AtomBinder binder = nullptr;
         // Optional equivalence to a constraint solver literal
         Literal equivalence;
 
@@ -272,9 +279,9 @@ public:
     RuleDatabase(RuleDatabase&&) = delete;
 
     AtomID createAtom(const wchar_t* name=nullptr, int domainSize=1, bool external=false);
-    AtomID createBoundAtom(const Literal& equivalence, const wchar_t* name=nullptr, bool external=false);
     AtomID createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name=nullptr, int domainSize=1, bool external=false);
-
+    AtomID createBoundAtom(const AtomBinder& binder, const wchar_t* name=nullptr, int domainSize=1, bool external=false);
+    
     const ConstraintSolver& getSolver() const { return m_solver; }
     ConstraintSolver& getSolver() { return m_solver; }
 

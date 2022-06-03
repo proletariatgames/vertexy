@@ -263,17 +263,26 @@ ProgramSymbol VertexTerm::eval(const AbstractOverrideMap&, const ProgramSymbol& 
     return boundVertex.isValid() ? boundVertex : ProgramSymbol(IdentityGraphRelation::get());
 }
 
-FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, vector<ULiteralTerm>&& arguments, bool negated, const IExternalFormulaProviderPtr& provider)
+FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, int domainSize, vector<ULiteralTerm>&& arguments, vector<UDomainTerm>&& domainTerms, bool negated, const IExternalFormulaProviderPtr& provider)
     : functionUID(functionUID)
     , functionName(functionName)
+    , domainSize(domainSize)
     , arguments(move(arguments))
+    , domainTerms(move(domainTerms))
     , provider(provider)
     , negated(negated)
 {
+    vxy_assert(domainSize >= 1);
 }
 
 void FunctionTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
 {
+    for (auto& domainTerm : domainTerms)
+    {
+        // variables in domain masks never act as binders.
+        domainTerm->collectVars(outVars, false);
+    }
+    
     if (provider != nullptr)
     {
         for (int i = 0; i < arguments.size(); ++i)
@@ -307,13 +316,21 @@ bool FunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor) c
     return true;
 }
 
-void FunctionTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+void FunctionTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
 {
     for (auto& arg : arguments)
     {
         if (!maybeReplaceChild(arg, visitor))
         {
             arg->replace(visitor);
+        }
+    }
+
+    for (auto& domainTerm : domainTerms)
+    {
+        if (!maybeReplaceChild(domainTerm, visitor))
+        {
+            domainTerm->replace(visitor);
         }
     }
 }
@@ -332,7 +349,9 @@ ProgramSymbol FunctionTerm::eval(const AbstractOverrideMap& overrideMap, const P
         resolvedArgs.push_back(argSym);
     }
 
-    return ProgramSymbol(functionUID, functionName, resolvedArgs, negated, provider);
+    auto mask = getDomain(overrideMap, boundVertex);
+    vxy_assert(!mask.isZero());
+    return ProgramSymbol(functionUID, functionName, resolvedArgs, mask, negated, provider);
 }
 
 UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
@@ -357,8 +376,22 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     }
 
     const ConstantFormula* cformula = sym.getFormula();
+    
+    ValueSet mask(domainSize, true);
+    for (auto& domainTerm : domainTerms)
+    {
+        if (!domainTerm->match(mask, overrideMap, boundVertex))
+        {
+            return false;
+        }
+        domainTerm->eval(mask, overrideMap, boundVertex);
+        if (mask.isZero())
+        {
+            return false;
+        }
+    }
+    
     vxy_assert(cformula->args.size() == arguments.size());
-
     for (int i = 0; i < arguments.size(); ++i)
     {
         if (!arguments[i]->match(cformula->args[i], overrideMap, boundVertex))
@@ -415,7 +448,16 @@ UTerm FunctionTerm::clone() const
         auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
         clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
     }
-    return make_unique<FunctionTerm>(functionUID, functionName, move(clonedArgs), negated, provider);
+
+    vector<UDomainTerm> clonedDomain;
+    clonedDomain.reserve(domainTerms.size());
+    for (auto& domainTerm : domainTerms)
+    {
+        auto cloned = static_cast<DomainTerm*>(domainTerm->clone().detach());
+        clonedDomain.push_back(unique_ptr<DomainTerm>(move(cloned)));
+    }
+    
+    return make_unique<FunctionTerm>(functionUID, functionName, domainSize, move(clonedArgs), move(clonedDomain), negated, provider);
 }
 
 wstring FunctionTerm::toString() const
@@ -451,6 +493,10 @@ size_t FunctionTerm::hash() const
     {
         hash = combineHashes(hash, arg->hash());
     }
+    for (auto& domainTerm : domainTerms)
+    {
+        hash = combineHashes(hash, domainTerm->hash());
+    }
     return hash;
 }
 
@@ -473,6 +519,16 @@ bool FunctionTerm::operator==(const LiteralTerm& rhs) const
         return true;
     }
     return false;
+}
+
+ValueSet FunctionTerm::getDomain(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    ValueSet mask(domainSize, true);
+    for (auto& domainTerm : domainTerms)
+    {
+        domainTerm->eval(mask, overrideMap, boundVertex);
+    }
+    return mask;
 }
 
 UnaryOpTerm::UnaryOpTerm(EUnaryOperatorType op, ULiteralTerm&& child)
@@ -498,7 +554,7 @@ bool UnaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) co
     }
 }
 
-void UnaryOpTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+void UnaryOpTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
 {
     if (!maybeReplaceChild(child, visitor))
     {
@@ -607,7 +663,7 @@ bool BinaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) c
     return true;
 }
 
-void BinaryOpTerm::replace(const function<UTerm(const Term*)> visitor)
+void BinaryOpTerm::replace(const function<UTerm(const Term*)>& visitor)
 {
     if (!maybeReplaceChild(lhs, visitor))
     {
@@ -779,11 +835,221 @@ bool BinaryOpTerm::operator==(const LiteralTerm& term) const
     return false;
 }
 
-FunctionHeadTerm::FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, vector<ULiteralTerm>&& inArgs)
+ExplicitDomainTerm::ExplicitDomainTerm(const ValueSet& mask)
+    : mask(mask)
+{    
+}
+
+bool ExplicitDomainTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    return visitor(this) != EVisitResponse::Abort;
+}
+
+wstring ExplicitDomainTerm::toString() const
+{
+    return mask.toString();
+}
+
+unique_ptr<Term> ExplicitDomainTerm::clone() const
+{
+    return make_unique<ExplicitDomainTerm>(mask);
+}
+
+void ExplicitDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap&, const ProgramSymbol&) const
+{
+    inOutMask.intersect(mask);
+}
+
+bool ExplicitDomainTerm::match(const ValueSet& matchMask, AbstractOverrideMap&, ProgramSymbol&) const
+{
+    return mask.anyPossible(matchMask);
+}
+
+size_t ExplicitDomainTerm::hash() const
+{
+    return eastl::hash<ValueSet>()(mask);   
+}
+
+SubscriptDomainTerm::SubscriptDomainTerm(const FormulaDomainValueArray& array, ULiteralTerm&& inSubscriptTerm)
+    : array(array)
+    , subscriptTerm(move(inSubscriptTerm))
+{    
+}
+
+bool SubscriptDomainTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    auto resp = visitor(this);
+    if (resp == ETopologySearchResponse::Abort)
+    {
+        return false;
+    }
+    else if (resp != ETopologySearchResponse::Skip)
+    {
+        if (!subscriptTerm->visit(visitor))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+wstring SubscriptDomainTerm::toString() const
+{
+    wstring out;
+    out.sprintf(TEXT("%s[%s]"), array.getName(), subscriptTerm->toString().c_str());
+    return out;
+}
+
+unique_ptr<Term> SubscriptDomainTerm::clone() const
+{
+    auto clonedSubscript = static_cast<LiteralTerm*>(subscriptTerm->clone().detach());
+    return make_unique<SubscriptDomainTerm>(array, ULiteralTerm(move(clonedSubscript)));
+}
+
+void SubscriptDomainTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+{
+    if (!maybeReplaceChild(subscriptTerm, visitor))
+    {
+        subscriptTerm->replace(visitor);
+    }
+}
+
+void SubscriptDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    ProgramSymbol subscriptSym = subscriptTerm->eval(overrideMap, boundVertex);
+    vxy_assert_msg(subscriptSym.isValid(), "Failed to evaluate subscript term");
+    vxy_assert_msg(subscriptSym.isInteger(), "Subscript term did not evaluate to an integer");
+    vxy_assert_msg(subscriptSym.getInt() >= 0 && subscriptSym.getInt() < array.getNumValues(), "Evaluated subscript out of range");
+
+    ValueSet evaluatedMask(array.getDescriptor()->getDomainSize(), false);
+    evaluatedMask[array.getFirstValueIndex() + subscriptSym.getInt()] = true;
+
+    inOutMask.intersect(evaluatedMask);
+}
+
+bool SubscriptDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const
+{
+    ProgramSymbol subscriptSym = subscriptTerm->eval(overrideMap, boundVertex);
+    if (!subscriptSym.isInteger())
+    {
+        return false;
+    }
+
+    if (subscriptSym.getInt() < 0 || subscriptSym.getInt() >= array.getNumValues())
+    {
+        return false;
+    }
+
+    return mask[array.getFirstValueIndex() + subscriptSym.getInt()];
+}
+
+size_t SubscriptDomainTerm::hash() const
+{
+    return combineHashes(eastl::hash<const wchar_t*>()(array.getName()), subscriptTerm->hash());
+}
+
+UnionDomainTerm::UnionDomainTerm(UDomainTerm&& left, UDomainTerm&& right)
+    : left(move(left))
+    , right(move(right))
+{    
+}
+
+bool UnionDomainTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    auto resp = visitor(this);
+    if (resp == ETopologySearchResponse::Abort)
+    {
+        return false;
+    }
+    else if (resp != ETopologySearchResponse::Skip)
+    {
+        if (!left->visit(visitor))
+        {
+            return false;
+        }
+        if (!right->visit(visitor))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+wstring UnionDomainTerm::toString() const
+{
+    wstring out;
+    out.sprintf(TEXT("%s | %s"), left->toString().c_str(), right->toString().c_str());
+    return out;
+}
+
+unique_ptr<Term> UnionDomainTerm::clone() const
+{
+    auto clonedLeft = static_cast<DomainTerm*>(left->clone().detach());
+    auto clonedRight = static_cast<DomainTerm*>(right->clone().detach());
+    return make_unique<UnionDomainTerm>(UDomainTerm(move(clonedLeft)), UDomainTerm(move(clonedRight)));
+}
+
+void UnionDomainTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+{
+    if (!maybeReplaceChild(left, visitor))
+    {
+        left->replace(visitor);
+    }
+    if (!maybeReplaceChild(right, visitor))
+    {
+        right->replace(visitor);
+    }
+}
+
+void UnionDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    ValueSet leftIntersection = inOutMask;
+    left->eval(leftIntersection, overrideMap, boundVertex);    
+    right->eval(inOutMask, overrideMap, boundVertex);
+    inOutMask.include(leftIntersection); 
+}
+
+bool UnionDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const
+{
+    bool leftMatched = left->match(mask, overrideMap, boundVertex);
+    bool rightMatched = right->match(mask, overrideMap, boundVertex);
+
+    if (leftMatched)
+    {
+        ValueSet leftMask = mask;    
+        left->eval(leftMask, overrideMap, boundVertex);
+        if (!leftMask.isZero())
+        {
+            return true;
+        }
+    }
+
+    if (rightMatched)
+    {
+        ValueSet rightMask = mask;
+        right->eval(rightMask, overrideMap, boundVertex);
+        if (!rightMask.isZero())
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+size_t UnionDomainTerm::hash() const
+{
+    return combineHashes(left->hash(), right->hash());
+}
+
+FunctionHeadTerm::FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, int inDomainSize, vector<ULiteralTerm>&& inArgs, vector<UDomainTerm>&& inDomainTerms)
     : functionUID(inUID)
     , functionName(inName)
+    , domainSize(inDomainSize)
     , arguments(move(inArgs))
+    , domainTerms(move(inDomainTerms))
 {
+    vxy_assert(domainSize >= 1);
 }
 
 ProgramSymbol FunctionHeadTerm::evalSingle(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
@@ -800,7 +1066,23 @@ ProgramSymbol FunctionHeadTerm::evalSingle(const AbstractOverrideMap& overrideMa
         resolvedArgs.push_back(argSym);
     }
 
-    return ProgramSymbol(functionUID, functionName, resolvedArgs, false);  
+    ValueSet mask = getDomain(overrideMap, boundVertex);
+    if (mask.isZero())
+    {
+        vxy_fail_msg("Unexpected empty mask");
+        return {};
+    }
+    return ProgramSymbol(functionUID, functionName, resolvedArgs, mask, false);  
+}
+
+ValueSet FunctionHeadTerm::getDomain(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    ValueSet mask(domainSize, true);
+    for (auto& domainTerm : domainTerms)
+    {
+        domainTerm->eval(mask, overrideMap, boundVertex);
+    }
+    return mask;
 }
 
 vector<ProgramSymbol> FunctionHeadTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule)
@@ -836,7 +1118,7 @@ bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visito
     return true;
 }
 
-void FunctionHeadTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+void FunctionHeadTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
 {
     for (auto& arg : arguments)
     {
@@ -856,7 +1138,15 @@ UTerm FunctionHeadTerm::clone() const
         auto cloned = static_cast<LiteralTerm*>(arg->clone().detach());
         clonedArgs.push_back(unique_ptr<LiteralTerm>(move(cloned)));
     }
-    return make_unique<FunctionHeadTerm>(functionUID, functionName, move(clonedArgs));
+    
+    vector<UDomainTerm> clonedDomain;
+    clonedDomain.reserve(domainTerms.size());
+    for (auto& domainTerm : domainTerms)
+    {
+        auto cloned = static_cast<DomainTerm*>(domainTerm->clone().detach());
+        clonedDomain.push_back(unique_ptr<DomainTerm>(move(cloned)));
+    }    
+    return make_unique<FunctionHeadTerm>(functionUID, functionName, domainSize, move(clonedArgs), move(clonedDomain));
 }
 
 wstring FunctionHeadTerm::toString() const
@@ -903,7 +1193,7 @@ bool DisjunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor
     return true;
 }
 
-void DisjunctionTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+void DisjunctionTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
 {
     for (auto& child : children)
     {
@@ -996,7 +1286,7 @@ bool ChoiceTerm::visit(const function<EVisitResponse(const Term*)>& visitor) con
     return true;
 }
 
-void ChoiceTerm::replace(const function<unique_ptr<Term>(const Term*)> visitor)
+void ChoiceTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
 {
     if (!maybeReplaceChild(subTerm, visitor))
     {

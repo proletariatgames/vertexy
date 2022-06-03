@@ -35,8 +35,8 @@ public:
     ProgramSymbol(int32_t constant);
     ProgramSymbol(const wchar_t* name);
 
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
     ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
 
     ProgramSymbol& operator=(const ProgramSymbol& rhs);
@@ -85,6 +85,8 @@ public:
     ProgramSymbol negatedFormula() const;
     ProgramSymbol absolute() const;
 
+    ProgramSymbol unmasked() const;
+
     const GraphVertexRelationPtr& getAbstractRelation() const;
     const IExternalFormulaProviderPtr& getExternalFormulaProvider() const;
 
@@ -120,15 +122,16 @@ private:
 // Represents a unique grounded formula call.
 class ConstantFormula
 {
-    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, size_t hash);
+    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t hash);
 
 public:
     FormulaUID uid;
     wstring name;
     vector<ProgramSymbol> args;
+    ValueSet mask;
 
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args);
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args);
+    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask);
+    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask);
 
     wstring toString() const;
     size_t hash() const { return m_hash; }
@@ -136,8 +139,8 @@ public:
 private:
     size_t m_hash;
     
-    static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, size_t& outHash);
-    static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args);
+    static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash);
+    static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args, const ValueSet& mask);
 
     struct Hash
     {
