@@ -87,6 +87,75 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
+int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	//
+	// Each tile of the map takes is one of these values:
+	//
+	constexpr int BLANK_IDX = 0;
+	constexpr int WALL_IDX = 1;
+
+	int numRows = 2;
+	int numCols = 2;
+
+	for (int time = 0; time < times; ++time)
+	{
+		ConstraintSolver solver(TEXT("PrefabTest"), seed);
+
+		// Create the topology for the grid
+		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
+
+		// Create the PrefabManager
+		shared_ptr<PrefabManager> prefabManager = PrefabManager::create(&solver, grid);
+
+		// Generate test prefabs
+		prefabManager->createPrefabFromJson("../../prefabs/test1.json");
+
+		// The domains for the various types of variables
+		SolverVariableDomain tileDomain(0, 1);
+
+		// Create a variable for each tile in the grid
+		auto tileData = solver.makeVariableGraph(TEXT("TileVars"), ITopology::adapt(grid), tileDomain, TEXT("Tile"));
+
+		// Generate the prefab constraints
+		prefabManager->generatePrefabConstraints(tileData);
+
+		// Set some initial values
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[0], { 1 });
+
+		shared_ptr<SolverDecisionLog> outputLog;
+		if constexpr (WRITE_BREADCRUMB_LOG)
+		{
+			outputLog = make_shared<SolverDecisionLog>();
+		}
+
+		if (outputLog != nullptr)
+		{
+			solver.setOutputLog(outputLog);
+		}
+
+		solver.solve();
+		solver.dumpStats(printVerbose);
+
+		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+		if (printVerbose)
+		{
+			print(&solver, grid, tileData, prefabManager);
+		}
+
+		if (outputLog != nullptr)
+		{
+			outputLog->write(TEXT("PrefabTestOutput.txt"));
+		}
+
+		nErrorCount += check(&solver, tileData, prefabManager);
+	}
+
+	return nErrorCount;
+}
+
 void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopology> grid, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
 {
 	vector<shared_ptr<TTopologyVertexData<VarID>>> graphVars = { tileData, prefabManager->getTilePrefabData(), prefabManager->getTilePrefabPosData() };

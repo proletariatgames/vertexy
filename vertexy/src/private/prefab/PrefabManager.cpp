@@ -6,7 +6,12 @@
 #include "prefab/Prefab.h"
 #include "variable/SolverVariableDomain.h"
 
+#include <fstream>
+#include <sstream>
+#include <nlohmann/json.hpp>
+
 using namespace Vertexy;
+using json = nlohmann::json;
 
 /*static*/ shared_ptr<PrefabManager> PrefabManager::create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
 {
@@ -37,6 +42,43 @@ void PrefabManager::createPrefab(const vector<vector<int>>& inTiles)
 
 	// Add to our internal list of prefabs
 	m_prefabs.push_back(prefab);
+}
+
+void PrefabManager::createPrefabFromJson(string filePath)
+{
+	// Ensure the file exists
+	if (!std::filesystem::exists(filePath.c_str()))
+	{
+		vxy_assert_msg(false, "Error! File path passed to createPrefabFromJson does not exist!");
+	}
+
+	// Open the file and convert its contents to a string
+	std::ifstream file;
+	file.open(filePath.c_str());
+	std::stringstream strStream;
+	strStream << file.rdbuf();
+
+	// Parse the json string and extract variables
+	auto j = json::parse(strStream.str().c_str());
+	vector<vector<int>> tiles;
+
+	for (const auto& elem : j["tiles"])
+	{
+		vector<int> newRow;
+		for (const int& tile : elem)
+		{
+			newRow.push_back(tile);
+		}
+		tiles.push_back(newRow);
+	}
+
+	// Ensure tiles isn't empty
+	if (tiles.size() == 0 || tiles[0].size() == 0)
+	{
+		vxy_assert_msg(false, "Error! Json file passed to createPrefabFromJson contains no tiles!");
+	}
+
+	createPrefab(tiles);
 }
 
 void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData)
