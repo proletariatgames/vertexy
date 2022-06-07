@@ -487,14 +487,9 @@ Vertexy::detail::ProgramExternalFunctionTerm Program::graphEdge(detail::ProgramB
     );
 }
 
-Vertexy::detail::ProgramRangeTerm Program::range(detail::ProgramBodyTerm min, detail::ProgramBodyTerm max)
+Vertexy::detail::ProgramRangeTerm Program::range(int min, int max)
 {
-    // TODO: validate arguments
-    static LiteralTerm::AbstractOverrideMap tempMap;
-    int minV = min.term->eval(tempMap, ProgramSymbol()).getInt();
-    int maxV = max.term->eval(tempMap, ProgramSymbol()).getInt();
-    vxy_assert_msg(maxV >= minV, "invalid range");
-    return detail::ProgramRangeTerm(minV, maxV);
+    return detail::ProgramRangeTerm(min, max);
 }
 
 ProgramInstance::ProgramInstance(const shared_ptr<ITopology>& topology)

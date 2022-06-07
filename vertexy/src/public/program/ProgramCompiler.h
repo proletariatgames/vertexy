@@ -29,15 +29,10 @@ public:
         CreateIfBound
     };
     
-    FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder);
+    FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, BindCaller* binder);
     Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, const ValueSet& mask, CreationType creationType) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
-
-    bool contains(const vector<ProgramSymbol>& concreteArgs) const
-    {
-        return m_bindMap.find(concreteArgs) != m_bindMap.end();
-    }
-
+    
     void setAtomID(AtomID id) { m_atomId = id; }
     AtomID getAtomID() const { return m_atomId; }
 
@@ -61,11 +56,14 @@ private:
 
     AtomID m_atomId;
     RuleDatabase* m_rdb;
+    ConstraintSolver& m_solver;
     FormulaUID m_formulaUID;
     const wchar_t* m_formulaName;
+    int m_domainSize;
     BindCaller* m_binder = nullptr;
 
-    mutable hash_map<vector<ProgramSymbol>, Literal, ArgumentHasher> m_bindMap;
+    using BindMap = hash_map<vector<ProgramSymbol>, VarID, ArgumentHasher>; 
+    mutable BindMap m_bindMap;
 };
 using FormulaMapperPtr = shared_ptr<FormulaMapper>;
 
@@ -78,7 +76,7 @@ public:
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
 
     virtual bool needsInstantiation() const override { return false; }    
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override { return false; }
+    virtual bool instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const override { return false; }
     virtual void lockVariableCreation() const override {}
     
 protected:
@@ -100,7 +98,7 @@ public:
     virtual wstring toString() const override;
 
     virtual bool needsInstantiation() const override;
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override;
+    virtual bool instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const override;
     virtual void lockVariableCreation() const override;
 
 private:

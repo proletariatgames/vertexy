@@ -210,7 +210,7 @@ using UDomainTerm = unique_ptr<DomainTerm>;
 class ExplicitDomainTerm : public DomainTerm
 {
 public:
-    explicit ExplicitDomainTerm(const ValueSet& mask);
+    explicit ExplicitDomainTerm(ValueSet&& mask);
     
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual wstring toString() const override;

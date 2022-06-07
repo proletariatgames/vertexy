@@ -59,7 +59,7 @@ bool RuleDatabase::finalize()
         {
             auto headAtomInfo = getAtom(head.id())->asConcrete();
             
-            if (headAtomInfo->abstractParent && headAtomInfo->abstractParent->isFullyKnown(head.getMask()))
+            if (headAtomInfo->abstractParent && !headAtomInfo->abstractParent->containsUnknowns(head.getMask()))
             {
                 // This is a concrete instantiation of an abstract that is fully known.
                 // No constraints will be created for the abstract, so we can safely skip creating a variable.
@@ -68,9 +68,9 @@ bool RuleDatabase::finalize()
 
             // Fully-known heads can't always be skipped, because they can be necessary for graph constraint
             // construction. We can skip only if this head is NOT referred to by any bodies that aren't fully known.
-            if (headAtomInfo->isFullyKnown(head.getMask()))
+            if (!headAtomInfo->containsUnknowns(head.getMask()))
             {
-                auto& checkDeps = headAtomInfo->status == ETruthStatus::True
+                auto& checkDeps = headAtomInfo->trueFacts.isSingleton()
                     ? headAtomInfo->positiveDependencies
                     : headAtomInfo->negativeDependencies;
 
@@ -84,11 +84,6 @@ bool RuleDatabase::finalize()
 
             // Force the solver variable to be created.
             headAtomInfo->createLiteral(*this);
-            // We may need to synchronize at this point in the case of fully known atoms that still have dependencies.
-            if (headAtomInfo->isFullyKnown(head.getMask()))
-            {
-                headAtomInfo->synchronize(*this);
-            }
         }
     }
 
@@ -124,7 +119,7 @@ bool RuleDatabase::finalize()
         
                 auto bodyLitAtom = getAtom(bodyLit.id());
                 
-                ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
+                ALiteral atomLit = bodyLitAtom->getLiteral(bodyLit.inverted());
                 m_nogoodBuilder.add(atomLit, bodyLit.sign(), bodyLitAtom->getTopology());
             }
             m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
@@ -147,7 +142,7 @@ bool RuleDatabase::finalize()
                 }
 
                 auto bodyLitAtom = getAtom(bodyLit.id());
-                ALiteral atomLit = bodyLitAtom->getLiteral(*this, bodyLit.inverted());
+                ALiteral atomLit = bodyLitAtom->getLiteral(bodyLit.inverted());
                 m_nogoodBuilder.add(atomLit, bodyLit.sign(), bodyLitAtom->getTopology());
             }
 
@@ -167,7 +162,7 @@ bool RuleDatabase::finalize()
 
             auto bodyLitAtom = getAtom(bodyLit.id());
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, false, true), true, bodyInfo->getTopology());            
-            m_nogoodBuilder.add(bodyLitAtom->getLiteral(*this, bodyLit), true, bodyLitAtom->getTopology());
+            m_nogoodBuilder.add(bodyLitAtom->getLiteral(bodyLit), true, bodyLitAtom->getTopology());
             m_nogoodBuilder.emit(*this, bodyInfo->getFilter());
         }
         
@@ -184,7 +179,7 @@ bool RuleDatabase::finalize()
             vxy_assert(ith->sign());
 
             AtomInfo* headAtomInfo = getAtom((*ith).id());
-            ALiteral headLit = headAtomInfo->getLiteral(*this, *ith);
+            ALiteral headLit = headAtomInfo->getLiteral(*ith);
             
             m_nogoodBuilder.add(bodyInfo->getLiteral(*this, true, true), true, bodyInfo->getTopology());
             m_nogoodBuilder.add(headLit, true, headAtomInfo->getTopology());
@@ -238,19 +233,7 @@ bool RuleDatabase::finalize()
     //
     for (auto it = m_atoms.begin()+1, itEnd = m_atoms.end(); it != itEnd; ++it)
     {
-        auto atomInfo = it->get();
-        ValueSet allIndices(atomInfo->domainSize, true);
-
-        if (atomInfo->isFullyKnown(allIndices))
-        {
-            continue;
-        }
-
-        if (isLiteralAssumed(atomInfo->id, false, allIndices) || atomInfo->isExternal)
-        {
-            continue;
-        }
-
+        auto atomInfo = it->get();        
         if (atomInfo->asConcrete() && atomInfo->asConcrete()->abstractParent)
         {
             continue;
@@ -267,6 +250,11 @@ bool RuleDatabase::finalize()
 
             for (auto& supportBodyInfo : concreteAtom->supports)
             {
+                if (supportBodyInfo.body->isFullyKnown() || isLiteralAssumed(atomInfo->id, true, supportBodyInfo.values))
+                {
+                    continue;
+                }
+                
                 size_t valueHash = eastl::hash<ValueSet>()(supportBodyInfo.values);
                 auto found = bodyOverlaps.find_by_hash(supportBodyInfo.values, valueHash);
                 if (found == bodyOverlaps.end())
@@ -283,6 +271,11 @@ bool RuleDatabase::finalize()
 
             for (auto& overlapEntry : bodyOverlaps)
             {
+                if (!concreteAtom->containsUnknowns(overlapEntry.first))
+                {
+                    continue;
+                }
+                
                 vector<BodyInfo*> bodiesForMask = overlapEntry.second;
                 if (!overlapEntry.first.isSingleton())
                 {
@@ -292,7 +285,7 @@ bool RuleDatabase::finalize()
                         auto& linkages = indexLinkages[*itBit];
                         for (auto linkBody : linkages)
                         {
-                            if (!contains(bodiesForMask.begin(), bodiesForMask.end(), linkBody))
+                            if (!linkBody->isFullyKnown() && !contains(bodiesForMask.begin(), bodiesForMask.end(), linkBody))
                             {
                                 bodiesForMask.push_back(linkBody);
                             }
@@ -309,7 +302,7 @@ bool RuleDatabase::finalize()
                 }
 
                 AtomLiteral headLit(atomInfo->id, false, overlapEntry.first);
-                m_nogoodBuilder.add(concreteAtom->getLiteral(*this, headLit), true, concreteAtom->getTopology());
+                m_nogoodBuilder.add(concreteAtom->getLiteral(headLit), true, concreteAtom->getTopology());
                 m_nogoodBuilder.emit(*this, nullptr);                
             }
         }
@@ -323,6 +316,11 @@ bool RuleDatabase::finalize()
             for (auto& absLit : abstractAtom->abstractLiterals)
             {
                 if (absLit.second != ETruthStatus::Undetermined)
+                {
+                    continue;
+                }
+
+                if (!abstractAtom->containsUnknowns(absLit.first.getMask()))
                 {
                     continue;
                 }
@@ -396,20 +394,14 @@ void RuleDatabase::lockVariableCreation()
 bool RuleDatabase::isLiteralAssumed(AtomID atomID, bool sign, const ValueSet& mask) const
 {
     auto atom = getAtom(atomID);
-    if ((sign && atom->falseFacts.allPossible(mask)) ||
-        (!sign && atom->trueFacts.allPossible(mask)))
+    auto status = atom->getTruthStatus(mask);
+    if ((sign && status == ETruthStatus::False) || (!sign && status == ETruthStatus::True))
     {
         vxy_fail(); // we should've failed due to conflict already
         return false;
     }
 
-    if (atom->status != ETruthStatus::Undetermined)
-    {
-        return true;
-    }
-
-    if ((sign && mask.isSubsetOf(atom->trueFacts)) ||
-        (!sign && mask.isSubsetOf(atom->falseFacts)))
+    if ((sign && status == ETruthStatus::True) || (!sign && status == ETruthStatus::False))
     {
         return true;
     }
@@ -486,18 +478,9 @@ RuleDatabase::BodyInfo* RuleDatabase::findBodyInfo(const vector<AtomLiteral>& bo
     auto range = m_bodySet.find_range_by_hash(outHash);
     for (auto it = range.first; it != range.second; ++it)
     {
-        if (BodyHasher::compareBodies((*it)->atomLits, body))
+        if (headRelationInfo == (*it)->headRelationInfo && BodyHasher::compareBodies((*it)->atomLits, body))
         {
-            if ((*it)->headRelationInfo == nullptr ||
-                headRelationInfo == nullptr ||
-                headRelationInfo == (*it)->headRelationInfo)
-            {
-                if (headRelationInfo != nullptr)
-                {
-                    (*it)->headRelationInfo = headRelationInfo;
-                }
-                return *it;
-            }
+            return *it;
         }
     }
     return nullptr;
@@ -594,30 +577,20 @@ bool RuleDatabase::getLiteralForBody(const AbstractBodyInfo& body, const vector<
         for (int i = 0; i < headArguments.size(); ++i)
         {
             if (i > 0) name += TEXT(", ");
-            name += to_wstring(headArguments[i]);
+            // !!FIXME!! This isn't quite right: we're just assuming the first index is a vertex and remaining
+            // indices are not.
+            name += i == 0 ? body.getTopology()->vertexIndexToString(headArguments[i]) : to_wstring(headArguments[i]);
         }
         name += TEXT(") [[");
-
-        auto& lits = concreteBody->atomLits;
-        for (int i = 0; i < lits.size(); ++i)
-        {
-            if (i > 0) name += TEXT(", ");
-
-            auto atomInfo = getAtom(lits[i].id());
-            if (!lits[i].sign()) name += TEXT("~");
-            name += atomInfo->name;
-        }
+        name += literalsToString(concreteBody->atomLits, false);
         name += TEXT("]]");
 
         VarID newVar = m_solver.makeBoolean(name);
         outLit = Literal(newVar, SolverVariableDomain(0,1).getBitsetForValue(1));
 
         auto db = m_solver.getVariableDB();
-        if (concreteBody->status == ETruthStatus::True && !db->constrainToValues(outLit, nullptr))
-        {
-            setConflicted();
-        }
-        else if (concreteBody->status == ETruthStatus::False && !db->excludeValues(outLit, nullptr))
+        if ((concreteBody->status == ETruthStatus::True && !db->constrainToValues(outLit, nullptr)) ||
+            (concreteBody->status == ETruthStatus::False && !db->excludeValues(outLit, nullptr)))
         {
             setConflicted();
         }
@@ -662,7 +635,7 @@ AtomID RuleDatabase::getTrueAtom()
     {
         return m_trueAtom;
     }
-    m_trueAtom = createAtom(TEXT("<true-fact>"), true);
+    m_trueAtom = createAtom(TEXT("<true-fact>"), 1, true);
 
     setAtomLiteralStatus(m_trueAtom, ValueSet(1,true), ETruthStatus::True);
     return m_trueAtom;
@@ -694,29 +667,12 @@ AtomID RuleDatabase::createAtom(const wchar_t* name, int domainSize, bool extern
 
 AtomID RuleDatabase::createBoundAtom(const AtomBinder& binder, const wchar_t* name, int domainSize, bool external)
 {
-#if VERTEXY_RULE_NAME_ATOMS
-    wstring sname;
-    if (name == nullptr)
-    {
-        sname = {wstring::CtorSprintf(), TEXT("atom%d"), m_atoms.size()};
-        name = sname.c_str();
-    }
-#endif
-
     AtomID newAtom = createAtom(name, domainSize, external);
 
     auto newAtomInfo = m_atoms[newAtom.value]->asConcrete();
     vxy_assert_msg(newAtomInfo != nullptr, "expected concrete atom");
 
-    if (domainSize == 1)
-    {
-        newAtomInfo->equivalence = binder(ValueSet(1,true));
-    }
-    else
-    {
-        newAtomInfo->binder = binder;
-    }
-
+    newAtomInfo->binder = binder;
     return newAtom;
 }
 
@@ -803,8 +759,8 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
     if (node < m_atoms.size()-1)
     {
         AtomID atom(node+1);
-        const AtomInfo* atomInfo = getAtom(atom)->asConcrete();
-        if (atomInfo == nullptr || atomInfo->status != ETruthStatus::Undetermined)
+        auto atomInfo = getAtom(atom)->asConcrete();
+        if (atomInfo == nullptr || !atomInfo->isChoiceAtom())
         {
             return;
         }
@@ -826,7 +782,7 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
         // visit each head that this body is supporting.
         for (auto& head : refBodyInfo->heads)
         {
-            if (getAtom(head.id())->isFullyKnown(head.getMask()))
+            if (!getAtom(head.id())->containsUnknowns(head.getMask()))
             {
                 continue;
             }
@@ -837,76 +793,64 @@ void RuleDatabase::tarjanVisit(int node, T&& visitor)
 
 bool RuleDatabase::setAtomLiteralStatus(AtomID atomID, const ValueSet& mask, ETruthStatus status)
 {
-    auto atom = getAtom(atomID)->asConcrete();
-    vxy_assert(atom != nullptr);
-    
     if (status == ETruthStatus::Undetermined)
     {
         return true;
     }
-    
-    if (atom->status != status)
+
+    auto atom = getAtom(atomID)->asConcrete();
+    vxy_assert(atom != nullptr);
+   
+    auto& setBits = status == ETruthStatus::True ? atom->trueFacts : atom->falseFacts;
+    auto& oppBits = status == ETruthStatus::True ? atom->falseFacts : atom->trueFacts;
+
+    // Handling masks:
+    // foo.mask(0);  <<-- sets 1st bit as true, 2nd bit as false.
+    // foo.mask(0|1); <<-- overlaps false bits. Remove false bits (2nd) from mask. Remainder overlaps true bits (1st): OK.
+    // foo.mask(1); <<- overlaps false bits. Remove false bits (2nd) from mask. Remainder doesn't overlap true bits (1st): conflict.
+
+    ValueSet finalMask = mask;
+    if (finalMask.anyPossible(oppBits))
     {
-        if (atom->status == ETruthStatus::Undetermined)
-        {
-            auto& setBits = status == ETruthStatus::True ? atom->trueFacts : atom->falseFacts;
-            auto& oppBits = status == ETruthStatus::True ? atom->falseFacts : atom->trueFacts;
-
-            if (setBits.allPossible(mask))
-            {                
-                return true;
-            }
-            
-            ValueSet addedBits = mask.excluding(setBits);
-            
-            setBits.include(mask);
-            if (oppBits.anyPossible(setBits))
-            {
-                setConflicted();
-                return false;
-            }
-
-            if (!setBits.contains(false))
-            {
-                atom->status = status;
-            }
-            
-            if constexpr (LOG_ATOM_FACTS)
-            {
-                VERTEXY_LOG("Atom %s%s -> %s", atom->name.c_str(),
-                    atom->status == ETruthStatus::Undetermined ? addedBits.toString().c_str() : TEXT(""),
-                    status == ETruthStatus::True ? TEXT("TRUE") : TEXT("FALSE")
-                );
-            }
-            
-            if (!atom->synchronize(*this))
-            {
-                setConflicted();
-                return false;
-            }
-
-            if (atom->abstractParent != nullptr)
-            {
-                for (auto it = addedBits.beginSetBits(); it != addedBits.endSetBits(); ++it)
-                {
-                    vxy_assert(atom->abstractParent->numUnknownConcretes[*it] > 0);
-                    atom->abstractParent->numUnknownConcretes[*it]--;
-                }
-                atom->abstractParent->indicesWithConcretes.include(addedBits);
-            }
-        }
-        else
+        finalMask.exclude(oppBits);
+        if (!finalMask.anyPossible(setBits))
         {
             setConflicted();
             return false;
         }
-
-        if (!atom->enqueued)
-        {
-            atom->enqueued = true;
-            m_atomsToPropagate.push_back(atom);
-        }
     }
+    
+    finalMask.exclude(setBits);
+    if (finalMask.isZero())
+    {
+        return true;
+    }
+    
+    setBits.include(finalMask);
+    oppBits.include(finalMask.inverted());
+
+    if constexpr (LOG_ATOM_FACTS)
+    {
+        VERTEXY_LOG("Atom %d %s%s -> %s",
+            atom->id.value,
+            atom->name.c_str(),
+            finalMask.toString().c_str(),
+            status == ETruthStatus::True ? TEXT("TRUE") : TEXT("FALSE")
+        );
+    }
+    
+    if (!atom->synchronize(*this))
+    {
+        setConflicted();
+        return false;
+    }
+
+    if (!atom->enqueued)
+    {
+        atom->enqueued = true;
+        m_atomsToPropagate.push_back(atom);
+    }
+
     return true;
 }
 
@@ -922,16 +866,22 @@ bool RuleDatabase::setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status)
         if (body->status == ETruthStatus::Undetermined)
         {
             body->status = status;
+            body->numUndeterminedTails = -1;
 
+            if constexpr (LOG_ATOM_FACTS)
+            {
+                VERTEXY_LOG("Body %d %s -> %s",
+                    body->id,
+                    literalsToString(body->atomLits, false).c_str(),
+                    status == ETruthStatus::True ? TEXT("TRUE") : TEXT("FALSE")
+                );
+            }
+            
             if (body->equivalence.isValid())
             {
                 auto db = m_solver.getVariableDB();
-                if (status == ETruthStatus::True && !db->constrainToValues(body->equivalence, nullptr))
-                {
-                    setConflicted();
-                    return false;
-                }
-                else if (status == ETruthStatus::False && !db->excludeValues(body->equivalence, nullptr))
+                if ((status == ETruthStatus::True && !db->constrainToValues(body->equivalence, nullptr)) ||
+                    (status == ETruthStatus::False && !db->excludeValues(body->equivalence, nullptr)))
                 {
                     setConflicted();
                     return false;
@@ -964,24 +914,25 @@ bool RuleDatabase::propagateFacts()
     // mark any atoms that have no supports as false.
     for (auto& atom : m_atoms)
     {
-        if (!atom->asConcrete())
+        auto concreteAtom = atom->asConcrete();
+        if (concreteAtom == nullptr)
         {
             continue;
         }
         
-        if (atom->status != ETruthStatus::Undetermined)
+        if (!concreteAtom->trueFacts.isZero() || !concreteAtom->falseFacts.isZero())
         {
-            if (!atom->enqueued)
+            if (!concreteAtom->enqueued)
             {
-                atom->enqueued = true;
-                m_atomsToPropagate.push_back(atom->asConcrete());
+                concreteAtom->enqueued = true;
+                m_atomsToPropagate.push_back(concreteAtom);
             }
         }
-        else if (!atom->isExternal)
+        else if (!concreteAtom->isExternal)
         {
             // Find any indices in this atom that are unsupported.
-            ValueSet supportedIndices(atom->domainSize, false);
-            for (auto& supportLink : atom->supports)
+            ValueSet supportedIndices(concreteAtom->domainSize, false);
+            for (auto& supportLink : concreteAtom->supports)
             {
                 supportedIndices.include(supportLink.values);
                 if (!supportedIndices.contains(false))
@@ -992,7 +943,7 @@ bool RuleDatabase::propagateFacts()
 
             if (supportedIndices.contains(false))
             {
-                if (!setAtomLiteralStatus(atom->id, supportedIndices.inverted(), ETruthStatus::False))
+                if (!setAtomLiteralStatus(concreteAtom->id, supportedIndices.inverted(), ETruthStatus::False))
                 {
                     return false;
                 }
@@ -1011,19 +962,17 @@ bool RuleDatabase::propagateFacts()
         bool fact = true;
         for (auto& lit : body->atomLits)
         {
-            auto litAtom = getAtom(lit.id());
-            if (litAtom->status == ETruthStatus::Undetermined)
-            {
-                fact = false;
-                break;
-            }
-
-            if ((lit.sign() && litAtom->status == ETruthStatus::False) ||
-                (!lit.sign() && litAtom->status == ETruthStatus::True))
+            auto litAtom = getAtom(lit.id())->asConcrete();
+            auto status = litAtom->getTruthStatus(lit.getMask());
+            if ((lit.sign() && status == ETruthStatus::False) || (!lit.sign() && status == ETruthStatus::True))
             {
                 setBodyStatus(body->asConcrete(), ETruthStatus::False);
                 fact = false;
                 break;
+            }
+            else if (status == ETruthStatus::Undetermined)
+            {
+                fact = false;
             }
         }
 
@@ -1051,36 +1000,6 @@ bool RuleDatabase::propagateFacts()
     // Debug output:
     //
     
-    auto litToString = [&](const AtomLiteral& lit)
-    {
-        wstring out;
-        if (!lit.sign()) out += TEXT("~");
-        out += getAtom(lit.id())->name;
-        return out;
-    };
-    
-    auto bodyToString = [&](const ConcreteBodyInfo* body)
-    {
-        wstring out;
-        bool first = true; 
-        for (auto& lit : body->atomLits)
-        {
-            auto status = getAtom(lit.id())->status;
-            if ((status == ETruthStatus::True && lit.sign()) || (status == ETruthStatus::False && !lit.sign()))
-            {
-                continue;
-            }
-            
-            if (!first)
-            {
-                out += TEXT(", ");
-            }
-            first = false;
-            out += litToString(lit);
-        }
-        return out;
-    };
-
     if (LOG_CONCRETE_BODIES)
     {
         VERTEXY_LOG("Concrete bodies:");
@@ -1094,21 +1013,57 @@ bool RuleDatabase::propagateFacts()
             
             if (concreteBody->isNegativeConstraint)
             {
-                VERTEXY_LOG("%d: disallow(%s)", concreteBody->id, bodyToString(concreteBody).c_str());
+                VERTEXY_LOG("%d: disallow(%s)", concreteBody->id, literalsToString(concreteBody->atomLits).c_str());
             }
 
             for (auto& head : body->heads)
             {
-                if (getAtom(head.id())->status == ETruthStatus::True)
-                {
-                    continue;
-                }
-                VERTEXY_LOG("%d: %s << %s", concreteBody->id, litToString(head).c_str(), bodyToString(concreteBody).c_str());
+                VERTEXY_LOG("%d: %s << %s", concreteBody->id, literalToString(head).c_str(), literalsToString(concreteBody->atomLits).c_str());
             }
         }
     }
     
     return true;
+}
+
+wstring RuleDatabase::literalToString(const AtomLiteral& lit) const
+{
+    wstring out;
+    if (!lit.sign()) out += TEXT("~");
+    auto atom = getAtom(lit.id());
+    out += atom->name;
+    if (atom->domainSize > 1)
+    {
+        out += lit.getMask().toString();
+    }
+    return out;
+}
+
+wstring RuleDatabase::literalsToString(const vector<AtomLiteral>& lits, bool cullKnown) const
+{
+    wstring out;
+    bool first = true; 
+    for (auto& lit : lits)
+    {
+        auto atomInfo = getAtom(lit.id());
+        if (lit.getMask().isSubsetOf(atomInfo->trueFacts))
+        
+        if (auto concreteAtom = getAtom(lit.id())->asConcrete())
+        {
+            auto status = concreteAtom->getTruthStatus(lit.getMask());
+            if (status != ETruthStatus::Undetermined && cullKnown)
+            {
+                continue;
+            }
+        }
+        if (!first)
+        {
+            out += TEXT(", ");
+        }
+        first = false;
+        out += literalToString(lit);
+    }
+    return out;
 }
 
 bool RuleDatabase::emptyAtomQueue()
@@ -1123,14 +1078,16 @@ bool RuleDatabase::emptyAtomQueue()
 
         for (auto& posDepLink : atom->positiveDependencies)
         {
-            if (posDepLink.values.isSubsetOf(atom->falseFacts))
+            auto status = atom->getTruthStatus(posDepLink.values);
+            
+            if (status == ETruthStatus::False)
             {
                 if (!setBodyStatus(posDepLink.body->asConcrete(), ETruthStatus::False))
                 {
                     return false;
                 }
             }
-            else if (posDepLink.values.isSubsetOf(atom->trueFacts))
+            else if (status == ETruthStatus::True && posDepLink.body->numUndeterminedTails >= 0)
             {
                 vxy_assert(posDepLink.body->numUndeterminedTails > 0);
                 posDepLink.body->numUndeterminedTails--;
@@ -1146,14 +1103,16 @@ bool RuleDatabase::emptyAtomQueue()
 
         for (auto& negDepLink : atom->negativeDependencies)
         {
-            if (negDepLink.values.isSubsetOf(atom->trueFacts))
+            auto status = atom->getTruthStatus(negDepLink.values);
+                
+            if (status == ETruthStatus::True)
             {
                 if (!setBodyStatus(negDepLink.body->asConcrete(), ETruthStatus::False))
                 {
                     return false;
                 }
             }
-            else if (negDepLink.values.isSubsetOf(atom->falseFacts))
+            else if (status == ETruthStatus::False && negDepLink.body->numUndeterminedTails >= 0)
             {
                 vxy_assert(negDepLink.body->numUndeterminedTails > 0);
                 negDepLink.body->numUndeterminedTails--;
@@ -1165,7 +1124,7 @@ bool RuleDatabase::emptyAtomQueue()
                     }
                 }
             }
-        }        
+        }
     }
 
     return true;
@@ -1298,11 +1257,11 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
         }
         
         auto oldAtomInfo = getAtom(oldLit.id());
-        if (oldAtomInfo->asConcrete() != nullptr)
+        if (auto concreteAtomInfo = oldAtomInfo->asConcrete())
         {
-            if (oldAtomInfo->isExternal)
+            if (concreteAtomInfo->isExternal)
             {
-                vxy_assert(oldAtomInfo->status == ETruthStatus::True);
+                vxy_assert(concreteAtomInfo->getTruthStatus(oldLit.getMask()) == ETruthStatus::True);
                 if (!oldLit.sign())
                 {
                     outSomeFailed = true;
@@ -1329,7 +1288,7 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
 
             if (oldAbsInfo->isExternal)
             {
-                auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(*this, oldLit));
+                auto rel = get<GraphLiteralRelationPtr>(oldAbsInfo->getLiteral(oldLit));
 
                 Literal lit;
                 if (!rel->getRelation(vertex, lit))
@@ -1360,15 +1319,16 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
                 continue;
             }
 
+            AtomLiteral newLit(found->second->id, oldLit.sign(), oldLit.getMask(), oldLit.getRelationInfo());
+
             auto foundAtom = found->second;
-            if ( foundAtom->status != ETruthStatus::Undetermined &&
-                 ((foundAtom->status == ETruthStatus::True && !oldLit.sign()) ||
-                  (foundAtom->status == ETruthStatus::False && oldLit.sign())) )
+            if (auto status = foundAtom->getTruthStatus(newLit.getMask());
+                (newLit.sign() && status == ETruthStatus::False) || (!newLit.sign() && status == ETruthStatus::True))
             {
                 outSomeFailed = true;
             }
 
-            newLits.push_back(AtomLiteral(found->second->id, oldLit.sign(), oldLit.getMask(), oldLit.getRelationInfo()));
+            newLits.push_back(newLit);
         }
     }
     
@@ -1409,7 +1369,12 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
                 continue;
             }
 
-            if (!containsPredicate(newValues.begin(), newValues.end(), [&](auto&& lit) { return getAtom(lit.id())->status != ETruthStatus::True; }))
+            const bool hasUntrueLits = containsPredicate(newValues.begin(), newValues.end(), [&](auto&& lit)
+            {
+                auto status = getAtom(lit.id())->asConcrete()->getTruthStatus(lit.getMask());
+                return ((lit.sign() && status != ETruthStatus::True) || (!lit.sign() && status == ETruthStatus::False));
+            });
+            if (!hasUntrueLits)
             {
                 for (auto& head : newHeads)
                 {
@@ -1474,16 +1439,9 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
 {
     vxy_assert(oldAtom.sign());
     
-    auto oldAtomInfo = getAtom(oldAtom.id());
-    if (oldAtomInfo->status != ETruthStatus::Undetermined)
+    if (auto oldAbstractAtom = getAtom(oldAtom.id())->asAbstract())
     {
-        return;
-    }
-
-    auto atomRel = oldAtom.getRelationInfo()->literalRelation;
-    
-    if (auto oldAbstractAtom = oldAtomInfo->asAbstract())
-    {
+        auto atomRel = oldAtom.getRelationInfo()->literalRelation;
         vxy_assert(!oldAbstractAtom->isExternal);
         
         auto& relationInfo = oldAtom.getRelationInfo();
@@ -1511,11 +1469,9 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             for (int i = 0; i < args.size(); ++i)
             {
                 if (i > 0) name += TEXT(", ");
-                // !!FIXME!! This isn't quite right: we're assuming all arguments are abstracts, but you could do
-                // something like this:
-                //     f(vertex, 2) <<= blah(vertex);
-                // in which case we don't want to translate the "2"
-                name += oldAtomInfo->getTopology()->vertexIndexToString(args[i]);
+                // !!FIXME!! This isn't quite right: we're just assuming the first index is a vertex and remaining
+                // indices are not.
+                name += i == 0 ? oldAbstractAtom->getTopology()->vertexIndexToString(args[i]) : to_wstring(args[i]);
             }
             name += TEXT(")");
 
@@ -1531,10 +1487,6 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             oldAbstractAtom->concreteAtoms.insert({args, newAtom.get()});
             m_atoms.push_back(move(newAtom));
 
-            for (auto it = oldAtom.getMask().beginSetBits(); it != oldAtom.getMask().endSetBits(); ++it)
-            {
-                oldAbstractAtom->numUnknownConcretes[*it]++;
-            }
             setAtomLiteralStatus(newAtomID, oldAtom.getMask(), truthStatus);            
         }
     }
@@ -1578,20 +1530,93 @@ RuleDatabase::AtomInfo::AtomInfo(AtomID id, int domainSize)
     vxy_assert(domainSize >= 1);
 }
 
-RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit)
+RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(const AtomLiteral& atomLit)
 {
-    if (!equivalence.variable.isValid())
+    vxy_assert_msg(abstractParent == nullptr, "Should not call getLiteral on a concrete atom created from an abstract!");
+   
+    if (binder != nullptr)
     {
-        vxy_assert(abstractParent == nullptr);
-        vxy_assert(binder != nullptr);
-    
         Literal lit = binder(atomLit.getMask());
         return atomLit.sign() ? lit : lit.inverted();
     }
     else
     {
-        return atomLit.sign() ? equivalence : equivalence.inverted();
+        vxy_assert(equivalence.isValid());
+        ValueSet mask(1, false);
+        mask.append(atomLit.getMask(), domainSize);
+        return Literal(equivalence.variable, atomLit.sign() ? mask : mask.inverted());
     }
+}
+
+Literal RuleDatabase::ConcreteAtomInfo::getLiteralForIndex(int index) const
+{
+    vxy_assert(getTruthStatus(index) == ETruthStatus::Undetermined);
+    if (abstractParent != nullptr)
+    {
+        vxy_assert(binder == nullptr);
+        ValueSet mask(domainSize, false);
+        mask[index] = true;
+
+        AtomLiteral parentLit(abstractParent->id, true, mask, parentRelationInfo);
+        auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(parentLit));
+
+        Literal outLit;
+        vxy_verify(rel->getRelation(parentVertex, outLit));
+        return outLit;
+    }
+    else if (binder != nullptr)
+    {
+        ValueSet mask(domainSize, false);
+        mask[index] = true;
+        return binder(mask);
+    }
+    else
+    {
+        vxy_assert(equivalence.isValid());
+        ValueSet mask(domainSize+1, false);
+        mask[index+1] = true;
+        return Literal(equivalence.variable, mask);
+    }
+}
+
+bool RuleDatabase::ConcreteAtomInfo::containsUnknowns(const ValueSet& values) const
+{
+    return !values.excluding(trueFacts).excluding(falseFacts).isZero();
+}
+
+RuleDatabase::ETruthStatus RuleDatabase::ConcreteAtomInfo::getTruthStatus(const ValueSet& values) const
+{
+    vxy_sanity(!values.isZero());
+    // Definitely true if all definitely-true bits are included in the mask. 
+    if (!trueFacts.isZero() && trueFacts.isSubsetOf(values))
+    {
+        return ETruthStatus::True;
+    }
+    // Definitely false if all bits in the mask are definitely-false.
+    else if (values.isSubsetOf(falseFacts))
+    {
+        return ETruthStatus::False;
+    }
+    return ETruthStatus::Undetermined;
+}
+
+RuleDatabase::ETruthStatus RuleDatabase::ConcreteAtomInfo::getTruthStatus(int index) const
+{
+    if (index < 0 || index >= domainSize)
+    {
+        return ETruthStatus::False;
+    }
+
+    if (trueFacts[index])
+    {
+        return ETruthStatus::True;
+    }
+    else if (falseFacts[index])
+    {
+        return ETruthStatus::False;
+    }
+
+    return ETruthStatus::Undetermined;
 }
 
 void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
@@ -1602,77 +1627,68 @@ void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
         {            
             vxy_assert(binder == nullptr);
             AtomLiteral parentLit(abstractParent->id, true, ValueSet(domainSize, true), parentRelationInfo);
-            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(rdb, parentLit));
+            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(parentLit));
             vxy_verify(rel->getRelation(parentVertex, equivalence));
-        }
-        else if (binder == nullptr)
-        {
-            vxy_assert(domainSize == 1);
-            VarID var = rdb.m_solver.makeVariable(name, booleanVariableDomain);
-            equivalence = Literal(var, TRUE_VALUE);
-        }
-        else
-        {
-            // Binder needs to be called for each literal.
-        }
-    }
-}
-
-bool RuleDatabase::ConcreteAtomInfo::isFullyKnown(const ValueSet& values) const
-{
-    if (status != ETruthStatus::Undetermined)
-    {
-        return true;
-    }
-    ValueSet notFactIndices = values;
-    notFactIndices.exclude(trueFacts);
-    notFactIndices.exclude(falseFacts);
-    return notFactIndices.isZero();
-}
-
-bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
-{
-    vxy_assert(status != ETruthStatus::Undetermined);
-
-    if (!equivalence.isValid())
-    {
-        if (parentRelationInfo != nullptr)
-        {
-            vxy_assert(binder == nullptr);
-            if (!parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, equivalence))
-            {
-                equivalence = Literal{};
-                return true;
-            }
         }
         else if (binder != nullptr)
         {
             equivalence = binder(ValueSet(domainSize, true));
         }
-    }
+        else
+        {
+            VarID var = rdb.m_solver.makeVariable(name, SolverVariableDomain(0, domainSize));
+            equivalence = Literal(var, ValueSet(domainSize+1, true));
+        }
 
-    if (!equivalence.variable.isValid())
+        vxy_assert(equivalence.isValid());
+        if (!synchronize(rdb))
+        {
+            rdb.setConflicted();
+        }
+    }
+}
+
+bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
+{
+    if (trueFacts.isZero() && falseFacts.isZero())
     {
-        // no variable created yet
         return true;
     }
+    
+    Literal trueEquivalence, falseEquivalence;
+    if (parentRelationInfo != nullptr)
+    {
+        vxy_assert(binder == nullptr);
+        parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, trueFacts, trueEquivalence);
+        parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, falseFacts, falseEquivalence);
+    }
+    else if (binder != nullptr)
+    {
+        trueEquivalence = binder(trueFacts);
+        falseEquivalence = binder(falseFacts);
+    }
+    else if (equivalence.isValid())
+    {
+        trueEquivalence.variable = equivalence.variable;
+        trueEquivalence.values = ValueSet(1, false);
+        trueEquivalence.values.append(trueFacts, trueFacts.size());
 
-    if (status == ETruthStatus::True)
-    {
-        if (!rdb.m_solver.getVariableDB()->constrainToValues(equivalence, nullptr))
-        {
-            rdb.setConflicted();
-            return false;
-        }
+        falseEquivalence.variable = equivalence.variable;
+        falseEquivalence.values = ValueSet(1, true);
+        falseEquivalence.values.append(falseFacts, falseFacts.size());
     }
-    else if (status == ETruthStatus::False)
+
+    if (trueEquivalence.isValid() && !rdb.m_solver.getVariableDB()->constrainToValues(trueEquivalence, nullptr))
     {
-        if (!rdb.m_solver.getVariableDB()->excludeValues(equivalence, nullptr))
-        {
-            rdb.setConflicted();
-            return false;
-        }
+        rdb.setConflicted();
+        return false;
     }
+    if (falseEquivalence.isValid() && !rdb.m_solver.getVariableDB()->excludeValues(falseEquivalence, nullptr))
+    {
+        rdb.setConflicted();
+        return false;
+    }
+
     return true;
 }
 
@@ -1681,39 +1697,43 @@ RuleDatabase::AbstractAtomInfo::AbstractAtomInfo(AtomID inID, int inDomainSize, 
     , topology(topology)
     , indicesWithConcretes(inDomainSize, false)
 {
-    numUnknownConcretes.resize(domainSize, 0);
 }
 
-RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit)
+RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(const AtomLiteral& atomLit)
 {
     return atomLit.sign() ? atomLit.getRelationInfo()->literalRelation : atomLit.getRelationInfo()->getInverseRelation();
 }
 
 FactGraphFilterPtr RuleDatabase::AbstractAtomInfo::getFilter(const AtomLiteral& literal) const
 {
-    if (!indicesWithConcretes.anyPossible(literal.getMask()))
-    {
-        return nullptr;
-    }
     return make_shared<FactGraphFilter>(this, literal.getMask(), literal.getRelationInfo());
 }
 
-bool RuleDatabase::AbstractAtomInfo::isFullyKnown(const ValueSet& values) const
+bool RuleDatabase::AbstractAtomInfo::containsUnknowns(const ValueSet& values) const
 {
-    if (status != ETruthStatus::Undetermined)
+    for (auto& concreteAtomEntry : concreteAtoms)
     {
-        return true;
-    }
-    
-    for (auto it = values.beginSetBits(); it != values.endSetBits(); ++it)
-    {
-        if (numUnknownConcretes[*it] > 0)
+        if (concreteAtomEntry.second->containsUnknowns(values))
         {
-            return false;
+            return true;
         }
     }
-    
-    return true;
+    return false;
+}
+
+RuleDatabase::ETruthStatus RuleDatabase::AbstractAtomInfo::getTruthStatus(const ValueSet& values) const
+{
+    ETruthStatus currentStatus = ETruthStatus::Undetermined;
+    for (auto& concreteAtomEntry : concreteAtoms)
+    {
+        auto atomStatus = concreteAtomEntry.second->getTruthStatus(values);
+        if (atomStatus == ETruthStatus::Undetermined || (currentStatus != ETruthStatus::Undetermined && atomStatus != currentStatus))
+        {
+            return ETruthStatus::Undetermined;
+        }
+        currentStatus = atomStatus;
+    }
+    return currentStatus;
 }
 
 void RuleDatabase::AbstractAtomInfo::lockVariableCreation()
@@ -2144,10 +2164,12 @@ FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo,
             continue;
         }
 
+        // Exclude any vertices where the concrete atom for this vertex is known to be within the mask
+        // (or known to be outside the mask).
         auto it = atomInfo->concreteAtoms.find(args);
         if (it != atomInfo->concreteAtoms.end())
         {
-            if (mask.excluding(it->second->trueFacts).excluding(it->second->falseFacts).isZero())
+            if (!it->second->containsUnknowns(mask))
             {
                 m_filter[vertex] = false;
             }
@@ -2159,6 +2181,7 @@ FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractBodyInfo* bodyInfo)
 {
     m_topology = bodyInfo->getTopology();
     
+    // only include vertices where the body truth has not been proven already.
     m_filter.pad(bodyInfo->getTopology()->getNumVertices(), false);
     for (auto& concreteBodyEntry : bodyInfo->concreteBodies)
     {

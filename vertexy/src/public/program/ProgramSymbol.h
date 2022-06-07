@@ -8,7 +8,8 @@ namespace Vertexy
 
 enum class ESymbolType : uint8_t
 {
-    Integer = 0,
+    PositiveInteger = 0,
+    NegativeInteger,
     ID,
     Formula,
     External,
@@ -51,8 +52,8 @@ public:
 
     int getInt() const
     {
-        vxy_sanity(getType() == ESymbolType::Integer);
-        return m_packed;
+        vxy_sanity(isInteger());
+        return getType() == ESymbolType::PositiveInteger ? m_packed : -decode(m_packed);
     }
 
     const wchar_t* getID() const
@@ -68,7 +69,7 @@ public:
     }
 
     bool isAbstract() const { return getType() == ESymbolType::Abstract; }
-    bool isInteger() const { return getType() == ESymbolType::Integer; }
+    bool isInteger() const { return getType() == ESymbolType::PositiveInteger || getType() == ESymbolType::NegativeInteger; }
     bool isID() const { return getType() == ESymbolType::ID; }
     bool isExternalFormula() const { return getType() == ESymbolType::External; }
     bool isNormalFormula() const { return getType() == ESymbolType::Formula; }

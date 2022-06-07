@@ -483,6 +483,23 @@ wstring FunctionTerm::toString() const
     }
 
     out += TEXT(")");
+
+    if (!domainTerms.empty())
+    {
+        out += TEXT("[");
+        first = true;
+        for (auto& domainTerm : domainTerms)
+        {
+            if (!first)
+            {
+                out += TEXT(" && ");
+            }
+            first = false;
+            out += domainTerm->toString();
+        }
+        out += TEXT("]");
+    }
+    
     return out;
 }
 
@@ -581,7 +598,8 @@ ProgramSymbol UnaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const Pr
     case EUnaryOperatorType::Negate:
         switch (sym.getType())
         {
-        case ESymbolType::Integer:
+        case ESymbolType::PositiveInteger:
+        case ESymbolType::NegativeInteger:
             return ProgramSymbol(-sym.getInt());
         case ESymbolType::Abstract:
             return ProgramSymbol(make_shared<NegateGraphRelation>(sym.getAbstractRelation()));
@@ -696,15 +714,15 @@ ProgramSymbol BinaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const P
         return {};
     }
     vxy_assert_msg(
-        resolvedLHS.getType() == ESymbolType::Integer || resolvedLHS.getType() == ESymbolType::Abstract,
+        resolvedLHS.isInteger() || resolvedLHS.isAbstract(),
         "can only apply binary operators on integer or abstract symbols"
     );
     vxy_assert_msg(
-        resolvedRHS.getType() == ESymbolType::Integer || resolvedRHS.getType() == ESymbolType::Abstract,
+        resolvedRHS.isInteger() || resolvedRHS.isAbstract(),
         "can only apply binary operators on integer or abstract symbols"
     );
 
-    if (resolvedLHS.getType() == ESymbolType::Integer && resolvedRHS.getType() == ESymbolType::Integer)
+    if (resolvedLHS.isInteger() && resolvedRHS.isInteger())
     {
         switch (op)
         {
@@ -835,8 +853,8 @@ bool BinaryOpTerm::operator==(const LiteralTerm& term) const
     return false;
 }
 
-ExplicitDomainTerm::ExplicitDomainTerm(const ValueSet& mask)
-    : mask(mask)
+ExplicitDomainTerm::ExplicitDomainTerm(ValueSet&& mask)
+    : mask(move(mask))
 {    
 }
 
@@ -852,7 +870,7 @@ wstring ExplicitDomainTerm::toString() const
 
 unique_ptr<Term> ExplicitDomainTerm::clone() const
 {
-    return make_unique<ExplicitDomainTerm>(mask);
+    return make_unique<ExplicitDomainTerm>(ValueSet(mask));
 }
 
 void ExplicitDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap&, const ProgramSymbol&) const
