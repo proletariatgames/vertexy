@@ -31,7 +31,7 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 
 	for (int time = 0; time < times; ++time)
 	{
-		ConstraintSolver solver(TEXT("PrefabTest"), seed);
+		ConstraintSolver solver(TEXT("PrefabTest-Basic"), seed);
 
 		// Create the topology for the grid
 		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
@@ -102,7 +102,7 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 
 	for (int time = 0; time < times; ++time)
 	{
-		ConstraintSolver solver(TEXT("PrefabTest"), seed);
+		ConstraintSolver solver(TEXT("PrefabTest-Json"), seed);
 
 		// Create the topology for the grid
 		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
@@ -165,7 +165,7 @@ int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVer
 
 	for (int time = 0; time < times; ++time)
 	{
-		ConstraintSolver solver(TEXT("PrefabTest"), seed);
+		ConstraintSolver solver(TEXT("PrefabTest-Rot/Refl"), seed);
 
 		// Create the topology for the grid
 		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);

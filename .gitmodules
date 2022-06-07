@@ -21,4 +21,4 @@
 	url = https://github.com/electronicarts/EAStdC.git
 [submodule "thirdParty/nlohmann_json"]
 	path = thirdParty/nlohmann_json
-	url = https://github.com/nlohmann/json.git
+	url = https://github.com/nlohmann/json
