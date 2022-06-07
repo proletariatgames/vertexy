@@ -38,6 +38,7 @@ bool RuleDatabase::finalize()
     
     if (!propagateFacts())
     {
+        setConflicted();
         return false;
     }
 
@@ -409,10 +410,10 @@ bool RuleDatabase::isLiteralAssumed(AtomID atomID, bool sign, const ValueSet& ma
     auto concreteAtom = atom->asConcrete();
     if (concreteAtom != nullptr && concreteAtom->equivalence.isValid())
     {
+        Literal lit = get<Literal>( concreteAtom->getLiteral(AtomLiteral(atomID, true, mask)) );        
         auto db = m_solver.getVariableDB();
-        auto& elit = concreteAtom->equivalence;
-        if ((sign && db->getPotentialValues(elit.variable).isSubsetOf(elit.values)) ||
-            (!sign && !db->getPotentialValues(elit.variable).anyPossible(elit.values)))
+        if ((sign && db->getPotentialValues(lit.variable).isSubsetOf(lit.values)) ||
+            (!sign && !db->getPotentialValues(lit.variable).anyPossible(lit.values)))
         {
             return true;
         }
@@ -1530,7 +1531,7 @@ RuleDatabase::AtomInfo::AtomInfo(AtomID id, int domainSize)
     vxy_assert(domainSize >= 1);
 }
 
-RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(const AtomLiteral& atomLit)
+RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(const AtomLiteral& atomLit) const
 {
     vxy_assert_msg(abstractParent == nullptr, "Should not call getLiteral on a concrete atom created from an abstract!");
    
@@ -1699,7 +1700,7 @@ RuleDatabase::AbstractAtomInfo::AbstractAtomInfo(AtomID inID, int inDomainSize, 
 {
 }
 
-RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(const AtomLiteral& atomLit)
+RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(const AtomLiteral& atomLit) const
 {
     return atomLit.sign() ? atomLit.getRelationInfo()->literalRelation : atomLit.getRelationInfo()->getInverseRelation();
 }

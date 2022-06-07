@@ -10,6 +10,7 @@
 
 using namespace Vertexy;
 static constexpr bool LOG_RULE_INSTANTIATION = false;
+static constexpr bool LOG_RULE_EXPORTS = false;
 static constexpr bool LOG_MATH_REWRITE = false;
 static constexpr bool LOG_VAR_INSTANTIATION = false;
 
@@ -612,7 +613,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 if (bodySym.isExternalFormula())
                 {
                     // Add this to the grounded database; we'll need it when exporting rules.
-                    addGroundedAtom(CompilerAtom{bodySym, false}, stmtNode->stmt->topology);
+                    addGroundedAtom(CompilerAtom{bodySym.absolute(), ValueSet(bodySym.getFormula()->mask.size(),false)}, stmtNode->stmt->topology);
                 }
 
                 auto& domain = m_groundedAtoms[bodySym.getFormula()->uid]; 
@@ -662,7 +663,15 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             }
             UAtomDomain& domain = foundDomain->second;
             auto found = domain->map.find(sym);
-            return found != domain->map.end() && domain->list[found->second].isFact;
+            if (found != domain->map.end())
+            {
+                auto& facts = domain->list[found->second].facts;
+                if (!facts.isZero() && facts.isSubsetOf(sym.getFormula()->mask))
+                {
+                    return true;
+                }
+            }
+            return false;
         };
 
         int j = 0;
@@ -697,7 +706,9 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     bool areFacts = isNormalRule && bodyTerms.empty();
     for (const auto& headSym : headSymbols)
     {
-        if (addGroundedAtom(CompilerAtom{headSym, areFacts}, stmtNode->stmt->topology))
+        auto& headSymMask = headSym.getFormula()->mask;
+        auto factMask = areFacts ? headSymMask : ValueSet(headSymMask.size(), false);
+        if (addGroundedAtom(CompilerAtom{headSym, factMask}, stmtNode->stmt->topology))
         {
             int numEdges = m_depGraph->getNumOutgoing(stmtNode->vertex);
             for (int edgeIdx = 0; edgeIdx < numEdges; ++edgeIdx)
@@ -804,6 +815,7 @@ void ProgramCompiler::exportRules()
             for (auto& atom : domain->list)
             {
                 vxy_assert(!atom.symbol.isNegated());
+                auto unmaskedSym = atom.symbol.unmasked();
                 if (foundBinder != m_binders.end())
                 {
                     RuleDatabase* rdbPtr = &m_rdb;
@@ -814,14 +826,14 @@ void ProgramCompiler::exportRules()
                         return bindCaller->call(*rdbPtr, atomSym.getFormula()->args, mask);
                     };
 
-                    AtomID atomID = m_rdb.createBoundAtom(binderCallback, atom.symbol.toString().c_str(), atom.symbol.getFormula()->mask.size());
+                    AtomID atomID = m_rdb.createBoundAtom(binderCallback, unmaskedSym.toString().c_str(), atom.symbol.getFormula()->mask.size());
                     AtomLiteral atomLit(atomID, true, atom.symbol.getFormula()->mask);                                            
-                    exportMap->concreteExports.insert({atom.symbol, atomID});
+                    exportMap->concreteExports.insert({unmaskedSym, atomID});
                 }
                 else
                 {
-                    AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str(), atom.symbol.getFormula()->mask.size());
-                    exportMap->concreteExports.insert({atom.symbol, atomID});
+                    AtomID atomID = m_rdb.createAtom(unmaskedSym.toString().c_str(), atom.symbol.getFormula()->mask.size());
+                    exportMap->concreteExports.insert({unmaskedSym, atomID});
                 }
             }
         }
@@ -890,7 +902,7 @@ void ProgramCompiler::exportRules()
                 exportedBody.push_back(exportAtom(bodySym, rule.topology, false));
             }
 
-            if (LOG_RULE_INSTANTIATION)
+            if (LOG_RULE_EXPORTS)
             {
                 VERTEXY_LOG("Exporting %s", toString(rule).c_str());
             }
@@ -959,7 +971,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     {
         vxy_sanity(!symbol.containsAbstract());
         
-        AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute()];
+        AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute().unmasked()];
         vxy_assert(atomID.isValid());
         return AtomLiteral(atomID, symbol.isPositive(), symbol.getFormula()->mask);
     }
@@ -1058,6 +1070,8 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
 bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology)
 {
     vxy_assert(atom.symbol.isFormula());
+    vxy_assert(!atom.symbol.isNegated());
+    
     auto domainIt = m_groundedAtoms.find(atom.symbol.getFormula()->uid);
     if (domainIt == m_groundedAtoms.end())
     {
@@ -1107,7 +1121,7 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
     else
     {
         CompilerAtom& existing = domain.list[atomIt->second];
-        existing.isFact = existing.isFact || atom.isFact;
+        existing.facts.include(atom.facts);
     }
 
     return isNew;
@@ -1218,7 +1232,8 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
 
     if (!rule.heads.empty())
     {
-        addGroundedAtom(CompilerAtom{rule.heads[0], false}, rule.topology);
+        ValueSet factMask(rule.heads[0].getFormula()->mask.size(), false);
+        addGroundedAtom(CompilerAtom{rule.heads[0], factMask}, rule.topology);
     }
 
     // remove duplicates

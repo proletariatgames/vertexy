@@ -58,8 +58,7 @@ protected:
 	ConstraintSolver& m_solver;
 };
 
-
-int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool printVerbose)
+int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
@@ -256,7 +255,154 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	return nErrorCount;
 }
 
-int MazeSolver::solveKeyDoor(int times, int numRows, int numCols, int seed, bool printVerbose)
+// Less efficient version (for testing) that does not create graph constraints.
+int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);
+
+	VXY_DOMAIN_BEGIN(CellDomain)
+		VXY_DOMAIN_VALUE(blank);
+		VXY_DOMAIN_VALUE(wall);
+		VXY_DOMAIN_VALUE(entrance);
+		VXY_DOMAIN_VALUE(exit);
+		VXY_DOMAIN_VALUE_ARRAY(keys, NUM_KEYS);
+		VXY_DOMAIN_VALUE_ARRAY(doors, NUM_KEYS);
+	VXY_DOMAIN_END()
+
+	VXY_DOMAIN_FORMULA(cellType, CellDomain, 2);
+
+	const auto M_PASSABLE = cellType.blank|cellType.keys|cellType.entrance|cellType.exit;
+	const auto M_IMPASSABLE = cellType.wall|cellType.doors;
+	
+	auto baseProgram = Program::define([&](int width, int height, int entranceX, int entranceY, int exitX, int exitY)
+	{
+		VXY_VARIABLE(X); VXY_VARIABLE(Y);
+		
+		VXY_FORMULA(col, 1);
+		col = Program::range(0, width-1);
+		VXY_FORMULA(row, 1);
+		row = Program::range(0, height-1);
+
+		VXY_FORMULA(gridTile, 2);
+		gridTile(X,Y) <<= col(X) && row(Y);		
+		
+		cellType(X,Y).is(cellType.entrance) <<= X == entranceX && Y == entranceY;
+		cellType(X,Y).is(cellType.exit) <<= X == exitX && Y == exitY;
+		
+		VXY_FORMULA(border, 2);
+		border(0, Y) <<= row(Y);
+		border(width-1, Y) <<= row(Y);
+		border(X, 0) <<= col(X);
+		border(X, height-1) <<= col(X);
+		
+		cellType(X,Y).is(cellType.wall|cellType.blank|cellType.keys|cellType.doors) <<= gridTile(X,Y) && ~border(X,Y);
+		cellType(X,Y).is(cellType.wall) <<= border(X,Y) && ~cellType(X,Y).is(cellType.entrance|cellType.exit);
+
+		VXY_FORMULA(deadEnd, 2);
+		deadEnd(X,Y) <<= cellType(X,Y).is(M_PASSABLE) && cellType(X-1,Y).is(M_IMPASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE) && cellType(X,Y-1).is(M_IMPASSABLE);
+		deadEnd(X,Y) <<= cellType(X,Y).is(M_PASSABLE) && cellType(X-1,Y).is(M_IMPASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE);
+		deadEnd(X,Y) <<= cellType(X,Y).is(M_PASSABLE) && cellType(X,Y-1).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE) && cellType(X-1,Y).is(M_IMPASSABLE);
+		deadEnd(X,Y) <<= cellType(X,Y).is(M_PASSABLE) && cellType(X,Y-1).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE);
+		
+		Program::disallow(cellType(X,Y).is(M_IMPASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE) && cellType(X+1,Y+1).is(M_IMPASSABLE));
+		Program::disallow(cellType(X,Y).is(M_PASSABLE) && cellType(X+1,Y).is(M_PASSABLE) && cellType(X,Y+1).is(M_PASSABLE) && cellType(X+1,Y+1).is(M_PASSABLE));
+		Program::disallow(cellType(X,Y).is(M_IMPASSABLE) && cellType(X+1,Y+1).is(M_IMPASSABLE) && cellType(X+1,Y).is(M_PASSABLE) && cellType(X,Y+1).is(M_PASSABLE));
+		Program::disallow(cellType(X,Y).is(M_PASSABLE) && cellType(X+1,Y+1).is(M_PASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE));
+		
+		VXY_FORMULA(hasAdjacentWall, 2);
+		hasAdjacentWall(X-1,Y) <<= cellType(X,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X+1,Y) <<= cellType(X,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y-1) <<= cellType(X,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y+1) <<= cellType(X,Y).is(M_IMPASSABLE);
+		
+		Program::disallow(cellType(X,Y).is(M_IMPASSABLE) && ~border(X,Y) && ~hasAdjacentWall(X,Y));
+		Program::disallow(cellType(X,Y).is(cellType.keys) && ~deadEnd(X,Y));
+	});
+
+	auto stepProgram = Program::define([&](int step)
+	{
+		VXY_VARIABLE(X); VXY_VARIABLE(Y); VXY_VARIABLE(Z);
+				
+		VXY_FORMULA(prevStep, 1);
+		prevStep = Program::range(0, step-1);
+		VXY_FORMULA(laterStep, 1);
+		laterStep = Program::range(step+1, NUM_KEYS);
+		
+		VXY_FORMULA(stepPassable, 2);
+		stepPassable(X,Y) <<= cellType(X,Y).is(M_PASSABLE);
+		stepPassable(X,Y) <<= cellType(X,Y).is(cellType.doors[Z]) && prevStep(Z);
+		
+		VXY_FORMULA(stepReach, 2);
+		stepReach(X,Y) <<= cellType(X,Y).is(cellType.entrance);
+		stepReach(X,Y) <<= stepReach(X-1, Y) && stepPassable(X,Y);
+		stepReach(X,Y) <<= stepReach(X+1, Y) && stepPassable(X,Y);
+		stepReach(X,Y) <<= stepReach(X, Y-1) && stepPassable(X,Y);
+		stepReach(X,Y) <<= stepReach(X, Y+1) && stepPassable(X,Y);
+		
+		VXY_FORMULA(adjacentReach, 2);
+		adjacentReach(X-1,Y) <<= stepReach(X,Y);
+		adjacentReach(X+1,Y) <<= stepReach(X,Y);
+		adjacentReach(X,Y-1) <<= stepReach(X,Y);
+		adjacentReach(X,Y+1) <<= stepReach(X,Y);
+		
+		Program::disallow(cellType(X,Y).is(cellType.keys[step]) && ~stepReach(X,Y));
+		Program::disallow(cellType(X,Y).is(cellType.keys[Z]) && stepReach(X,Y) && laterStep(Z));
+		Program::disallow(cellType(X,Y).is(cellType.doors[step]) && ~adjacentReach(X,Y));
+		Program::disallow(cellType(X,Y).is(cellType.doors[Z]) && adjacentReach(X,Y) && laterStep(Z));
+		Program::disallow(step < NUM_KEYS && cellType(X,Y).is(cellType.exit) && stepReach(X,Y));
+		Program::disallow(step == NUM_KEYS && cellType(X,Y).is(M_PASSABLE) && ~stepReach(X,Y));
+	});
+
+	ConstraintSolver solver(TEXT("mazeProgram"), seed);
+	
+	SolverVariableDomain cellDomain(0, 3 + NUM_KEYS + NUM_KEYS);
+	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
+	cellType.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& _x, const ProgramSymbol& _y)
+	{
+		int x = _x.getInt(), y = _y.getInt();
+		return Literal(cells->get(grid->coordinateToIndex(x, y)), mask);
+	});
+	
+	hash_map<int, tuple<int, int>> globalCardinalities;
+	for (int step = 0; step < NUM_KEYS; ++step)
+	{
+		globalCardinalities[cellType.keys.getFirstValueIndex()+step] = make_tuple(1, 1);
+		globalCardinalities[cellType.doors.getFirstValueIndex()+step] = make_tuple(1, 1);
+	}
+	solver.cardinality(cells->getData(), globalCardinalities);
+
+	auto entranceLocation = make_pair(1, 0);
+	auto exitLocation = make_pair(numCols-2, numRows-1);
+	auto baseProgramInst = baseProgram(
+		grid->getWidth(), grid->getHeight(),
+		entranceLocation.first, entranceLocation.second,
+		exitLocation.first, exitLocation.second
+	);
+	solver.addProgram(baseProgramInst);
+
+	for (int step = 0; step <= NUM_KEYS; ++step)
+	{
+		auto stepInst = stepProgram(step);
+		solver.addProgram(stepInst);
+	}
+	
+	for (int time = 0; time < times; ++time)
+	{
+		solver.solve();
+		if (printVerbose)
+		{
+			print(cells, nullptr, solver);
+		}
+		solver.dumpStats(printVerbose);
+		nErrorCount += check(cells, solver);
+	}
+
+	return nErrorCount;
+}
+
+int MazeSolver::solveUsingRawConstraints(int times, int numRows, int numCols, int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
@@ -758,8 +904,8 @@ int MazeSolver::check(const shared_ptr<TTopologyVertexData<VarID>>& tileData, co
 void MazeSolver::print(const shared_ptr<TTopologyVertexData<VarID>>& cells, const shared_ptr<TTopologyVertexData<VarID>>& edges, const ConstraintSolver& solver)
 {
 	auto& grid = cells->getSource()->getImplementation<PlanarGridTopology>();
-	int numCols = grid->GetWidth();
-	int numRows = grid->GetHeight();
+	int numCols = grid->getWidth();
+	int numRows = grid->getHeight();
 
 	auto& edgeTopology = edges != nullptr
 		? edges->getSource()->getImplementation<EdgeTopology>()

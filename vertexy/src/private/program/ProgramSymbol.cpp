@@ -91,7 +91,7 @@ ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* formulaName, con
 {
     setExternalProvider(provider);
 
-    ConstantFormula* f = ConstantFormula::get(formula, formulaName, args, mask);
+    const ConstantFormula* f = ConstantFormula::get(formula, formulaName, args, mask);
     m_packed = encode(
         provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
         reinterpret_cast<intptr_t>(f)
@@ -103,7 +103,7 @@ ProgramSymbol::ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<Pro
 {
     setExternalProvider(provider);
 
-    ConstantFormula* f = ConstantFormula::get(formula, name, move(args), mask);
+    const ConstantFormula* f = ConstantFormula::get(formula, name, move(args), mask);
     m_packed = encode(
         provider != nullptr ? ESymbolType::External : ESymbolType::Formula,
         reinterpret_cast<intptr_t>(f)
@@ -245,7 +245,7 @@ ProgramSymbol ProgramSymbol::unmasked() const
             ValueSet(cformula->mask.size(), true),
             isNegated(),
             isExternalFormula() ? getExternalFormulaProvider() : nullptr
-        );    
+        );
     }
     else
     {
@@ -408,10 +408,10 @@ ConstantFormula::ConstantFormula(FormulaUID formula, const wchar_t* formulaName,
     vxy_sanity(!mask.isZero());
 }
 
-ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask)
+const ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask)
 {
     size_t hash;
-    if (ConstantFormula* existing = getExisting(formula, name, args, mask, hash))
+    if (const ConstantFormula* existing = getExisting(formula, name, args, mask, hash))
     {
         return existing;
     }
@@ -421,10 +421,10 @@ ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, c
     return s_formulas.back().get();
 }
 
-ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask)
+const ConstantFormula* ConstantFormula::get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask)
 {
     size_t hash;
-    if (ConstantFormula* existing = getExisting(formula, name, args, mask, hash))
+    if (const ConstantFormula* existing = getExisting(formula, name, args, mask, hash))
     {
         return existing;
     }
@@ -452,7 +452,7 @@ wstring ConstantFormula::toString() const
 
     out.append(TEXT(")"));
 
-    if (mask.size() > 1)
+    if (mask.size() > 1 && mask.contains(false))
     {
         out.append(mask.toString());
     }
@@ -460,29 +460,15 @@ wstring ConstantFormula::toString() const
     return out;
 }
 
-ConstantFormula* ConstantFormula::getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash)
+const ConstantFormula* ConstantFormula::getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash)
 {
     outHash = makeHash(formula, args, mask);
     auto range = s_lookup.find_range_by_hash(outHash);
     for (auto it = range.first; it != range.second; ++it)
     {
-        if ((*it)->uid == formula && (*it)->mask == mask)
+        if ((*it)->uid == formula && (*it)->mask == mask && (*it)->args == args)
         {
-            vxy_assert((*it)->args.size() == args.size());
-            bool match = true;
-            for (int i = 0; i < args.size(); ++i)
-            {
-                if ((*it)->args[i] != args[i])
-                {
-                    match = false;
-                    break;
-                }
-            }
-
-            if (match)
-            {
-                return *it;
-            }
+            return *it;
         }
     }
     return nullptr;
@@ -509,12 +495,13 @@ bool ConstantFormula::Hash::operator()(const ConstantFormula* consA, const Const
     {
         return false;
     }
-    for (int i = 0; i < consA->args.size(); ++i)
+    if (consA->mask != consB->mask)
     {
-        if (consA->args[i] != consB->args[i])
-        {
-            return false;
-        }
+        return false;
+    }
+    if (consA->args != consB->args)
+    {
+        return false;
     }
     return true;
 }

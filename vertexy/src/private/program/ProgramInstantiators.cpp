@@ -32,6 +32,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
     {
         // all variables should be fully bound at this point, because positive literals are always earlier in
         // the dependency list. Therefore, we can eval safely.
+        m_term.boundMask = m_term.getDomain(overrideMap, boundVertex);
         ProgramSymbol matched = m_term.eval(overrideMap, boundVertex);
         if (matched.isInvalid())
         {
@@ -40,26 +41,31 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
         }
 
         vxy_assert(matched.getFormula()->uid == m_term.functionUID);
-        auto found = m_domain.map.find(matched.negatedFormula());
-        bool hasFact = found != m_domain.map.end() && m_domain.list[found->second].isFact;
-
-        // if this has definitely been established as true, we can't match.
-        if (hasFact)
+        auto found = m_domain.map.find(matched.negatedFormula().unmasked());
+        if (found != m_domain.map.end())
         {
-            m_hitEnd = true;
+            auto& facts = m_domain.list[found->second].facts;
+            if (matched.getFormula()->mask.isSubsetOf(facts))
+            {
+                m_hitEnd = true;
+            }
         }
-
-        m_term.assignedToFact = hasFact;
+        
+        m_term.assignedToFact = false;
     }
     else
     {
+        auto isFact = [&](const CompilerAtom& assignedAtom)
+        {
+            return !assignedAtom.facts.isZero() &&
+                   assignedAtom.facts.isSubsetOf(m_term.boundMask) &&
+                   !m_term.eval(overrideMap, boundVertex).containsAbstract();
+        };
+        
         for (; m_index < m_domain.list.size(); moveNextDomainAtom())
         {
             const CompilerAtom& atom = m_domain.list[m_index];
-            if (atom.symbol.isNegated() && atom.isFact)
-            {
-                continue;
-            }
+            vxy_assert(!atom.symbol.isNegated());
 
             if (m_forceConcrete && atom.symbol.containsAbstract())
             {
@@ -72,9 +78,9 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
                         continue;
                     }
         
-                    bool isFact = atom.isFact;
                     if (m_term.match(concreteSymbol, overrideMap, boundVertex))
-                    {
+                    {                        
+                        m_term.assignedToFact = isFact(atom);
                         ++m_subIndex;
                         return;
                     }
@@ -83,10 +89,9 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
                 continue;
             }
 
-            bool isFact = atom.isFact;
             if (m_term.match(atom.symbol, overrideMap, boundVertex))
             {
-                m_term.assignedToFact = isFact && !m_term.eval(overrideMap, boundVertex).containsAbstract();
+                m_term.assignedToFact = isFact(atom);
                 moveNextDomainAtom();
                 return;
             }
@@ -170,7 +175,7 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, Progr
     match(overrideMap, boundVertex);
 }
 
-void ExternalFunctionInstantiator::match(AbstractOverrideMap&, ProgramSymbol&)
+void ExternalFunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     vxy_assert(m_term.provider != nullptr);
     if (m_hitEnd)
@@ -178,6 +183,7 @@ void ExternalFunctionInstantiator::match(AbstractOverrideMap&, ProgramSymbol&)
         return;
     }
 
+    m_term.boundMask = m_term.getDomain(overrideMap, boundVertex);
     if (m_needsAbstractRelation)
     {
         m_term.assignedToFact = false;

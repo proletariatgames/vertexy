@@ -170,13 +170,13 @@ void PrefabTestSolver::print(ConstraintSolver* solver, shared_ptr<PlanarGridTopo
 		}
 
 		// Print out the graph
-		for (int row = 0; row < grid->GetHeight(); row++)
+		for (int row = 0; row < grid->getHeight(); row++)
 		{
 			wstring out = TEXT("");
 
-			for (int col = 0; col < grid->GetWidth(); col++)
+			for (int col = 0; col < grid->getWidth(); col++)
 			{
-				out.append_sprintf(TEXT("[%d] "), solver->getSolvedValue(graphVars[varIndex]->getData()[row * grid->GetWidth() + col]));
+				out.append_sprintf(TEXT("[%d] "), solver->getSolvedValue(graphVars[varIndex]->getData()[row * grid->getWidth() + col]));
 			}
 
 			VERTEXY_LOG("%s", out.c_str());
