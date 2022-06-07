@@ -18,7 +18,7 @@ using namespace VertexyTests;
 // Interval of solver steps to print out current maze status. Set to 1 to see each solver step.
 static constexpr int MAZE_REFRESH_RATE = 0;
 // The number of keys/doors that should exist in the maze.
-static constexpr int NUM_KEYS = 3;
+static constexpr int NUM_KEYS = 2;
 // True to print edge variables in FMaze::Print
 static constexpr bool PRINT_EDGES = false;
 // Whether to write a decision log as DecisionLog.txt
@@ -63,84 +63,156 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 {
 	int nErrorCount = 0;
 
-	struct MazeResult
-	{
-		FormulaResult<1> wall;
-		FormulaResult<1> blank;
-		FormulaResult<1> entrance;
-		FormulaResult<1> exit;
-	};
-
 	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);
 
+	VXY_FORMULA(wall, 1);
+	VXY_FORMULA(blank, 1);
+	VXY_FORMULA(entrance, 1);
+	VXY_FORMULA(exit, 1);
+	VXY_FORMULA(key, 2);
+	VXY_FORMULA(door, 2);
+
+	VXY_FORMULA(emptyType, 1);
+	VXY_FORMULA(solidType, 1);
+	VXY_FORMULA(deadEnd, 1);
+
+	constexpr int BLANK_IDX = 0;
+	constexpr int WALL_IDX = 1;
+	constexpr int ENTRANCE_IDX = 2;
+	constexpr int EXIT_IDX = 3;
+	constexpr int FIRST_KEY_IDX = 4;
+	constexpr int FIRST_DOOR_IDX = FIRST_KEY_IDX + NUM_KEYS;
+	
 	// Rule formulas can only be defined within a Program::define() block
-	auto simpleMaze = Program::define([](ProgramVertex vertex, ProgramSymbol entranceVertex, ProgramSymbol exitVertex)
+	auto baseProgram = Program::define([&](ProgramVertex vertex, int entranceVertex, int exitVertex)
 	{
-		// Floating variables. These don't mean anything outside the context of a rule statement.
-		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
-		// it means that those Xs are the same. See below.
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
-
-		// define the entrance/exit positions, based on the program inputs.
-		VXY_FORMULA(entrance, 1);
-		VXY_FORMULA(exit, 1);
-		entrance(entranceVertex);
-		exit(exitVertex);
-
 		auto up = Program::graphLink(PlanarGridTopology::moveUp());
 		auto down = Program::graphLink(PlanarGridTopology::moveDown());
 		auto left = Program::graphLink(PlanarGridTopology::moveLeft());
 		auto right = Program::graphLink( PlanarGridTopology::moveRight());
 		
+		// Floating variables. These don't mean anything outside the context of a rule statement.
+		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
+		// it means that those Xs are the same. See below.
+		VXY_VARIABLE(X);
+
+		// define the entrance/exit positions, based on the program inputs.
+		entrance(entranceVertex);
+		exit(exitVertex);
+
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
 		VXY_FORMULA(border, 1);
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveUp());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveDown());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveLeft());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveRight());
+
+		// Specify types that each cell could be
+		// !!FIXME!! HACK: need a way to specify e.g. door(vertex, range(0,NUM_KEYS)) in head term.
+		(wall(vertex) | blank(vertex) | key(vertex, 0) | door(vertex, 0) | key(vertex, 1) | door(vertex, 1)) <<= ~border(vertex) && ~entrance(vertex) && ~exit(vertex);
 		
-		VXY_FORMULA(wall, 1);
-		VXY_FORMULA(blank, 1);
-		// wall OR blank may be true if this is a grid tile that is not on the border, and not the entrance or exit.
-		(wall(vertex) | blank(vertex)) <<= ~border(vertex) && ~entrance(vertex) && ~exit(vertex);
 		// border is a wall as long as it's not the entrance or exit.
 		wall(vertex) <<= border(vertex) && ~entrance(vertex) && ~exit(vertex);
 
 		// declare the type of tiles that are considered empty
-		VXY_FORMULA(emptyType, 1);
 		emptyType(vertex) <<= blank(vertex);
 		emptyType(vertex) <<= entrance(vertex);
+		emptyType(vertex) <<= key(vertex, X);
 		emptyType(vertex) <<= exit(vertex);
 
+		solidType(vertex) <<= wall(vertex);
+		solidType(vertex) <<= door(vertex, X);
+
+		VXY_VARIABLE(Right); VXY_VARIABLE(Down);
+		VXY_VARIABLE(Left); VXY_VARIABLE(Up);
+		
+		deadEnd(vertex) <<= left(vertex, Left) && right(vertex, Right) && up(vertex, Up) &&
+			emptyType(vertex) && wall(Left) && wall(Right) && wall(Up);
+		deadEnd(vertex) <<= left(vertex, Left) && right(vertex, Right) && down(vertex, Down) &&
+			emptyType(vertex) && wall(Left) && wall(Right) && wall(Down);
+		deadEnd(vertex) <<= up(vertex, Up) && down(vertex, Down) && left(vertex, Left) &&
+			emptyType(vertex) && wall(Up) && wall(Down) && wall(Left);
+		deadEnd(vertex) <<= up(vertex, Up) && down(vertex, Down) && left(vertex, Right) &&
+			emptyType(vertex) && wall(Up) && wall(Down) && wall(Right);
+
 		// disallow a 2x2 block of walls
-		VXY_VARIABLE(Right); VXY_VARIABLE(Down); VXY_VARIABLE(Down_Right);
+		VXY_VARIABLE(Down_Right);
 		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
-			wall(vertex) && wall(Right) && wall(Down) && wall(Down_Right));
+			solidType(vertex) && solidType(Right) && solidType(Down) && solidType(Down_Right));
 		// disallow a 2x2 block of empty
 		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
 			emptyType(vertex) && emptyType(Right) && emptyType(Down) && emptyType(Down_Right));
 		
 		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
 		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
-			wall(vertex) && wall(Down_Right) && emptyType(Right) && emptyType(Down));
+			solidType(vertex) && solidType(Down_Right) && emptyType(Right) && emptyType(Down));
 		Program::disallow(right(vertex, Right) && down(vertex, Down) && right(Down, Down_Right) &&
-			emptyType(vertex) && emptyType(Down_Right) && wall(Right) && wall(Down));
+			emptyType(vertex) && emptyType(Down_Right) && solidType(Right) && solidType(Down));
 
 		// hasAdjacentWall(x) is only true when there is an adjacent cell that is a wall.
 		VXY_FORMULA(hasAdjacentWall, 1);
-		hasAdjacentWall(vertex) <<= Program::graphEdge(vertex, X) && wall(X);
+		hasAdjacentWall(vertex) <<= Program::graphEdge(vertex, X) && solidType(X);
 		
 		// disallow walls that don't have any adjacent walls
-		Program::disallow(wall(vertex) && ~border(vertex) && ~hasAdjacentWall(vertex));
+		Program::disallow(solidType(vertex) && ~border(vertex) && ~hasAdjacentWall(vertex));
+	});
 
-		// encode reachability (faster to do this with a reachability constraint)
-		VXY_FORMULA(reach, 1);
-		reach(vertex) <<= entrance(vertex);
-		reach(vertex) <<= Program::graphEdge(X, vertex) && reach(X) && emptyType(vertex);
-		Program::disallow(emptyType(vertex) && ~reach(vertex));
+	auto stepProgram = Program::define([&](ProgramVertex vertex, int step)
+	{
+		auto up = Program::graphLink(PlanarGridTopology::moveUp());
+		auto down = Program::graphLink(PlanarGridTopology::moveDown());
+		auto left = Program::graphLink(PlanarGridTopology::moveLeft());
+		auto right = Program::graphLink(PlanarGridTopology::moveRight());
 
-		return MazeResult {wall, blank, entrance, exit};
+		VXY_VARIABLE(Right); VXY_VARIABLE(Down);
+		VXY_VARIABLE(Left); VXY_VARIABLE(Up);
+		VXY_VARIABLE(X);
+		
+		// Doors must be adjacent to exactly two walls, not on a corner
+		Program::disallow(right(vertex, Right) && up(vertex, Up) &&
+			solidType(Right) && solidType(Up) && door(vertex, step)
+		);
+		Program::disallow(left(vertex, Left) && up(vertex, Up) &&
+			solidType(Left) && solidType(Up) && door(vertex, step)
+		);
+		Program::disallow(right(vertex, Right) && down(vertex, Down) &&
+			solidType(Right) && solidType(Down) && door(vertex, step)
+		);
+		Program::disallow(left(vertex, Left) && down(vertex, Down) &&
+			solidType(Left) && solidType(Down) && door(vertex, step)
+		);
+
+		// Ensure keys are only in dead-ends
+		Program::disallow(key(vertex, step) && ~deadEnd(vertex));
+
+		emptyType(vertex) <<= key(vertex, step);
+		
+		// Define what is passable for this step: empty tiles and doors we have keys for 
+		VXY_FORMULA(stepPassable, 1);
+		stepPassable(vertex) <<= emptyType(vertex);
+		stepPassable(vertex) <<= door(vertex, X) && X < step;
+
+		// Define reachability for this step
+		VXY_FORMULA(stepReach, 1);
+		stepReach(vertex) <<= entrance(vertex);
+		stepReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X) && stepPassable(vertex);
+
+		// adjacentReach is true only if the cell is adjacent to a reachable cell. 
+		VXY_FORMULA(adjacentReach, 1);
+		adjacentReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X);
+		
+		// Key for this step must be reachable
+		Program::disallow(key(vertex, step) && ~stepReach(vertex));
+		// Keys for later steps cannot be reachable 
+		Program::disallow(key(vertex, X) && stepReach(vertex) && X > step);
+		// Door for this step must be reachable
+		Program::disallow(door(vertex, step) && ~adjacentReach(vertex));
+		// Door for later steps cannot be reachable
+		Program::disallow(door(vertex, X) && adjacentReach(vertex) && X > step);
+		// If this is not the last step, the exit should not be reachable
+		Program::disallow(step < NUM_KEYS && exit(vertex) && stepReach(vertex));
+		// If this is the last step, any empty tile (including exit) must be reachable.
+		Program::disallow(step == NUM_KEYS && emptyType(vertex) && ~stepReach(vertex));
 	});
 
 	ConstraintSolver solver(TEXT("mazeProgram"), seed);
@@ -149,13 +221,6 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	// A program can be instantiated multiple times.
 	auto entranceLocation = make_pair(1, 0);
 	auto exitLocation = make_pair(numCols-2, numRows-1);
-	auto inst = simpleMaze(ITopology::adapt(grid),
-		grid->coordinateToIndex(entranceLocation.first, entranceLocation.second),
-		grid->coordinateToIndex(exitLocation.first, exitLocation.second)
-	);
-
-	// Grab the results from the instantiation.
-	MazeResult& result = get<MazeResult>(inst);
 
 	// Allocate solver variables to link to the MazeResult.
 	// This is not strictly necessary - the solver will determine a solution for all rules regardless.
@@ -163,43 +228,73 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 	// 1) We can easily access the variables we care about by binding them to the program's output.
 	// 2) We can combine multiple (boolean, mutually-exclusive) variables into a single solver non-boolean variable.
 
-	constexpr int BLANK_IDX = 0;
-	constexpr int WALL_IDX = 1;
-	constexpr int ENTRANCE_IDX = 2;
-	constexpr int EXIT_IDX = 3;
-
 	// Create the grid representation and solver variables for each cell in the grid.
-	SolverVariableDomain cellDomain(0, 3);
+	SolverVariableDomain cellDomain(0, 3 + NUM_KEYS + NUM_KEYS);
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
 
 	//
 	// Bind the formulas to variables
 	//
 
-	result.wall.bind([&](const ProgramSymbol& vert)
+	wall.bind(solver, [&](const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{WALL_IDX});
 	});
 
-	result.blank.bind([&](const ProgramSymbol& vert)
+	blank.bind(solver, [&](const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{BLANK_IDX});
 	});
 
-	result.entrance.bind([&](const ProgramSymbol& vert)
+	entrance.bind(solver, [&](const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{ENTRANCE_IDX});
 	});
 
-	result.exit.bind([&](const ProgramSymbol& vert)
+	exit.bind(solver, [&](const ProgramSymbol& vert)
 	{
 		return SignedClause(cells->get(vert.getInt()), vector{EXIT_IDX});
 	});
 
-	// Add the program to the solver. Multiple programs can be added, as well
-	// as any other constraints.
-	solver.addProgram(move(inst));
+	key.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
+	{
+		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
+		return SignedClause(cells->get(vert.getInt()), vector{FIRST_KEY_IDX+step.getInt()});
+	});
 
+	door.bind(solver, [&](const ProgramSymbol& vert, const ProgramSymbol& step)
+	{
+		vxy_assert(step.getInt() >= 0 && step.getInt() < NUM_KEYS);
+		return SignedClause(cells->get(vert.getInt()), vector{FIRST_DOOR_IDX+step.getInt()});
+	});
+
+	//
+	//
+	// CONSTRAINT: Exactly one entrance, one exit, one key/door per type
+	//
+	hash_map<int, tuple<int, int>> globalCardinalities;
+	globalCardinalities[ENTRANCE_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
+	globalCardinalities[EXIT_IDX] = make_tuple(1, 1); // Min = 1, Max = 1
+	for (int step = 0; step < NUM_KEYS; ++step)
+	{
+		globalCardinalities[FIRST_KEY_IDX+step] = make_tuple(1, 1);
+		globalCardinalities[FIRST_DOOR_IDX+step] = make_tuple(1, 1);
+	}
+	solver.cardinality(cells->getData(), globalCardinalities);
+	
+	// Add the programs to the solver.
+	auto baseProgramInst = baseProgram(ITopology::adapt(grid),
+		grid->coordinateToIndex(entranceLocation.first, entranceLocation.second),
+		grid->coordinateToIndex(exitLocation.first, exitLocation.second)
+	);
+	solver.addProgram(baseProgramInst);
+
+	for (int step = 0; step <= NUM_KEYS; ++step)
+	{
+		auto stepInst = stepProgram(ITopology::adapt(grid), step);
+		solver.addProgram(stepInst);
+	}
+	
 	// Create N solutions
 	for (int time = 0; time < times; ++time)
 	{

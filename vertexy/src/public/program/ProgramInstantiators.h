@@ -78,4 +78,27 @@ protected:
     mutable bool m_hitEnd;
 };
 
+// Instantiator for constant values. Only matches on truthiness.
+class ConstInstantiator : public Instantiator
+{
+public:
+    ConstInstantiator(bool matched) : m_matched(matched) {}
+
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override
+    {
+        m_hitEnd = !m_matched;        
+    }
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override {}
+    virtual bool hitEnd() const override
+    {
+        bool hadHit = m_hitEnd;
+        m_hitEnd = true;
+        return hadHit;
+    }
+    
+protected:
+    bool m_matched;
+    mutable bool m_hitEnd = false;
+};
+
 }

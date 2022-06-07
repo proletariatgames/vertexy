@@ -425,7 +425,6 @@ protected:
 
     // Whether any abstract heads or bodies exist.
     bool m_hasAbstract = false;
-    RelationMap<AtomLiteral> m_abstractExternals;
 
     vector<ConcreteAtomInfo*> m_atomsToPropagate;
     vector<ConcreteBodyInfo*> m_bodiesToPropagate;

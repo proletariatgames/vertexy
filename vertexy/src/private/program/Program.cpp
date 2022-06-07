@@ -6,7 +6,7 @@
 
 using namespace Vertexy;
 
-ProgramInstance* Program::s_currentInstance = nullptr;
+shared_ptr<ProgramInstance> Program::s_currentInstance = nullptr;
 int Program::s_nextFormulaUID = 1;
 int Program::s_nextVarUID = 1;
 

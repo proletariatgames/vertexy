@@ -7,6 +7,7 @@
 namespace Vertexy
 {
 	class Prefab;
+	class Tile;
 
 	class PrefabManager : public enable_shared_from_this<PrefabManager>
 	{
@@ -18,7 +19,7 @@ namespace Vertexy
 		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
-		void createPrefab(const vector<vector<int>>& inTiles);
+		void createPrefab(const vector<vector<Tile>>& inTiles, bool allowRotation = false, bool allowReflection = false);
 
 		// Creates a prefab from a json file identified by fileName
 		void createPrefabFromJson(string fileName);
@@ -39,7 +40,7 @@ namespace Vertexy
 		int getMaxPrefabSize();
 
 		// Create some basic sample prefabs used for testing
-		void createDefaultTestPrefab(int index);
+		void createDefaultTestPrefab(int index, bool rot = false, bool refl = false);
 
 	private:
 		PrefabManager(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
@@ -49,6 +50,9 @@ namespace Vertexy
 
 		// The largest prefab associated with this manager (in terms of number of tiles in the prefab)
 		int m_maxPrefabSize;
+
+		// Correlation map for original prefabs and their rotated/reflected states
+		hash_map<int, vector<int>> prefabStateMap;
 
 		// The solver for which the prefab constraints will be created
 		ConstraintSolver* m_solver;

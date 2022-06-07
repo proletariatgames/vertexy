@@ -617,7 +617,8 @@ public:
 		for (auto it = getWordIterator(); it; ++it)
 		{
 			WORD_TYPE word = it.getWord();
-			if ((word & it.getWord(otherData)) != word)
+			WORD_TYPE otherWord = it.getWord(otherData);
+			if ((word & otherWord) != otherWord)
 			{
 				return false;
 			}

@@ -125,6 +125,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(const Term*)> visitor) override {}
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const override  { return sym; }
+    virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
     virtual size_t hash() const override
     {

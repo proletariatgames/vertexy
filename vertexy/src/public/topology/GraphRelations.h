@@ -210,15 +210,7 @@ public:
 
 	virtual bool equals(const IGraphRelation<T>& rhs) const override
 	{
-		if (&rhs == this)
-		{
-			return true;
-		}
-		if (auto rrhs = dynamic_cast<const TFilterGraphRelation<T,U>*>(&rhs))
-		{
-			return rrhs->m_inner->equals(*m_inner);
-		}
-		return false;
+		return (&rhs == this);
 	}
 
 	virtual size_t hash() const override

@@ -174,12 +174,10 @@ class ConstraintSolver : public IVariableDomainProvider
 	// Returns the current status (last return value of Step)
 	EConstraintSolverResult getCurrentStatus() const { return m_currentStatus; }
 
-	template<typename T>
-	void addProgram(tuple<unique_ptr<ProgramInstance>, T>&& instance)
-	{
-		return addProgram(move(get<UProgramInstance>(instance)));
-	}
-	void addProgram(unique_ptr<ProgramInstance>&& instance);
+	void addProgram(const shared_ptr<ProgramInstance>& instance);
+
+	// Meant to be called from Formula::bind() 
+	void bindFormula(FormulaUID formula, unique_ptr<class BindCaller>&& binder);
 
 	// Returns whether or not the given variable is solved.
 	bool isSolved(VarID varID) const;
@@ -632,7 +630,9 @@ protected:
 	int m_initialSeed;
 	RandomStreamType m_random;
 
-	vector<unique_ptr<ProgramInstance>> m_programInsts;
+	vector<shared_ptr<ProgramInstance>> m_programInsts;
+	hash_map<FormulaUID, unique_ptr<class BindCaller>> m_formulaBinders;
+	
 	unique_ptr<RuleDatabase> m_ruleDB;
 
 	ConflictAnalyzer m_analyzer;
