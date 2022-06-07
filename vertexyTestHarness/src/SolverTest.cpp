@@ -264,7 +264,7 @@ static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
 static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
-static constexpr bool PRINT_VERBOSE = true;
+static constexpr bool PRINT_VERBOSE = false;
 
 int main(int argc, char* argv[])
 {
