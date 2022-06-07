@@ -11,6 +11,9 @@ Tile::Tile(int id, string name, char symmetry, int configuration):
 	m_symmetry(symmetry),
 	m_configuration(configuration)
 {
+	// This set of characters represents different types of tile symmetry,
+	// e.g. the letter "X" is symmetrical for all rotations and reflections.
+	// See the header file for a more detailed explanation.
 	vector<char> v = { 'X', 'I', '/', 'T', 'L', 'F' };
 	vxy_assert((find(v.begin(), v.end(), symmetry) != v.end()));
 	switch (symmetry)
