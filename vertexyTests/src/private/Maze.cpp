@@ -97,60 +97,64 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
 		VXY_VARIABLE(X);
-
+		
 		// define the entrance/exit positions, based on the program inputs.
-		cellType(entranceVertex).mask(cellType.entrance);
-		cellType(exitVertex).mask(cellType.exit);
-
+		cellType(entranceVertex).is(cellType.entrance);
+		cellType(exitVertex).is(cellType.exit);
+		
 		// Define a rule formula border(x,y), which is only true at the edges of the map.
 		VXY_FORMULA(border, 1);
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveUp());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveDown());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveLeft());
 		border(vertex) <<= ~Program::hasGraphLink(vertex, PlanarGridTopology::moveRight());
-
+		
 		// Specify types that each cell could be
-		cellType(vertex).mask(cellType.wall|cellType.blank|cellType.keys|cellType.doors) <<= ~border(vertex);
+		cellType(vertex).is(cellType.wall|cellType.blank|cellType.keys|cellType.doors) <<= ~border(vertex);
 		
 		// border is a wall as long as it's not the entrance or exit.
-		cellType(vertex).mask(cellType.wall) <<= border(vertex) && ~cellType(vertex).mask(cellType.entrance|cellType.exit);
+		cellType(vertex).is(cellType.wall) <<= border(vertex) && ~cellType(vertex).is(cellType.entrance|cellType.exit);
 		
 		VXY_VARIABLE(RIGHT); VXY_VARIABLE(DOWN);
 		VXY_VARIABLE(LEFT); VXY_VARIABLE(UP);
 		
 		VXY_FORMULA(deadEnd, 1);
 		deadEnd(vertex) <<= left(vertex, LEFT) && right(vertex, RIGHT) && up(vertex, UP) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(LEFT).mask(M_IMPASSABLE) && cellType(RIGHT).mask(M_IMPASSABLE) && cellType(UP).mask(M_IMPASSABLE);
+			cellType(vertex).is(M_PASSABLE) && cellType(LEFT).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE) && cellType(UP).is(M_IMPASSABLE);
 		deadEnd(vertex) <<= left(vertex, LEFT) && right(vertex, RIGHT) && down(vertex, DOWN) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(LEFT).mask(M_IMPASSABLE) && cellType(RIGHT).mask(M_IMPASSABLE) && cellType(DOWN).mask(M_IMPASSABLE);
+			cellType(vertex).is(M_PASSABLE) && cellType(LEFT).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE);
 		deadEnd(vertex) <<= up(vertex, UP) && down(vertex, DOWN) && left(vertex, LEFT) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(UP).mask(M_IMPASSABLE) && cellType(DOWN).mask(M_IMPASSABLE) && cellType(LEFT).mask(M_IMPASSABLE);
+			cellType(vertex).is(M_PASSABLE) && cellType(UP).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE) && cellType(LEFT).is(M_IMPASSABLE);
 		deadEnd(vertex) <<= up(vertex, UP) && down(vertex, DOWN) && left(vertex, RIGHT) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(UP).mask(M_IMPASSABLE) && cellType(DOWN).mask(M_IMPASSABLE) && cellType(RIGHT).mask(M_IMPASSABLE);
+			cellType(vertex).is(M_PASSABLE) && cellType(UP).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE);
 		
 		// disallow a 2x2 block of walls
 		VXY_VARIABLE(DOWN_RIGHT);
 		Program::disallow(right(vertex, RIGHT) && down(vertex, DOWN) && right(DOWN, DOWN_RIGHT) &&
-			cellType(vertex).mask(M_IMPASSABLE) && cellType(RIGHT).mask(M_IMPASSABLE) && cellType(DOWN).mask(M_IMPASSABLE) && cellType(DOWN_RIGHT).mask(M_IMPASSABLE));
+			cellType(vertex).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE) && cellType(DOWN_RIGHT).is(M_IMPASSABLE)
+		);
 		// disallow a 2x2 block of empty
 		Program::disallow(right(vertex, RIGHT) && down(vertex, DOWN) && right(DOWN, DOWN_RIGHT) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(RIGHT).mask(M_PASSABLE) && cellType(DOWN).mask(M_PASSABLE) && cellType(DOWN_RIGHT).mask(M_PASSABLE));
+			cellType(vertex).is(M_PASSABLE) && cellType(RIGHT).is(M_PASSABLE) && cellType(DOWN).is(M_PASSABLE) && cellType(DOWN_RIGHT).is(M_PASSABLE)
+		);
 		
 		// If two walls are on a diagonal of a 2 x 2 square, both common neighbors should not be empty.
 		Program::disallow(right(vertex, RIGHT) && down(vertex, DOWN) && right(DOWN, DOWN_RIGHT) &&
-			cellType(vertex).mask(M_IMPASSABLE) && cellType(DOWN_RIGHT).mask(M_IMPASSABLE) && cellType(RIGHT).mask(M_PASSABLE) && cellType(DOWN).mask(M_PASSABLE));
+			cellType(vertex).is(M_IMPASSABLE) && cellType(DOWN_RIGHT).is(M_IMPASSABLE) && cellType(RIGHT).is(M_PASSABLE) && cellType(DOWN).is(M_PASSABLE)
+		);
 		Program::disallow(right(vertex, RIGHT) && down(vertex, DOWN) && right(DOWN, DOWN_RIGHT) &&
-			cellType(vertex).mask(M_PASSABLE) && cellType(DOWN_RIGHT).mask(M_PASSABLE) && cellType(RIGHT).mask(M_IMPASSABLE) && cellType(DOWN).mask(M_IMPASSABLE));
+			cellType(vertex).is(M_PASSABLE) && cellType(DOWN_RIGHT).is(M_PASSABLE) && cellType(RIGHT).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE)
+		);
 		
 		// hasAdjacentWall(x) is only true when there is an adjacent cell that is a wall.
 		VXY_FORMULA(hasAdjacentWall, 1);
-		hasAdjacentWall(vertex) <<= Program::graphEdge(vertex, X) && cellType(X).mask(M_IMPASSABLE);
+		hasAdjacentWall(vertex) <<= Program::graphEdge(vertex, X) && cellType(X).is(M_IMPASSABLE);
 		
 		// disallow walls that don't have any adjacent walls
-		Program::disallow(cellType(vertex).mask(M_IMPASSABLE) && ~border(vertex) && ~hasAdjacentWall(vertex));
+		Program::disallow(cellType(vertex).is(M_IMPASSABLE) && ~border(vertex) && ~hasAdjacentWall(vertex));
 		
 		// Ensure keys are only in dead-ends
-		Program::disallow(cellType(vertex).mask(cellType.keys) && ~deadEnd(vertex));
+		Program::disallow(cellType(vertex).is(cellType.keys) && ~deadEnd(vertex));
 	});
 
 	// Defines each "step" of the maze: retrieving a key and unlocking a door. The final step is reaching the exit.
@@ -165,30 +169,30 @@ int MazeSolver::solveProgram(int times, int numRows, int numCols, int seed, bool
 		
 		// Define what is passable for this step: empty tiles and doors we have keys for 
 		VXY_FORMULA(stepPassable, 1);
-		stepPassable(vertex) <<= cellType(vertex).mask(M_PASSABLE);
-		stepPassable(vertex) <<= cellType(vertex).mask(cellType.doors[X]) && prevStep(X);
-
+		stepPassable(vertex) <<= cellType(vertex).is(M_PASSABLE);
+		stepPassable(vertex) <<= cellType(vertex).is(cellType.doors[X]) && prevStep(X);
+		
 		// Define reachability for this step
 		VXY_FORMULA(stepReach, 1);
-		stepReach(vertex) <<= cellType(vertex).mask(cellType.entrance);
+		stepReach(vertex) <<= cellType(vertex).is(cellType.entrance);
 		stepReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X) && stepPassable(vertex);
-
+		
 		// adjacentReach is true only if the cell is adjacent to a reachable cell. 
 		VXY_FORMULA(adjacentReach, 1);
 		adjacentReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X);
 		
 		// Key for this step must be reachable
-		Program::disallow(cellType(vertex).mask(cellType.keys[step]) && ~stepReach(vertex));
+		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepReach(vertex));
 		// Keys for later steps cannot be reachable 
-		Program::disallow(cellType(vertex).mask(cellType.keys[X]) && stepReach(vertex) && laterStep(X));
+		Program::disallow(cellType(vertex).is(cellType.keys[X]) && stepReach(vertex) && laterStep(X));
 		// Door for this step must be reachable
-		Program::disallow(cellType(vertex).mask(cellType.doors[step]) && ~adjacentReach(vertex));
+		Program::disallow(cellType(vertex).is(cellType.doors[step]) && ~adjacentReach(vertex));
 		// Door for later steps cannot be reachable
-		Program::disallow(cellType(vertex).mask(cellType.doors[X]) && adjacentReach(vertex) && laterStep(X));
+		Program::disallow(cellType(vertex).is(cellType.doors[X]) && adjacentReach(vertex) && laterStep(X));
 		// If this is not the last step, the exit should not be reachable
-		Program::disallow(step < NUM_KEYS && cellType(vertex).mask(cellType.exit) && stepReach(vertex));
+		Program::disallow(step < NUM_KEYS && cellType(vertex).is(cellType.exit) && stepReach(vertex));
 		// If this is the last step, any empty tile (including exit) must be reachable.
-		Program::disallow(step == NUM_KEYS && cellType(vertex).mask(M_PASSABLE) && ~stepReach(vertex));
+		Program::disallow(step == NUM_KEYS && cellType(vertex).is(M_PASSABLE) && ~stepReach(vertex));
 	});
 
 	ConstraintSolver solver(TEXT("mazeProgram"), seed);

@@ -14,12 +14,11 @@ class ExternalFormulaMatchArg
     enum class EArgType
     {
         Bound,
-        BoundOverridable,
         Unbound
     };
     
     explicit ExternalFormulaMatchArg(const shared_ptr<ProgramSymbol>& output)
-        : m_argType(output->isValid() && output->isAbstract() ? EArgType::BoundOverridable : EArgType::Unbound)
+        : m_argType(EArgType::Unbound)
         , m_inner(output)
     {
     }
@@ -31,7 +30,7 @@ class ExternalFormulaMatchArg
     }
 
 public:
-    static ExternalFormulaMatchArg makeUnboundOrOverridable(const shared_ptr<ProgramSymbol>& output)
+    static ExternalFormulaMatchArg makeUnbound(const shared_ptr<ProgramSymbol>& output)
     {
         return ExternalFormulaMatchArg(output);
     }

@@ -134,7 +134,7 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, Progr
             if (varArg->isBinder)
             {
                 allArgumentsBound = false;
-                matchArgs.push_back(ExternalFormulaMatchArg::makeUnboundOrOverridable(varArg->sharedBoundRef));
+                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef));
             }
             else
             {

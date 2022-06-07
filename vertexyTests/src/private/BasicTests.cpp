@@ -346,40 +346,60 @@ int TestSolvers::solveRules_basicChoice(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	// ConstraintSolver solver(TEXT("Rules:BasicChoice"), seed);
-	//
-	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-	//
-	// // {b}. {c}. a <- b, c.
-	// solver.getRuleDB().addFact(SignedClause{b, {1}}, ERuleHeadType::Choice);
-	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-	// solver.getRuleDB().addRule(SignedClause{a, {1}}, vector{SignedClause{b, {1}}, SignedClause{c, {1}}});
-	//
-	// int numResults = 0;
-	// while (true)
-	// {
-	// 	auto result = solver.solve();
-	// 	if (result != EConstraintSolverResult::Solved)
-	// 	{
-	// 		break;
-	// 	}
-	//
-	// 	++numResults;
-	// 	if (printVerbose)
-	// 	{
-	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-	// 	}
-	// 	EATEST_VERIFY(solver.getSolvedValue(a) == (solver.getSolvedValue(b) && solver.getSolvedValue(c)));
-	// }
-	//
-	// // a=0 b=0 c=0
-	// // a=0 b=1 c=0
-	// // a=0 b=0 c=1
-	// // a=1 b=1 c=1
-	// EATEST_VERIFY(numResults == 4);
-	// EATEST_VERIFY(!solver.getStats().nonTightRules);
+	ConstraintSolver solver(TEXT("Rules:BasicChoice"), seed);
+	
+	auto var_a = solver.makeBoolean(TEXT("a"));
+	auto var_b = solver.makeBoolean(TEXT("b"));
+	auto var_c = solver.makeBoolean(TEXT("c"));
+
+	struct Result
+	{
+		FormulaResult<0> a, b, c;
+	};
+	
+	auto prg = Program::define([]()
+	{
+		VXY_FORMULA(a, 0);
+		VXY_FORMULA(b, 0);
+		VXY_FORMULA(c, 0);
+
+		b().choice();
+		c().choice();
+		a() <<= b() && c();
+
+		return Result{a, b, c};
+	});
+
+	auto inst = prg();
+	inst->getResult().a.bind(var_a);
+	inst->getResult().b.bind(var_b);
+	inst->getResult().c.bind(var_c);
+
+	solver.addProgram(inst);
+		
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+	
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(var_a), solver.getSolvedValue(var_b), solver.getSolvedValue(var_c));
+		}
+		EATEST_VERIFY(solver.getSolvedValue(var_a) == (solver.getSolvedValue(var_b) && solver.getSolvedValue(var_c)));
+	}
+	
+	// a=0 b=0 c=0
+	// a=0 b=1 c=0
+	// a=0 b=0 c=1
+	// a=1 b=1 c=1
+	EATEST_VERIFY(numResults == 4);
+	EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -388,42 +408,58 @@ int TestSolvers::solveRules_basicDisjunction(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-	//
-	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-	//
-	// // a | b <- c. {c}.
-	// solver.getRuleDB().addRule(
-	// 	RuleHead{vector{SignedClause{a, {1}}, SignedClause{b, {1}}}, ERuleHeadType::Disjunction},
-	// 	SignedClause{c, {1}}
-	// );
-	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-	//
-	// int numResults = 0;
-	// while (true)
-	// {
-	// 	auto result = solver.solve();
-	// 	if (result != EConstraintSolverResult::Solved)
-	// 	{
-	// 		break;
-	// 	}
-	//
-	// 	++numResults;
-	// 	if (printVerbose)
-	// 	{
-	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-	// 	}
-	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) != solver.getSolvedValue(b)));
-	// 	EATEST_VERIFY((solver.getSolvedValue(a) || solver.getSolvedValue(b)) == solver.getSolvedValue(c));
-	// }
-	//
-	// // a=0 b=0 c=0
-	// // a=1 b=0 c=1
-	// // a=0 b=1 c=1
-	// EATEST_VERIFY(numResults == 3);
-	// EATEST_VERIFY(!solver.getStats().nonTightRules);
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	
+	auto var_a = solver.makeBoolean(TEXT("a"));
+	auto var_b = solver.makeBoolean(TEXT("b"));
+	auto var_c = solver.makeBoolean(TEXT("c"));
+
+	struct Result
+	{
+		FormulaResult<0> a, b, c;
+	};
+	
+	auto prg = Program::define([]()
+	{
+		VXY_FORMULA(a, 0);
+		VXY_FORMULA(b, 0);
+		VXY_FORMULA(c, 0);
+
+		(a() | b()) <<= c();
+		c().choice();
+		return Result{a, b, c};
+	});
+
+	auto inst = prg();
+	inst->getResult().a.bind(var_a);
+	inst->getResult().b.bind(var_b);
+	inst->getResult().c.bind(var_c);
+
+	solver.addProgram(inst);
+	
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+	
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(var_a), solver.getSolvedValue(var_b), solver.getSolvedValue(var_c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(var_c) || (solver.getSolvedValue(var_a) != solver.getSolvedValue(var_b)));
+		EATEST_VERIFY((solver.getSolvedValue(var_a) || solver.getSolvedValue(var_b)) == solver.getSolvedValue(var_c));
+	}
+	
+	// a=0 b=0 c=0
+	// a=1 b=0 c=1
+	// a=0 b=1 c=1
+	EATEST_VERIFY(numResults == 3);
+	EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -432,41 +468,60 @@ int TestSolvers::solveRules_basicCycle(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-	// VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
-	//
-	// auto a = solver.makeVariable(TEXT("a"), vector{0,1});
-	// auto b = solver.makeVariable(TEXT("b"), vector{0,1});
-	// auto c = solver.makeVariable(TEXT("c"), vector{0,1});
-	//
-	// // a <- b. b <- a. b <- c. {c}.
-	// solver.getRuleDB().addRule(SignedClause{a, {1}}, SignedClause{b, {1}});
-	// solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{a, {1}});
-	// solver.getRuleDB().addRule(SignedClause{b, {1}}, SignedClause{c, {1}});
-	// solver.getRuleDB().addFact(SignedClause{c, {1}}, ERuleHeadType::Choice);
-	//
-	// int numResults = 0;
-	// while (true)
-	// {
-	// 	auto result = solver.solve();
-	// 	if (result != EConstraintSolverResult::Solved)
-	// 	{
-	// 		break;
-	// 	}
-	//
-	// 	++numResults;
-	// 	if (printVerbose)
-	// 	{
-	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-	// 	}
-	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
-	// 	EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
-	// }
-	//
-	// // a=1 b=1 c=1
-	// // a=0 b=0 c=0
-	// EATEST_VERIFY(numResults == 2);
-	// EATEST_VERIFY(solver.getStats().nonTightRules);
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+
+	auto var_a = solver.makeBoolean(TEXT("a"));
+	auto var_b = solver.makeBoolean(TEXT("b"));
+	auto var_c = solver.makeBoolean(TEXT("c"));
+
+	struct Result
+	{
+		FormulaResult<0> a, b, c;
+	};
+	
+	auto prg = Program::define([]()
+	{
+		VXY_FORMULA(a, 0);
+		VXY_FORMULA(b, 0);
+		VXY_FORMULA(c, 0);
+
+		a() <<= b();
+		b() <<= a();
+		b() <<= c();
+		c().choice();
+		return Result{a, b, c};
+	});
+
+	auto inst = prg();
+	inst->getResult().a.bind(var_a);
+	inst->getResult().b.bind(var_b);
+	inst->getResult().c.bind(var_c);
+
+	solver.addProgram(inst);
+	
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+	
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(var_a), solver.getSolvedValue(var_b), solver.getSolvedValue(var_c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(var_c) || (solver.getSolvedValue(var_a) && solver.getSolvedValue(var_b)));
+		EATEST_VERIFY(solver.getSolvedValue(var_c) || (!solver.getSolvedValue(var_a) && !solver.getSolvedValue(var_b)));
+	}
+	
+	// a=1 b=1 c=1
+	// a=0 b=0 c=0
+	EATEST_VERIFY(numResults == 2);
+	EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -475,44 +530,64 @@ int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
 {
 	int nErrorCount = 0;
 
-	// ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
-	// VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
-	//
-	// vector domain = {0,1,2,3};
-	// auto a = solver.makeVariable(TEXT("a"), domain);
-	// auto b = solver.makeVariable(TEXT("b"), domain);
-	// auto c = solver.makeVariable(TEXT("c"), domain);
-	//
-	// vector pos = {1,2,3};
-	//
-	// // a <- b. b <- a. b <- c. {c}.
-	// solver.getRuleDB().addRule(SignedClause{a, pos}, SignedClause{b, pos});
-	// solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{a, pos});
-	// solver.getRuleDB().addRule(SignedClause{b, pos}, SignedClause{c, pos});
-	// solver.getRuleDB().addFact(SignedClause{c, pos}, ERuleHeadType::Choice);
-	//
-	// int numResults = 0;
-	// while (true)
-	// {
-	// 	auto result = solver.solve();
-	// 	if (result != EConstraintSolverResult::Solved)
-	// 	{
-	// 		break;
-	// 	}
-	//
-	// 	++numResults;
-	// 	if (printVerbose)
-	// 	{
-	// 		VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(a), solver.getSolvedValue(b), solver.getSolvedValue(c));
-	// 	}
-	// 	EATEST_VERIFY(!solver.getSolvedValue(c) || (solver.getSolvedValue(a) && solver.getSolvedValue(b)));
-	// 	EATEST_VERIFY(solver.getSolvedValue(c) || (!solver.getSolvedValue(a) && !solver.getSolvedValue(b)));
-	// }
-	//
-	// // a!=0 b!=0 c!=0
-	// // a=0 b=0 c=0
-	// EATEST_VERIFY(numResults == 28);
-	// EATEST_VERIFY(solver.getStats().nonTightRules);
+	ConstraintSolver solver(TEXT("Rules:BasicDisjunction"), seed);
+	VERTEXY_LOG("Rules:BasicCycle(%d)", solver.getSeed());
+
+	vector domain = {0,1,2,3};
+	auto var_a = solver.makeVariable(TEXT("a"), domain);
+	auto var_b = solver.makeVariable(TEXT("b"), domain);
+	auto var_c = solver.makeVariable(TEXT("c"), domain);
+
+	struct Result
+	{
+		FormulaResult<0> a, b, c;
+	};
+	
+	auto prg = Program::define([]()
+	{
+		VXY_FORMULA(a, 0);
+		VXY_FORMULA(b, 0);
+		VXY_FORMULA(c, 0);
+
+		a() <<= b();
+		b() <<= a();
+		b() <<= c();
+		c().choice();
+		return Result{a, b, c};
+	});
+
+	auto inst = prg();
+
+	vector pos = {1,2,3};
+
+	inst->getResult().a.bind([&](){return SignedClause(var_a, pos);});
+	inst->getResult().b.bind([&](){return SignedClause(var_b, pos);});
+	inst->getResult().c.bind([&](){return SignedClause(var_c, pos);});
+
+	solver.addProgram(inst);
+		
+	int numResults = 0;
+	while (true)
+	{
+		auto result = solver.solve();
+		if (result != EConstraintSolverResult::Solved)
+		{
+			break;
+		}
+	
+		++numResults;
+		if (printVerbose)
+		{
+			VERTEXY_LOG("a=%d b=%d c=%d", solver.getSolvedValue(var_a), solver.getSolvedValue(var_b), solver.getSolvedValue(var_c));
+		}
+		EATEST_VERIFY(!solver.getSolvedValue(var_c) || (solver.getSolvedValue(var_a) && solver.getSolvedValue(var_b)));
+		EATEST_VERIFY(solver.getSolvedValue(var_c) || (!solver.getSolvedValue(var_a) && !solver.getSolvedValue(var_b)));
+	}
+	
+	// a!=0 b!=0 c!=0
+	// a=0 b=0 c=0
+	EATEST_VERIFY(numResults == 28);
+	EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -563,30 +638,36 @@ int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
 	vector<VarID> negRightTestVars;
 	negRightTestVars.resize(WIDTH, VarID::INVALID);
 	
-	inst->getResult().graphEdgeTest.bind([&](const ValueSet& mask, const ProgramSymbol& _x, const ProgramSymbol& _y)
+	inst->getResult().graphEdgeTest.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
-		VarID* dest = y < x ? &graphEdgeTestVars[x].left : &graphEdgeTestVars[x].right; 
-		EATEST_VERIFY(!dest->isValid());
-		VarID var = solver.makeBoolean(inst->getResult().graphEdgeTest.toString(x,y));
-		*dest = var;
-		return var;
+		VarID* dest = y < x ? &graphEdgeTestVars[x].left : &graphEdgeTestVars[x].right;
+		if (!dest->isValid())
+		{
+			VarID var = solver.makeBoolean(inst->getResult().graphEdgeTest.toString(x,y));
+			*dest = var;
+		}
+		return *dest;
 	});
-	inst->getResult().rightTest.bind([&](const ValueSet& mask, const ProgramSymbol& _x)
+	inst->getResult().rightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
-		EATEST_VERIFY(!rightTestVars[x].isValid());
-		VarID var = solver.makeBoolean(inst->getResult().rightTest.toString(x));
-		rightTestVars[x] = var;
-		return var;
+		if (!rightTestVars[x].isValid())
+		{
+			VarID var = solver.makeBoolean(inst->getResult().rightTest.toString(x));
+			rightTestVars[x] = var;
+		}
+		return rightTestVars[x];
 	});
-	inst->getResult().negRightTest.bind([&](const ValueSet& mask, const ProgramSymbol& _x)
+	inst->getResult().negRightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
-		EATEST_VERIFY(!negRightTestVars[x].isValid());
-		VarID var = solver.makeBoolean(inst->getResult().negRightTest.toString(x));
-		negRightTestVars[x] = var;
-		return var;
+		if (!negRightTestVars[x].isValid())
+		{
+			VarID var = solver.makeBoolean(inst->getResult().negRightTest.toString(x));
+			negRightTestVars[x] = var;
+		}
+		return negRightTestVars[x];
 	});
 	
 	solver.addProgram(inst);
@@ -728,15 +809,19 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 	//
 
 	VarID pathVars[4][4];
-	inst->getResult().path.bind([&](const ValueSet& mask, const ProgramSymbol& x, const ProgramSymbol& y)
+	inst->getResult().path.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
-		// Create a boolean solver variable to hold the result of this path(x,y).
-		wstring varName = inst->getResult().path.toString(x,y);
-		VarID var = solver.makeBoolean(varName);
+		int x = _x.getInt(), y = _y.getInt();
+		if (!pathVars[x][y].isValid())
+		{
+			// Create a boolean solver variable to hold the result of this path(x,y).
+			wstring varName = inst->getResult().path.toString(x,y);
+			VarID var = solver.makeBoolean(varName);
 
-		// Store it and return it as the variable to bind to.
-		pathVars[x.getInt()][y.getInt()] = var;
-		return var;
+			// Store it and return it as the variable to bind to.
+			pathVars[x][y] = var;
+		}
+		return pathVars[x][y];
 	});
 
 	// Add the program to the solver. You can add more than one program; the solver will only
@@ -818,15 +903,19 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 	auto inst = hamiltonian(ITopology::adapt(topology));
 
 	VarID pathVars[4][4];
-	inst->getResult().path.bind([&](const ValueSet& mask, const ProgramSymbol& x, const ProgramSymbol& y)
+	inst->getResult().path.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
-		// Create a boolean solver variable to hold the result of this path(x,y).
-		wstring varName = inst->getResult().path.toString(x,y);
-		VarID var = solver.makeBoolean(varName);
+		int x = _x.getInt(), y = _y.getInt();
+		if (!pathVars[x][y].isValid())
+		{
+			// Create a boolean solver variable to hold the result of this path(x,y).
+			wstring varName = inst->getResult().path.toString(x,y);
+			VarID var = solver.makeBoolean(varName);
 
-		// Store it and return it as the variable to bind to.
-		pathVars[x.getInt()][y.getInt()] = var;
-		return var;
+			// Store it and return it as the variable to bind to.
+			pathVars[x][y] = var;
+		}
+		return pathVars[x][y];
 	});
 
 	solver.addProgram(inst);
