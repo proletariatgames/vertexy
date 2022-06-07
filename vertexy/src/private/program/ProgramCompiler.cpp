@@ -806,11 +806,12 @@ void ProgramCompiler::exportRules()
                 vxy_assert(!atom.symbol.isNegated());
                 if (foundBinder != m_binders.end())
                 {
+                    RuleDatabase* rdbPtr = &m_rdb;
                     ProgramSymbol atomSym = atom.symbol;
                     BindCaller* bindCaller = foundBinder->second.get();
-                    auto binderCallback = [this, bindCaller, atomSym](const ValueSet& mask)
+                    auto binderCallback = [rdbPtr, bindCaller, atomSym](const ValueSet& mask)
                     {
-                        return bindCaller->call(m_rdb, atomSym.getFormula()->args, mask);
+                        return bindCaller->call(*rdbPtr, atomSym.getFormula()->args, mask);
                     };
 
                     AtomID atomID = m_rdb.createBoundAtom(binderCallback, atom.symbol.toString().c_str(), atom.symbol.getFormula()->mask.size());
@@ -1291,7 +1292,6 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const V
         {
             lit = m_binder->call(*m_rdb, concrete, mask);
             vxy_assert(lit.isValid());
-            vxy_assert(lit.values.size() == m_domainSize);
 
             m_bindMap.insert(hashCode, nullptr, {concrete, lit.variable});
         }
@@ -1325,7 +1325,6 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const V
     {
         lit = m_binder->call(m_solver, concrete, mask);
         vxy_assert(lit.variable == found->second);
-        vxy_assert(lit.values.size() == m_domainSize);
     }
     else
     {

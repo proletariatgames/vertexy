@@ -1,17 +1,18 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 
 #pragma once
+#include "ConstraintSolver.h"
 #include "ConstraintTypes.h"
 #include "program/Program.h"
 #include "program/ProgramAST.h"
 
 #define VXY_VARIABLE(name) ProgramVariable name(L#name)
 #define VXY_FORMULA(name, arity) Formula<arity> name(L#name)
-#define VXY_DOMAIN_FORMULA(name, domain, arity) Formula<arity, _VXY_DOMAIN_##domain> name(L#name)
+#define VXY_DOMAIN_FORMULA(name, domain, arity) Formula<arity, domain> name(L#name)
 
-#define VXY_DOMAIN_BEGIN(name) struct _VXY_DOMAIN_##name : public FormulaDomainDescriptor { \
-    _VXY_DOMAIN_##name() : FormulaDomainDescriptor(L#name) {} \
-    const _VXY_DOMAIN_##name* get() { static _VXY_DOMAIN_##name inst; return &inst; }
+#define VXY_DOMAIN_BEGIN(name) struct name : public FormulaDomainDescriptor { \
+    name() : FormulaDomainDescriptor(L#name) {} \
+    const name* get() { static name inst; return &inst; }
 
 #define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name)
 #define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size)
@@ -166,8 +167,8 @@ namespace detail
         ~ProgramFunctionTerm();
 
         ProgramHeadChoiceTerm choice();
-        ProgramFunctionTerm mask(ProgramDomainTerm&& domainTerm);
-        ProgramFunctionTerm mask(const ExplicitDomainArgument& domainArgument);
+        ProgramFunctionTerm is(ProgramDomainTerm&& domainTerm);
+        ProgramFunctionTerm is(const ExplicitDomainArgument& domainArgument);
         
         FormulaUID uid;
         const wchar_t* name;
@@ -508,7 +509,7 @@ public:
     }
 
     // Same as above, but instantiation returns a literal instead of a SignedClause.
-    void bind(ConstraintSolver& solver, typename FormulaBinder<Literal, ARITY>::type&& binder) const
+    void bind(ConstraintSolver& solver, typename MaskedFormulaBinder<Literal, ARITY>::type&& binder) const
     {
         solver.bindFormula(m_uid, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
     }
@@ -518,6 +519,17 @@ public:
     void bind(ConstraintSolver& solver, typename FormulaBinder<VarID, ARITY>::type&& binder) const
     {
         solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    // Boolean formulas that have no arguments can be bound directly to a boolean variable.
+    template<typename = enable_if_t<ARITY == 0>>
+    void bind(ConstraintSolver& solver, VarID var) const
+    {
+        vxy_assert_msg(solver.getDomain(var).getDomainSize() == 2, "bind variable must be a boolean");
+        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>([&]()
+        {
+            return var;
+        }));
     }
 
     template<typename... ARGS>
@@ -629,7 +641,7 @@ public:
     }
 
     // Same as above, but returns a Literal instead of a SignedClause
-    void bind(typename FormulaBinder<Literal, ARITY>::type&& binder) const
+    void bind(typename MaskedFormulaBinder<Literal, ARITY>::type&& binder) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
@@ -641,6 +653,14 @@ public:
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+    }
+
+    // Boolean formulas that take no arguments can be bound directly to a variable.
+    template<typename = enable_if_t<ARITY == 0>>
+    void bind(VarID var) const
+    {
+        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>([var](){ return var; }));
     }
 
     template<typename... ARGS>
@@ -684,7 +704,7 @@ inline detail::ProgramHeadChoiceTerm detail::ProgramFunctionTerm::choice()
     return ProgramHeadChoiceTerm(move(choiceTerm));
 }
 
-inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(ProgramDomainTerm&& domainTerm)
+inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::is(ProgramDomainTerm&& domainTerm)
 {
     bound = true;
     auto newDomain = move(domainTerms);
@@ -692,7 +712,7 @@ inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(ProgramDoma
     return ProgramFunctionTerm { uid, name, domainSize, move(args), move(newDomain) };   
 }
 
-inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(const ExplicitDomainArgument& domainArgument)
+inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::is(const ExplicitDomainArgument& domainArgument)
 {
     bound = true;
     auto newDomain = move(domainTerms);
