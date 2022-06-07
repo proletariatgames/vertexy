@@ -100,7 +100,7 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 		m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood,
 			GraphRelationClause(selfTilePrefab, { prefab->id() }),
 			GraphRelationClause(selfTilePrefabPos, { Prefab::NO_PREFAB_POS })
-			);
+		);
 
 		// Ensure we don't use invalid values over this prefab's max
 		for (int x = prefab->positions().size() + 1; x <= getMaxPrefabSize(); x++)
@@ -108,7 +108,7 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 			m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood,
 				GraphRelationClause(selfTilePrefab, { prefab->id() }),
 				GraphRelationClause(selfTilePrefabPos, { x })
-				);
+			);
 		}
 
 		for (int pos = 0; pos < prefab->positions().size(); pos++)
@@ -120,7 +120,7 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 				GraphRelationClause(selfTile, EClauseSign::Outside, { prefab->tiles()[currLoc.x][currLoc.y].id() }),
 				GraphRelationClause(selfTilePrefab, { prefab->id() }),
 				GraphRelationClause(selfTilePrefabPos, { pos + 1 })
-				);
+			);
 
 			// Prev
 			if (pos > 0)
