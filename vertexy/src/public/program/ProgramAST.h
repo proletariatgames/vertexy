@@ -290,6 +290,7 @@ public:
     bool negated;
     bool assignedToFact = false;
     bool recursive = false;
+    ValueSet boundMask;
 };
 
 using UFunctionTerm = unique_ptr<FunctionTerm>;

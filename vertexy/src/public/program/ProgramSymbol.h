@@ -131,8 +131,8 @@ public:
     vector<ProgramSymbol> args;
     ValueSet mask;
 
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask);
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask);
+    static const ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask);
+    static const ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask);
 
     wstring toString() const;
     size_t hash() const { return m_hash; }
@@ -140,7 +140,7 @@ public:
 private:
     size_t m_hash;
     
-    static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash);
+    static const ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash);
     static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args, const ValueSet& mask);
 
     struct Hash
@@ -156,7 +156,7 @@ private:
 struct CompilerAtom
 {
     ProgramSymbol symbol;
-    bool isFact;
+    ValueSet facts;
 };
 
 } // namespace Vertexy

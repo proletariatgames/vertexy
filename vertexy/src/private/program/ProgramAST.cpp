@@ -337,6 +337,11 @@ void FunctionTerm::replace(const function<unique_ptr<Term>(const Term*)>& visito
 
 ProgramSymbol FunctionTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
+    if (boundMask.isZero())
+    {
+        return {};
+    }
+    
     vector<ProgramSymbol> resolvedArgs;
     resolvedArgs.reserve(arguments.size());
     for (auto& arg : arguments)
@@ -348,10 +353,8 @@ ProgramSymbol FunctionTerm::eval(const AbstractOverrideMap& overrideMap, const P
         }
         resolvedArgs.push_back(argSym);
     }
-
-    auto mask = getDomain(overrideMap, boundVertex);
-    vxy_assert(!mask.isZero());
-    return ProgramSymbol(functionUID, functionName, resolvedArgs, mask, negated, provider);
+    
+    return ProgramSymbol(functionUID, functionName, resolvedArgs, boundMask, negated, provider);
 }
 
 UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
@@ -377,15 +380,15 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
 
     const ConstantFormula* cformula = sym.getFormula();
     
-    ValueSet mask(domainSize, true);
+    boundMask = cformula->mask;
     for (auto& domainTerm : domainTerms)
     {
-        if (!domainTerm->match(mask, overrideMap, boundVertex))
+        if (!domainTerm->match(boundMask, overrideMap, boundVertex))
         {
             return false;
         }
-        domainTerm->eval(mask, overrideMap, boundVertex);
-        if (mask.isZero())
+        domainTerm->eval(boundMask, overrideMap, boundVertex);
+        if (boundMask.isZero())
         {
             return false;
         }

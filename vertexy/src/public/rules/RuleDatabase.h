@@ -71,7 +71,7 @@ public:
         virtual const AbstractAtomInfo* asAbstract() const { return nullptr; }
         virtual const ConcreteAtomInfo* asConcrete() const { return nullptr; }
 
-        virtual ALiteral getLiteral(const AtomLiteral& atomLit) = 0;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) const = 0;
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
@@ -112,7 +112,7 @@ public:
         }
 
         virtual const ConcreteAtomInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(const AtomLiteral& atomLit) override;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) const override;
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override { return nullptr; }        
         virtual ITopologyPtr getTopology() const override { return nullptr; }
         virtual bool containsUnknowns(const ValueSet& values) const override;
@@ -142,7 +142,7 @@ public:
         AbstractAtomInfo(AtomID inID, int inDomainSize, const ITopologyPtr& topology);
 
         virtual const AbstractAtomInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(const AtomLiteral& atomLit) override;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) const override;
         virtual ITopologyPtr getTopology() const override { return topology; }
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override;
         virtual bool containsUnknowns(const ValueSet& values) const override;

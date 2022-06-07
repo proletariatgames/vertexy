@@ -333,7 +333,7 @@ public:
     static ProgramInstance* getCurrentInstance() { return s_currentInstance.get(); }
 
     template<typename R, typename... ARGS>
-    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, ARGS&&... args)
+    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ARGS...>& fn, const ARGS&... args)
     {
         auto inst = make_shared<RProgramInstance<R>>();
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
@@ -342,12 +342,12 @@ public:
         RProgramInstancePtr<R> out;
         if constexpr (is_same_v<R, void>)
         {
-            fn(forward<ARGS>(args)...);
+            fn(args...);
             out = move(inst);
         }
         else
         {
-            inst->setResult(fn(forward<ARGS>(args)...));
+            inst->setResult(fn(args...));
             out = move(inst);
         }
 
@@ -360,7 +360,7 @@ public:
     // The definition function should take a ProgramVertex in place of this argument, which represents
     // any vertex on the graph.
     template<typename R, typename... ARGS>
-    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, ARGS&&... args)
+    static RProgramInstancePtr<R> runDefinition(const ProgramDefinitionFunctor<R, ProgramVertex, ARGS...>& fn, const ITopologyPtr& topo, const ARGS&... args)
     {
         auto inst = make_shared<RProgramInstance<R>>(topo);
         vxy_assert_msg(s_currentInstance == nullptr, "Cannot define two programs simultaneously!");
@@ -369,12 +369,12 @@ public:
         RProgramInstancePtr<R> out;
         if constexpr (is_same_v<R, void>)
         {
-            fn(ProgramVertex(), forward<ARGS>(args)...);
+            fn(ProgramVertex(), args...);
             out = move(inst);
         }
         else
         {
-            inst->setResult(fn(ProgramVertex(), forward<ARGS>(args)...));
+            inst->setResult(fn(ProgramVertex(), args...));
             out = move(inst);
         }
         
@@ -383,16 +383,16 @@ public:
     }
 
     template<typename R, typename... ARGS>
-    static ProgramDefinition<R, ARGS...> defineFunctor(const ProgramDefinitionFunctor<R, ARGS...>& definition)
+    static ProgramDefinition<R, ARGS...> defineFunctor(ProgramDefinitionFunctor<R, ARGS...>&& definition)
     {
-        return ProgramDefinition<R, ARGS...>(definition);
+        return ProgramDefinition<R, ARGS...>(eastl::move(definition));
     }
 
     template<typename T>
     static auto define(T&& definition)
     {
-        std::function func {definition};
-        return defineFunctor(func);
+        std::function func {eastl::forward<T>(definition)};
+        return defineFunctor(eastl::move(func));
     }
 
     static void disallow(detail::ProgramBodyTerm&& body);
@@ -424,27 +424,27 @@ template<typename R, typename... ARGS>
 class ProgramDefinition
 {
 public:
-    ProgramDefinition(const ProgramDefinitionFunctor<R, ARGS...>& definition)
-        : m_definition(definition)
+    ProgramDefinition(ProgramDefinitionFunctor<R, ARGS...>&& definition)
+        : m_definition(eastl::move(definition))
     {
     }
 
     // "parse" the definition, returning the ProgramInstance.
-    inline RProgramInstancePtr<R> apply(ARGS&&... args)
+    inline RProgramInstancePtr<R> apply(const ARGS&... args)
     {
-        return Program::runDefinition<R, ARGS...>(m_definition, forward<ARGS>(args)...);
+        return Program::runDefinition<R, ARGS...>(m_definition, args...);
     }
 
-    inline RProgramInstancePtr<R> operator()(ARGS&&... args)
+    inline RProgramInstancePtr<R> operator()(const ARGS&... args)
     {
-        return apply(eastl::move(args)...);
+        return apply(args...);
     }
 
     template<typename... REMARGS>
-    inline RProgramInstancePtr<R> operator()(const ITopologyPtr& topology, REMARGS&&... args)
+    inline RProgramInstancePtr<R> operator()(const ITopologyPtr& topology, const REMARGS&... args)
     {
         static_assert(sizeof...(REMARGS) == sizeof...(ARGS)-1, "Incorrect number of arguments");
-        return Program::runDefinition<R, REMARGS...>(m_definition, topology, forward<REMARGS>(args)...);
+        return Program::runDefinition<R, REMARGS...>(m_definition, topology, args...);
     }
 
 protected:

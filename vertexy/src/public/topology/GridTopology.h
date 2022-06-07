@@ -283,9 +283,9 @@ public:
 	}
 
 	inline OnTopologyEdgeChangeDispatcher& getEdgeChangeListener() { return m_onEdgeChange; }
-	inline int GetWidth() const { return m_width; }
-	inline int GetHeight() const { return m_height; }
-	inline int GetDepth() const { return m_depth; }
+	inline int getWidth() const { return m_width; }
+	inline int getHeight() const { return m_height; }
+	inline int getDepth() const { return m_depth; }
 
 protected:
 	OnTopologyEdgeChangeDispatcher m_onEdgeChange;
