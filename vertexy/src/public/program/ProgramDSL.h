@@ -13,8 +13,8 @@
     _VXY_DOMAIN_##name() : FormulaDomainDescriptor(L#name) {} \
     const _VXY_DOMAIN_##name* get() { static _VXY_DOMAIN_##name inst; return &inst; }
 
-#define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name);
-#define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size);
+#define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name)
+#define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size)
 
 #define VXY_DOMAIN_END() };
 
@@ -76,7 +76,7 @@ namespace detail
         ExplicitDomainArgument(const FormulaDomainValueArray& array)
             : descriptor(array.getDescriptor())
             , values(array.toValues())
-        {            
+        {
         }
         ExplicitDomainArgument(const FormulaDomainDescriptor* descriptor, ValueSet&& values)
             : descriptor(descriptor)
@@ -91,9 +91,9 @@ namespace detail
     class ProgramDomainTerm
     {
     public:
-        ProgramDomainTerm(const ExplicitDomainArgument& argument)
+        ProgramDomainTerm(ExplicitDomainArgument&& argument)
         {
-            term = make_unique<ExplicitDomainTerm>(argument.values);
+            term = make_unique<ExplicitDomainTerm>(move(argument.values));
         }
         explicit ProgramDomainTerm(UDomainTerm&& term)
             : term(move(term))
@@ -101,7 +101,7 @@ namespace detail
         }
         ProgramDomainTerm(ProgramDomainTerm&& rhs) noexcept
             : term(move(rhs.term))
-        {            
+        {
         }
 
         UDomainTerm term;
@@ -167,6 +167,7 @@ namespace detail
 
         ProgramHeadChoiceTerm choice();
         ProgramFunctionTerm mask(ProgramDomainTerm&& domainTerm);
+        ProgramFunctionTerm mask(const ExplicitDomainArgument& domainArgument);
         
         FormulaUID uid;
         const wchar_t* name;
@@ -396,7 +397,7 @@ public:
     static void disallow(detail::ProgramBodyTerm&& body);
     static void disallow(detail::ProgramBodyTerms&& body);
 
-    static detail::ProgramRangeTerm range(detail::ProgramBodyTerm min, detail::ProgramBodyTerm max);
+    static detail::ProgramRangeTerm range(int min, int max);
 
     static ExternalFormula<2> graphLink(const TopologyLink& link);
     static detail::ProgramExternalFunctionTerm hasGraphLink(detail::ProgramBodyTerm&& vertex, const TopologyLink& link);
@@ -685,9 +686,18 @@ inline detail::ProgramHeadChoiceTerm detail::ProgramFunctionTerm::choice()
 
 inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(ProgramDomainTerm&& domainTerm)
 {
+    bound = true;
     auto newDomain = move(domainTerms);
     newDomain.push_back(move(domainTerm));
     return ProgramFunctionTerm { uid, name, domainSize, move(args), move(newDomain) };   
+}
+
+inline detail::ProgramFunctionTerm detail::ProgramFunctionTerm::mask(const ExplicitDomainArgument& domainArgument)
+{
+    bound = true;
+    auto newDomain = move(domainTerms);
+    newDomain.push_back(ProgramDomainTerm(ExplicitDomainArgument(domainArgument)));
+    return ProgramFunctionTerm { uid, name, domainSize, move(args), move(newDomain) };  
 }
 
 inline UFunctionHeadTerm detail::ProgramFunctionTerm::createHeadTerm()

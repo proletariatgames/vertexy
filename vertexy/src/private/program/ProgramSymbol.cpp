@@ -18,7 +18,9 @@ ProgramSymbol::ProgramSymbol(const GraphVertexRelationPtr& relation)
 
 ProgramSymbol::ProgramSymbol(int32_t constant)
 {
-    m_packed = encode(ESymbolType::Integer, constant);
+    m_packed = constant >= 0
+        ? encode(ESymbolType::PositiveInteger, constant)
+        : encode(ESymbolType::NegativeInteger, -constant);
 }
 
 ProgramSymbol::ProgramSymbol(const wchar_t* name)
@@ -56,7 +58,8 @@ uint32_t ProgramSymbol::hash() const
         return getFormula()->hash();
     case ESymbolType::ID:
         return eastl::hash<wstring>()(getID()); 
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
     case ESymbolType::Invalid:
     default:
         return eastl::hash<uint64_t>()(m_packed);
@@ -74,7 +77,8 @@ bool ProgramSymbol::operator==(const ProgramSymbol& rhs) const
         return getAbstractRelation()->equals(*rhs.getAbstractRelation());
     case ESymbolType::External:
         return m_packed == rhs.m_packed && getExternalFormulaProvider() == rhs.getExternalFormulaProvider();
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
     case ESymbolType::ID:
     case ESymbolType::Formula:
     case ESymbolType::Invalid:
@@ -166,7 +170,8 @@ void ProgramSymbol::destroySmartPointer()
         }
         break;
 
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
     case ESymbolType::ID:
     case ESymbolType::Formula:
     case ESymbolType::Invalid:
@@ -271,7 +276,8 @@ bool ProgramSymbol::containsAbstract() const
         }
         return false;
 
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
     case ESymbolType::ID:
     case ESymbolType::Invalid:
         return false;
@@ -286,7 +292,8 @@ ProgramSymbol ProgramSymbol::makeConcrete(int vertex) const
 {
     switch (getType())
     {
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
     case ESymbolType::ID:
         return *this;
 
@@ -356,7 +363,8 @@ wstring ProgramSymbol::toString() const
     case ESymbolType::Formula:
     case ESymbolType::External:
         return isNegated() ? (TEXT("~") + getFormula()->toString()) : getFormula()->toString();
-    case ESymbolType::Integer:
+    case ESymbolType::PositiveInteger:
+    case ESymbolType::NegativeInteger:
         return {wstring::CtorSprintf(), TEXT("%d"), getInt()};
     case ESymbolType::ID:
         return getID();
@@ -443,6 +451,12 @@ wstring ConstantFormula::toString() const
     }
 
     out.append(TEXT(")"));
+
+    if (mask.size() > 1)
+    {
+        out.append(mask.toString());
+    }
+    
     return out;
 }
 

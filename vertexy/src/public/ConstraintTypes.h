@@ -183,16 +183,15 @@ struct Literal
 	Literal(Literal&& other) = default;
 
 	template <typename Allocator>
-	explicit Literal(VarID varID, const TValueBitset<Allocator>& values)
+	Literal(VarID varID, const TValueBitset<Allocator>& values)
 		: variable(varID)
 		, values(values)
 	{
 	}
 
-	template <typename Allocator>
-	explicit Literal(VarID varID, TValueBitset<Allocator>&& values)
+	Literal(VarID varID, ValueSet&& values)
 		: variable(varID)
-		, values(forward<TValueBitset<Allocator>>(values))
+		, values(move(values))
 	{
 	}
 

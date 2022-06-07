@@ -73,9 +73,18 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         for (const auto& atomLit : bodyInfo->heads)
         {
             auto atomInfo = rdb.getAtom(atomLit.id())->asConcrete();
-            if (atomInfo->isChoiceAtom())
+            if (!atomInfo->isChoiceAtom() || atomInfo->scc < 0)
             {
-                callback(atomInfo);
+                continue;
+            }
+            
+            for (auto it = atomLit.getMask().beginSetBits(), itEnd = atomLit.getMask().endSetBits();
+                 it != itEnd; ++it)
+            {
+                if (atomInfo->getTruthStatus(*it) == RuleDatabase::ETruthStatus::Undetermined)
+                {
+                    callback(atomInfo, *it);
+                }
             }
         }
     };
@@ -87,31 +96,38 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
             if (atomLit.sign())
             {
                 if (RuleDatabase::ConcreteAtomInfo* atomInfo = rdb.getAtom(atomLit.id())->asConcrete();
-                    atomInfo->isChoiceAtom() &&
                     atomInfo->scc >= 0 && atomInfo->scc == bodyInfo->scc)
                 {
-                    callback(atomInfo);
+                    for (auto it = atomLit.getMask().beginSetBits(), itEnd = atomLit.getMask().endSetBits();
+                         it != itEnd; ++it)
+                    {
+                        if (atomInfo->getTruthStatus(*it) == RuleDatabase::ETruthStatus::Undetermined)
+                        {
+                            callback(atomInfo, *it);
+                        }
+                    }
                 }
             }
         }
     };
 
-    auto visitAtomSupports = [](const RuleDatabase::ConcreteAtomInfo* atomInfo, auto&& callback)
+    auto visitAtomSupports = [](const RuleDatabase::ConcreteAtomInfo* atomInfo, int bit, auto&& callback)
     {
         for (auto& supportLink : atomInfo->supports)
         {
-            if (supportLink.body->isChoiceBody())
+            if (supportLink.values[bit] && supportLink.body->isChoiceBody())
             {
                 callback(supportLink.body);
             }
         }
     };
 
-    auto visitAtomPositiveDeps = [](const RuleDatabase::ConcreteAtomInfo* atomInfo, auto&& callback)
+    auto visitAtomPositiveDeps = [](const RuleDatabase::ConcreteAtomInfo* atomInfo, int bit, auto&& callback)
     {
         for (auto& bodyLink : atomInfo->positiveDependencies)
         {
-            if (bodyLink.body->isChoiceBody() &&
+            if (bodyLink.values[bit] &&
+                bodyLink.body->isChoiceBody() &&
                 atomInfo->scc >= 0 && bodyLink.body->asConcrete()->scc == atomInfo->scc)
             {
                 callback(bodyLink.body);
@@ -125,11 +141,11 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
 
     outAtomOffsets.clear();
 
-    vector<AtomID> relevantAtoms;
+    vector<pair<AtomID, int>> relevantAtoms;
     int32_t atomHeapSize = 0;
 
-    vector<int32_t> atomMapping;
-    atomMapping.resize(rdb.getNumAtoms(), -1);
+    vector<vector<int32_t>> atomMapping;
+    atomMapping.resize(rdb.getNumAtoms());
 
     for (int i = 1; i < rdb.getNumAtoms(); ++i)
     {
@@ -139,18 +155,27 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
             continue;
         }
 
-        int numDeps = 0;
-        visitAtomPositiveDeps(atomInfo, [&](auto) { ++numDeps; });
+        atomMapping[i].resize(atomInfo->domainSize, -1);
+        for (int j = 0; j < atomInfo->domainSize; ++j)
+        {
+            if (atomInfo->getTruthStatus(j) != RuleDatabase::ETruthStatus::Undetermined)
+            {
+                continue;
+            }
+            
+            int numDeps = 0;
+            visitAtomPositiveDeps(atomInfo, j, [&](auto) { ++numDeps; });
 
-        int numSupports = 0;
-        visitAtomSupports(atomInfo, [&](auto) { ++numSupports; });
+            int numSupports = 0;
+            visitAtomSupports(atomInfo, j, [&](auto) { ++numSupports; });
 
-        atomMapping[i] = relevantAtoms.size();
-        relevantAtoms.push_back(AtomID(i));
-        outAtomOffsets.push_back(atomHeapSize);
+            atomMapping[i][j] = relevantAtoms.size();
+            relevantAtoms.push_back(make_pair(AtomID(i), j));
+            outAtomOffsets.push_back(atomHeapSize);
 
-        constexpr int numSentinels = 2;
-        atomHeapSize += sizeof(AtomData) + numDeps*sizeof(int32_t) + numSupports*sizeof(int32_t) + numSentinels*sizeof(int32_t);
+            constexpr int numSentinels = 2;
+            atomHeapSize += sizeof(AtomData) + numDeps*sizeof(int32_t) + numSupports*sizeof(int32_t) + numSentinels*sizeof(int32_t);
+        }
     }
     m_atomBuffer.resize(atomHeapSize);
     m_atomLiterals.resize(relevantAtoms.size());
@@ -179,7 +204,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
             [&](auto&& headLit)
             {
                 auto concrete = rdb.getAtom(headLit.id())->asConcrete();
-                return concrete->isVariable() && concrete->scc >= 0;
+                return concrete->getTruthStatus(headLit.getMask()) == RuleDatabase::ETruthStatus::Undetermined && concrete->scc >= 0;
             }
         );
         if (!canSupport)
@@ -188,9 +213,9 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         }
 
         int numHeads = 0;
-        visitBodyHeads(bodyInfo, [&](auto) { ++numHeads; });
+        visitBodyHeads(bodyInfo, [&](auto, auto) { ++numHeads; });
         int numTails = 0;
-        visitBodyPositiveLits(bodyInfo, [&](auto) { ++numTails; });
+        visitBodyPositiveLits(bodyInfo, [&](auto, auto) { ++numTails; });
 
         bodyMapping[i] = relevantBodies.size();
         relevantBodies.push_back(i);
@@ -208,9 +233,10 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     for (int i = 0; i < relevantAtoms.size(); ++i)
     {
         auto newAtom = new (&m_atomBuffer[outAtomOffsets[i]]) AtomData();
-        const RuleDatabase::ConcreteAtomInfo* atomInfo = rdb.getAtom(relevantAtoms[i])->asConcrete();
+        const RuleDatabase::ConcreteAtomInfo* atomInfo = rdb.getAtom(relevantAtoms[i].first)->asConcrete();
+        const int maskBit = relevantAtoms[i].second;
 
-        m_atomLiterals[i] = atomInfo->equivalence;
+        m_atomLiterals[i] = atomInfo->getLiteralForIndex(maskBit);
         newAtom->lit = &m_atomLiterals[i];
         newAtom->source = -1;
         newAtom->sourceIsValid = false;
@@ -218,7 +244,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         newAtom->scc = atomInfo->scc+1;
 
         int offs = 0;
-        visitAtomSupports(atomInfo, [&](auto bodyInfo)
+        visitAtomSupports(atomInfo, maskBit, [&](auto bodyInfo)
         {
             vxy_assert(bodyMapping[bodyInfo->id] >= 0);
             newAtom->data[offs++] = outBodyOffsets[bodyMapping[bodyInfo->id]];
@@ -227,7 +253,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         newAtom->data[offs++] = SENTINEL;
         newAtom->depsOffset = offs;
 
-        visitAtomPositiveDeps(atomInfo, [&](auto bodyInfo)
+        visitAtomPositiveDeps(atomInfo, maskBit, [&](auto bodyInfo)
         {
             vxy_assert(bodyMapping[bodyInfo->id] >= 0);
             newAtom->data[offs++] = outBodyOffsets[bodyMapping[bodyInfo->id]];
@@ -254,20 +280,20 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         vxy_sanity(bodyInfo->equivalence.values == TRUE_VALUE);
 
         int offs = 0;
-        visitBodyHeads(bodyInfo, [&](auto atomInfo)
+        visitBodyHeads(bodyInfo, [&](auto atomInfo, int bitIndex)
         {
-            vxy_assert(atomMapping[atomInfo->id.value] >= 0);
-            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value]];
+            vxy_assert(atomMapping[atomInfo->id.value][bitIndex] >= 0);
+            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value][bitIndex]];
         });
 
         newBody->data[offs++] = SENTINEL;
         newBody->valuesOffset = offs;
 
         int numLits = 0;
-        visitBodyPositiveLits(bodyInfo, [&](auto atomInfo)
+        visitBodyPositiveLits(bodyInfo, [&](auto atomInfo, int bitIndex)
         {
-            vxy_assert(atomMapping[atomInfo->id.value] >= 0);
-            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value]];
+            vxy_assert(atomMapping[atomInfo->id.value][bitIndex] >= 0);
+            newBody->data[offs++] = outAtomOffsets[atomMapping[atomInfo->id.value][bitIndex]];
             ++numLits;
         });
         newBody->numUnsourcedLits = numLits;

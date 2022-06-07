@@ -775,6 +775,7 @@ void ProgramCompiler::exportRules()
         FormulaUID formulaUID = domainEntry.first;
         AtomDomain* domain = domainEntry.second.get();
         const wchar_t* formulaName = domain->list[0].symbol.getFormula()->name.c_str();
+        const int domainSize = domain->list[0].symbol.getFormula()->mask.size();
 
         vxy_sanity(m_exportedLits.find(formulaUID) == m_exportedLits.end());
         auto exportMapIt = m_exportedLits.insert({formulaUID, make_unique<ExportMap>()}).first;
@@ -787,11 +788,12 @@ void ProgramCompiler::exportRules()
                 m_rdb,
                 formulaUID,
                 formulaName,
+                domainSize,
                 foundBinder != m_binders.end() ? foundBinder->second.get() : nullptr
             );
            
             vxy_assert(domain->abstractTopology != nullptr);
-            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, 1, domain->isExternal);
+            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, domainSize, domain->isExternal);
             mapper->setAtomID(atomID);
 
             m_exportedFormulas.insert({formulaUID, move(mapper)});
@@ -811,13 +813,13 @@ void ProgramCompiler::exportRules()
                         return bindCaller->call(m_rdb, atomSym.getFormula()->args, mask);
                     };
 
-                    AtomID atomID = m_rdb.createBoundAtom(binderCallback, atom.symbol.toString().c_str());
+                    AtomID atomID = m_rdb.createBoundAtom(binderCallback, atom.symbol.toString().c_str(), atom.symbol.getFormula()->mask.size());
                     AtomLiteral atomLit(atomID, true, atom.symbol.getFormula()->mask);                                            
                     exportMap->concreteExports.insert({atom.symbol, atomID});
                 }
                 else
                 {
-                    AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str());
+                    AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str(), atom.symbol.getFormula()->mask.size());
                     exportMap->concreteExports.insert({atom.symbol, atomID});
                 }
             }
@@ -1257,10 +1259,12 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
     return true;
 }
 
-FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder)
+FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, BindCaller* binder)
     : m_rdb(&rdb)
+    , m_solver(m_rdb->getSolver())
     , m_formulaUID(formulaUID)
     , m_formulaName(formulaName)
+    , m_domainSize(domainSize)
     , m_binder(binder)
 {
 }
@@ -1272,28 +1276,27 @@ void FormulaMapper::lockVariableCreation()
 
 Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const ValueSet& mask, CreationType creationType) const
 {
-    size_t argHash = ArgumentHasher()(concrete);
-    auto found = m_bindMap.find_by_hash(concrete, argHash);
+    Literal lit;
+
+    size_t hashCode = ArgumentHasher()(concrete);
+    auto found = m_bindMap.find_by_hash(concrete, hashCode);
+    if ((m_rdb == nullptr || creationType == NeverCreate) && found == m_bindMap.end())
+    {
+        return lit;
+    }
+    
     if (found == m_bindMap.end())
     {
-        if (creationType == NeverCreate || m_rdb == nullptr)
-        {
-            return {};
-        }
-
-        Literal lit;
         if (m_binder != nullptr)
         {
             lit = m_binder->call(*m_rdb, concrete, mask);
-        }
+            vxy_assert(lit.isValid());
+            vxy_assert(lit.values.size() == m_domainSize);
 
-        if (!lit.isValid())
+            m_bindMap.insert(hashCode, nullptr, {concrete, lit.variable});
+        }
+        else if (creationType != CreateIfBound)
         {
-            if (creationType == CreateIfBound)
-            {
-                return {};
-            }
-            
             wstring name = m_formulaName;
             name.append(TEXT("("));
             for (int i = 0; i < concrete.size(); ++i)
@@ -1306,16 +1309,33 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const V
             }
             name.append(TEXT(")"));
 
-            lit = Literal(m_rdb->getSolver().makeBoolean(name), SolverVariableDomain(0,1).getBitsetForValue(1));
-            if (lit.isValid() && LOG_VAR_INSTANTIATION)
+            auto newVar = m_rdb->getSolver().makeVariable(name, SolverVariableDomain(0, m_domainSize));
+            if (LOG_VAR_INSTANTIATION)
             {
                 VERTEXY_LOG("  Created %s", name.c_str());
             }
+
+            m_bindMap.insert(hashCode, nullptr, {concrete, newVar});
+            lit.variable = newVar;
+            lit.values = ValueSet(1, false);
+            lit.values.append(mask, mask.size());
         }
-        found = m_bindMap.insert(argHash, nullptr, {concrete, move(lit)}).first;
     }
-    vxy_assert(found->second.isValid());
-    return found->second;
+    else if (m_binder != nullptr)
+    {
+        lit = m_binder->call(m_solver, concrete, mask);
+        vxy_assert(lit.variable == found->second);
+        vxy_assert(lit.values.size() == m_domainSize);
+    }
+    else
+    {
+        ValueSet falseAppendedMask = ValueSet(1, false);
+        falseAppendedMask.append(mask, mask.size());
+        
+        lit.variable = found->second;
+        lit.values = falseAppendedMask;
+    }
+    return lit;
 }
 
 FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm)
@@ -1365,13 +1385,14 @@ bool FormulaGraphRelation::needsInstantiation() const
     return m_formulaMapper->hasBinder();
 }
 
-bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral) const
+bool FormulaGraphRelation::instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const
 {
     if (!makeConcrete(vertex, m_concrete))
     {
         return false;
     }
-    outLiteral = m_formulaMapper->getLiteral(m_concrete, m_symbol.getFormula()->mask, FormulaMapper::CreateIfBound);
+
+    outLiteral = m_formulaMapper->getLiteral(m_concrete, atomMask, FormulaMapper::CreateIfBound);
     return outLiteral.isValid();
 }
 

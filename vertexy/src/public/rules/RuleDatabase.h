@@ -71,17 +71,16 @@ public:
         virtual const AbstractAtomInfo* asAbstract() const { return nullptr; }
         virtual const ConcreteAtomInfo* asConcrete() const { return nullptr; }
 
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) = 0;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) = 0;
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
-        virtual bool isFullyKnown(const ValueSet& values) const = 0;
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const = 0;
+        virtual bool containsUnknowns(const ValueSet& values) const = 0;
         
         AbstractAtomInfo* asAbstract() { return const_cast<AbstractAtomInfo*>(const_cast<const AtomInfo*>(this)->asAbstract()); }
         ConcreteAtomInfo* asConcrete() { return const_cast<ConcreteAtomInfo*>(const_cast<const AtomInfo*>(this)->asConcrete()); }
-
-        bool isChoiceAtom() const { return status == ETruthStatus::Undetermined; }
-
+        
         AtomID id;
         int domainSize = -1;
         // name for debugging
@@ -96,8 +95,6 @@ public:
         vector<AtomLinkage> positiveDependencies;
         // Bodies referring to this atom negatively
         vector<AtomLinkage> negativeDependencies;
-        // the current truth status for this atom
-        ETruthStatus status = ETruthStatus::Undetermined;
         // Mask of true facts
         ValueSet trueFacts;
         // Mask of false facts
@@ -115,14 +112,19 @@ public:
         }
 
         virtual const ConcreteAtomInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) override;
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override { return nullptr; }        
         virtual ITopologyPtr getTopology() const override { return nullptr; }
-        virtual bool isFullyKnown(const ValueSet& values) const override;
+        virtual bool containsUnknowns(const ValueSet& values) const override;
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const override;
+
+        bool isChoiceAtom() const { return !trueFacts.isSingleton() && !falseFacts.isSingleton(); }
+        
+        ETruthStatus getTruthStatus(int index) const;
+        Literal getLiteralForIndex(int index) const;
 
         void createLiteral(RuleDatabase& rdb);
         bool synchronize(RuleDatabase& rdb);
-        bool isVariable() const { return equivalence.variable.isValid(); }
 
         // Binder for creating equivalence
         AtomBinder binder = nullptr;
@@ -140,10 +142,11 @@ public:
         AbstractAtomInfo(AtomID inID, int inDomainSize, const ITopologyPtr& topology);
 
         virtual const AbstractAtomInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
+        virtual ALiteral getLiteral(const AtomLiteral& atomLit) override;
         virtual ITopologyPtr getTopology() const override { return topology; }
         virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override;
-        virtual bool isFullyKnown(const ValueSet& values) const override;
+        virtual bool containsUnknowns(const ValueSet& values) const override;
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const override;
 
         void lockVariableCreation();
         
@@ -156,7 +159,6 @@ public:
         ITopologyPtr topology;
         
         hash_map<vector<int>, ConcreteAtomInfo*, ArgumentHasher> concreteAtoms;
-        vector<int> numUnknownConcretes;
         ValueSet indicesWithConcretes;
     };
 
@@ -304,6 +306,9 @@ public:
     static bool getConcreteArgumentsForRelation(const AbstractAtomRelationInfoPtr& relationInfo, int vertex, vector<int>& outArgs);
 
 protected:
+    wstring literalToString(const AtomLiteral& lit) const;
+    wstring literalsToString(const vector<AtomLiteral>& lits, bool cullKnown=true) const;
+    
     void setConflicted();
     void lockVariableCreation();
     

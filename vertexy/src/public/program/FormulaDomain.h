@@ -17,6 +17,7 @@ public:
     const FormulaDomainDescriptor* getDescriptor() const { return m_descriptor; }
     ValueSet toValues() const;
     const wchar_t* getName() const { return m_name; }
+    int getValueIndex() const { return m_valueIndex; }
     
 protected:
     const wchar_t* m_name;

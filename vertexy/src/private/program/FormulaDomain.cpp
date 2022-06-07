@@ -13,7 +13,10 @@ Vertexy::FormulaDomainValue::FormulaDomainValue(const wchar_t* name, const Formu
 Vertexy::ValueSet Vertexy::FormulaDomainValue::toValues() const
 {
     ValueSet values(m_descriptor->getDomainSize(), false);
-    values[m_valueIndex] = true;
+    if (m_valueIndex >= 0 && m_valueIndex < m_descriptor->getDomainSize())
+    {
+        values[m_valueIndex] = true;
+    }
     return values;
 }
 
@@ -36,10 +39,12 @@ Vertexy::ValueSet Vertexy::FormulaDomainValueArray::toValues() const
 }
 
 Vertexy::ValueSet Vertexy::FormulaDomainValueArray::toValues(int index) const
-{
-    vxy_assert(index >= 0 && index < m_numValues);
+{    
     ValueSet values(m_descriptor->getDomainSize(), false);
-    values[m_firstValueIndex + index] = true;
+    if (index >= 0 && index < m_numValues)
+    {
+        values[m_firstValueIndex + index] = true;
+    }
     return values;
 }
 
@@ -49,7 +54,6 @@ Vertexy::detail::ProgramDomainTerm Vertexy::FormulaDomainValueArray::operator[](
 }
 
 Vertexy::detail::ExplicitDomainArgument Vertexy::FormulaDomainValueArray::operator[](int index) const
-{
-    vxy_assert(index >= 0 && index < m_numValues);
+{    
     return detail::ExplicitDomainArgument(FormulaDomainValue(m_name, m_descriptor, m_firstValueIndex + index));
 }
