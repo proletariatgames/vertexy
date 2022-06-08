@@ -78,7 +78,7 @@ int PrefabTestSolver::solveBasic(int times, int seed, bool printVerbose)
 
 		if (outputLog != nullptr)
 		{
-			outputLog->write(TEXT("PrefabTestOutput.txt"));
+			outputLog->write(TEXT("PrefabTest-Basic-Output.txt"));
 		}
 
 		nErrorCount += check(&solver, tileData, prefabManager);
@@ -97,8 +97,8 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 	constexpr int BLANK_IDX = 0;
 	constexpr int WALL_IDX = 1;
 
-	int numRows = 2;
-	int numCols = 2;
+	int numRows = 3;
+	int numCols = 3;
 
 	for (int time = 0; time < times; ++time)
 	{
@@ -112,6 +112,7 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 
 		// Generate test prefabs
 		prefabManager->createPrefabFromJson("../../prefabs/test1.json");
+		prefabManager->createPrefabFromJson("../../prefabs/test2.json");
 
 		// The domains for the various types of variables
 		SolverVariableDomain tileDomain(0, 1);
@@ -123,7 +124,8 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 		prefabManager->generatePrefabConstraints(tileData);
 
 		// Set some initial values
-		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[0], { 1 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[4], { 1 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[0], prefabManager->getPrefabIdsByName("test2"));
 
 		shared_ptr<SolverDecisionLog> outputLog;
 		if constexpr (WRITE_BREADCRUMB_LOG)
@@ -147,7 +149,7 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 
 		if (outputLog != nullptr)
 		{
-			outputLog->write(TEXT("PrefabTestOutput.txt"));
+			outputLog->write(TEXT("PrefabTest-Json-Output.txt"));
 		}
 
 		nErrorCount += check(&solver, tileData, prefabManager);
@@ -174,8 +176,8 @@ int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVer
 		shared_ptr<PrefabManager> prefabManager = PrefabManager::create(&solver, grid);
 
 		// Generate test prefabs (with rotation and reflection)
-		prefabManager->createDefaultTestPrefab(0, true, true);
-		prefabManager->createDefaultTestPrefab(1, true, true);
+		prefabManager->createDefaultTestPrefab(0, "test1", true, true);
+		prefabManager->createDefaultTestPrefab(1, "test2", true, true);
 
 		// The domains for the various types of variables
 		SolverVariableDomain tileDomain(0, 1);
@@ -189,8 +191,8 @@ int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVer
 		// Set some initial values (allows any rotation/reflection for both prefabs).
 		// First prefab can have 8 configurations (1 to 8).
 		// Second prefab can have 8 configurations (9 to 16).
-		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[8], { 9,10,11,12,13,14,15,16 });
-		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[4], { 1,2,3,4,5,6,7,8 });
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[8], prefabManager->getPrefabIdsByName("test2"));
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[4], prefabManager->getPrefabIdsByName("test1"));
 
 		shared_ptr<SolverDecisionLog> outputLog;
 		if constexpr (WRITE_BREADCRUMB_LOG)
@@ -214,7 +216,7 @@ int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVer
 
 		if (outputLog != nullptr)
 		{
-			outputLog->write(TEXT("PrefabTestOutput.txt"));
+			outputLog->write(TEXT("PrefabTest-RotRefl-Output.txt"));
 		}
 
 		nErrorCount += check(&solver, tileData, prefabManager);

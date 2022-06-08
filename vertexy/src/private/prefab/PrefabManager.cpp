@@ -30,7 +30,7 @@ PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<Planar
 	m_grid = inGrid;
 }
 
-void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allowRotation, bool allowReflection)
+void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, string name /* "" */, bool allowRotation /* false */, bool allowReflection /* false */)
 {
 	// Create the prefab with its unique ID
 	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, inTiles);
@@ -44,9 +44,18 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 	// Add to our internal list of prefabs
 	m_prefabs.push_back(prefab);
 
+	// Add to the prefabStateMap
+	if (name != "")
+	{
+		m_prefabStateMap.insert(name);
+		m_prefabStateMap[name].push_back(prefab->id());
+	}
+
 	// if we allow rotation and/or reflection, create prefab configurations
 	if (!allowRotation && !allowReflection)
+	{
 		return;
+	}
 	
 	vector<shared_ptr<Prefab>> temp;
 	if (allowRotation && allowReflection)
@@ -76,6 +85,15 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, bool allow
 		temp[1]->reflect();
 	}
 	m_prefabs.insert(m_prefabs.end(), temp.begin(), temp.end());
+
+	// Add to the prefabStateMap
+	if (name != "")
+	{
+		for (int x = 1; x <= temp.size(); x++)
+		{
+			m_prefabStateMap[name].push_back(m_prefabStateMap[name][0] + x);
+		}
+	}
 }
 
 void PrefabManager::createPrefabFromJson(string filePath)
@@ -92,7 +110,7 @@ void PrefabManager::createPrefabFromJson(string filePath)
 	std::stringstream strStream;
 	strStream << file.rdbuf();
 
-	// Parse the json string and extract variables
+	// Parse the json string and extract the tiles
 	auto j = json::parse(strStream.str().c_str());
 	vector<vector<Tile>> tiles;
 
@@ -113,7 +131,28 @@ void PrefabManager::createPrefabFromJson(string filePath)
 		vxy_assert_msg(false, "Error! Json file passed to createPrefabFromJson contains no tiles!");
 	}
 
-	createPrefab(tiles);
+	// Parse additional variables
+	string name = "";
+	bool allowRotation = false;
+	bool allowReflection = false;
+	
+	if (j.contains("name"))
+	{
+		std::string jsonName = j["name"];
+		name = jsonName.c_str();
+	}
+
+	if (j.contains("allowRotation"))
+	{
+		allowRotation = j["allowRotation"];
+	}
+	
+	if (j.contains("allowReflection"))
+	{
+		allowReflection = j["allowReflection"];
+	}
+
+	createPrefab(tiles, name, allowRotation, allowReflection);
 }
 
 void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData)
@@ -228,12 +267,22 @@ const vector<shared_ptr<Prefab>>& PrefabManager::getPrefabs()
 	return m_prefabs;
 }
 
+const vector<int>& PrefabManager::getPrefabIdsByName(string name)
+{
+	if (name == "" || m_prefabStateMap.find(name) == m_prefabStateMap.end())
+	{
+		vxy_assert_msg(false, "Error! Invalid prefab name passed to getPrefabIdsByName");
+	}
+
+	return m_prefabStateMap[name];
+}
+
 int PrefabManager::getMaxPrefabSize()
 {
 	return m_maxPrefabSize;
 }
 
-void PrefabManager::createDefaultTestPrefab(int index, bool rot, bool refl)
+void PrefabManager::createDefaultTestPrefab(int index, string name, bool rot, bool refl)
 {
 	Tile tx(-1);
 	Tile t0(0);
@@ -244,7 +293,7 @@ void PrefabManager::createDefaultTestPrefab(int index, bool rot, bool refl)
 		createPrefab({
 			{ t0, t0 },
 			{ t1, t1 }
-		}, rot, refl);
+		}, name, rot, refl);
 		break;
 
 	case 1:
@@ -252,7 +301,7 @@ void PrefabManager::createDefaultTestPrefab(int index, bool rot, bool refl)
 			{ t1, tx, t1 },
 			{ tx, tx, tx },
 			{ t1, tx, tx }
-		}, rot, refl);
+		}, name, rot, refl);
 		break;
 
 	default: vxy_assert(false);
