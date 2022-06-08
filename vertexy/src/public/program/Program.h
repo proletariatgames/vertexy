@@ -24,25 +24,17 @@ template<typename R, typename... ARGS> class ProgramDefinition;
 namespace detail
 {
     // Returns a function type that returns R and takes N ARG arguments
-    template<size_t N, typename R, typename FIRST_ARG, typename ARG, typename... ARGS>
-    struct ArgumentRepeater { using type = typename ArgumentRepeater<N-1,R,FIRST_ARG,ARG,ARG,ARGS...>::type; };
-    template<typename R, typename FIRST_ARG, typename ARG, typename... ARGS>
-    struct ArgumentRepeater<0, R, FIRST_ARG, ARG, ARGS...> { using type = R(FIRST_ARG, ARGS...); };
+    template<size_t N, typename R, typename ARG, typename... ARGS>
+    struct ArgumentRepeater { using type = typename ArgumentRepeater<N-1,R,ARG,ARG,ARGS...>::type; };
     template<typename R, typename ARG, typename... ARGS>
-    struct ArgumentRepeater<0, R, void, ARG, ARGS...> { using type = R(ARGS...); };
+    struct ArgumentRepeater<0, R, ARG, ARGS...> { using type = R(ARGS...); };
 }
 
 // Synthesizes the FormulaResult::bind() callback function's signature.
 template<typename RETVAL, size_t SIZE>
 struct FormulaBinder
 {
-    using type = std::function<typename detail::ArgumentRepeater<SIZE, RETVAL, void, const ProgramSymbol&>::type>;
-};
-
-template<typename RETVAL, size_t SIZE>
-struct MaskedFormulaBinder
-{
-    using type = std::function<typename detail::ArgumentRepeater<SIZE, RETVAL, const ValueSet&, const ProgramSymbol&>::type>;
+    using type = std::function<typename detail::ArgumentRepeater<SIZE, RETVAL, const ProgramSymbol&>::type>;
 };
 
 // Abstract base to call a function passed into FormulaResult::bind with a vector of arguments.
@@ -50,10 +42,10 @@ class BindCaller
 {
 public:
     virtual ~BindCaller() {}
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms, const ValueSet& mask) = 0;
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
 };
 
-// Wraps a binder function that returns a SignedClause. For boolean formulas only.
+// Wraps a binder function that returns a SignedClause.
 template<size_t ARITY>
 class TBindClauseCaller : public BindCaller
 {
@@ -63,13 +55,11 @@ public:
     {
     }
 
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms, const ValueSet& mask) override
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        vxy_assert_msg(mask.size() == 1, "cannot use a clause binder for non-boolean formulas");
         SignedClause clause = std::apply(m_bindFun, zip(syms));
-        Literal boundLit = clause.translateToLiteral(provider);        
-        return mask[0] ? boundLit : boundLit.inverted();
+        return clause.translateToLiteral(provider);
     }
 
     // zip up ARITY elements from the vector into a tuple
@@ -95,7 +85,7 @@ protected:
     typename FormulaBinder<SignedClause, ARITY>::type m_bindFun;
 };
 
-// Wraps a binder function that returns a VarID. The variable should be a boolean. For boolean formulas only.
+// Wraps a binder function that returns a VarID.
 template<size_t ARITY>
 class TBindVarCaller : public BindCaller
 {
@@ -105,25 +95,20 @@ public:
     {
     }
 
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms, const ValueSet& mask) override
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        vxy_assert_msg(mask.size() == 1, "cannot use a variable binder with a non-boolean formula");
         VarID boundVar = std::apply(m_bindFun, zip(syms));
         if (!boundVar.isValid())
         {
             return {};
         }
-
-        auto domain = provider.getDomain(boundVar);
-        vxy_assert_msg(domain.getDomainSize() == 2, "Variable binder must return a boolean variable");
-
-        static ValueSet TRUE_VALUE = SolverVariableDomain(0, 1).getBitsetForValue(1);
-        static ValueSet FALSE_VALUE = SolverVariableDomain(0, 1).getBitsetForValue(0);
         
         Literal out;
         out.variable = boundVar;
-        out.values = mask[0] ? TRUE_VALUE : FALSE_VALUE;
+        out.values = ValueSet(provider.getDomain(boundVar).getDomainSize(), true);
+        out.values[0] = false;
+        
         return out;
     }
 
@@ -150,26 +135,26 @@ protected:
     typename FormulaBinder<VarID, ARITY>::type m_bindFun;
 };
 
-// Wraps a binder function that, given a mask, returns the corresponding literal. For boolean or non-boolean formulas.
+// Wraps a binder function that, given a mask, returns the corresponding literal.
 template<size_t ARITY>
 class TBindLiteralCaller : public BindCaller
 {
 public:
-    TBindLiteralCaller(typename MaskedFormulaBinder<Literal, ARITY>::type&& bindFun)
+    TBindLiteralCaller(typename FormulaBinder<Literal, ARITY>::type&& bindFun)
         : m_bindFun(eastl::move(bindFun))
     {
     }
 
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms, const ValueSet& mask) override
+    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        return std::apply(m_bindFun, zip(syms, mask));
+        return std::apply(m_bindFun, zip(syms));
     }
 
     // zip up ARITY elements from the vector into a tuple
-    static auto zip(const vector<ProgramSymbol>& syms, const ValueSet& mask)
+    static auto zip(const vector<ProgramSymbol>& syms)
     {
-        return zipper<0>(std::make_tuple(mask), syms);
+        return zipper<0>(std::tuple<>(), syms);
     }
 
     template<size_t I, typename... Ts>
@@ -185,7 +170,7 @@ public:
         }
     }
 
-    typename MaskedFormulaBinder<Literal, ARITY>::type m_bindFun;
+    typename FormulaBinder<Literal, ARITY>::type m_bindFun;
 };
 
 // Base class for instantiated programs (once they have been given their arguments)

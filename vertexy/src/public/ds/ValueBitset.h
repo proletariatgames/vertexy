@@ -639,6 +639,17 @@ public:
 		}
 	}
 
+	// include any bits set in Other from this, starting at the given offset.
+	template <int NumInlineWords, typename Allocator>
+	inline void includeAt(const TValueBitset<Allocator, NumInlineWords, WORD_TYPE>& other, int writePosition)
+	{
+		// TODO: optimize
+		for (int i = 0; i < other.size(); ++i)
+		{
+			operator[](i+writePosition) = at(i+writePosition) | other[i];
+		}
+	}
+
 	template <int NumInlineWords, typename Allocator>
 	inline TValueBitset including(const TValueBitset<Allocator, NumInlineWords, WORD_TYPE>& other) const
 	{
@@ -657,6 +668,20 @@ public:
 		{
 			WORD_TYPE prev = it.getWord();
 			it.setWord(prev & (~it.getWord(otherData)));
+		}
+	}
+	
+	// remove any bits set in Other from this, starting at the given offset.
+	template <int NumInlineWords, typename Allocator>
+	inline void excludeAt(const TValueBitset<Allocator, NumInlineWords, WORD_TYPE>& other, int writePosition)
+	{
+		// TODO: optimize
+		for (int i = 0; i < other.size(); ++i)
+		{
+			if (other[i])
+			{
+				operator[](i+writePosition) = false;
+			}
 		}
 	}
 
@@ -718,6 +743,17 @@ public:
 		}
 	}
 
+	// remove any bits not set in Other from this, starting at an offset
+	template <int NumInlineWords, typename Allocator>
+	inline void intersectAt(const TValueBitset<Allocator, NumInlineWords, WORD_TYPE>& other, int writePosition)
+	{
+		// TODO: optimize
+		for (int i = 0; i < other.size(); ++i)
+		{
+			operator[](i+writePosition) = at(i+writePosition) & other[i];
+		}
+	}
+	
 	// remove any bits not set in Other from this.
 	// Unlike intersect(), this returns whether there were any changes.
 	template <int NumInlineWords, typename Allocator>

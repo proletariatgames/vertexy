@@ -223,9 +223,9 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 
 	auto cellDomain = CellDomain::get()->getSolverDomain();
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
-	cellType.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
+	cellType.bind(solver, [&](const ProgramSymbol& vert)
 	{
-		return Literal(cells->get(vert.getInt()), mask);
+		return Literal(cells->get(vert.getInt()), ValueSet(cellDomain.getDomainSize(), true));
 	});
 	
 	//
@@ -263,9 +263,9 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
 		auto& stepResult = stepInst->getResult();
-		stepResult.stepCell.bind([&, stepData](const ValueSet& mask, const ProgramSymbol& vert)
+		stepResult.stepCell.bind([&, stepData](const ProgramSymbol& vert)
 		{
-			return Literal(stepData->get(vert.getInt()), mask);
+			return Literal(stepData->get(vert.getInt()), ValueSet(stepDomain.getDomainSize(), true));
 		});
 		stepResult.edgeOpen.bind([&, stepEdgeData](const ProgramSymbol& startVert, const ProgramSymbol& endVert)
 		{
@@ -402,12 +402,12 @@ int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed,
 
 	ConstraintSolver solver(TEXT("mazeProgram"), seed);
 	
-	SolverVariableDomain cellDomain(0, 3 + NUM_KEYS + NUM_KEYS);
+	SolverVariableDomain cellDomain = CellDomain::get()->getSolverDomain();
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
-	cellType.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& _x, const ProgramSymbol& _y)
+	cellType.bind(solver, [&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
-		return Literal(cells->get(grid->coordinateToIndex(x, y)), mask);
+		return Literal(cells->get(grid->coordinateToIndex(x, y)), ValueSet(cellDomain.getDomainSize(), true));
 	});
 	
 	hash_map<int, tuple<int, int>> globalCardinalities;

@@ -509,7 +509,7 @@ public:
     }
 
     // Same as above, but instantiation returns a literal instead of a SignedClause.
-    void bind(ConstraintSolver& solver, typename MaskedFormulaBinder<Literal, ARITY>::type&& binder) const
+    void bind(ConstraintSolver& solver, typename FormulaBinder<Literal, ARITY>::type&& binder) const
     {
         solver.bindFormula(m_uid, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
     }
@@ -641,7 +641,7 @@ public:
     }
 
     // Same as above, but returns a Literal instead of a SignedClause
-    void bind(typename MaskedFormulaBinder<Literal, ARITY>::type&& binder) const
+    void bind(typename FormulaBinder<Literal, ARITY>::type&& binder) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
         m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));

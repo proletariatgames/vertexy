@@ -166,7 +166,7 @@ bool InvertLiteralGraphRelation::equals(const IGraphRelation<Literal>& rhs) cons
 		return true;
 	}
 	auto typedRHS = dynamic_cast<const InvertLiteralGraphRelation*>(&rhs);
-	return typedRHS != nullptr && m_inner->equals(*typedRHS->m_inner.get());
+	return typedRHS != nullptr && m_inner->equals(*typedRHS->m_inner);
 }
 
 size_t InvertLiteralGraphRelation::hash() const
