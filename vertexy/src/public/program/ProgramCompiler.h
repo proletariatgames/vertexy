@@ -29,7 +29,7 @@ public:
         CreateIfBound
     };
     
-    FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, BindCaller* binder);
+    FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, const ITopologyPtr& topology, BindCaller* binder);
     Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, const ValueSet& mask, CreationType creationType) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
     
@@ -60,6 +60,7 @@ private:
     FormulaUID m_formulaUID;
     const wchar_t* m_formulaName;
     int m_domainSize;
+    ITopologyPtr m_topology;
     BindCaller* m_binder = nullptr;
 
     using BindMap = hash_map<vector<ProgramSymbol>, VarID, ArgumentHasher>; 

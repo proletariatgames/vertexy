@@ -84,7 +84,11 @@ public:
 		getSourceEdgeForVertex(vertexIndex, sourceFrom, sourceTo, bidirectional);
 
 		wstring out;
-		out.sprintf(TEXT("%d%s%d"), sourceFrom, bidirectional ? TEXT("<->") : TEXT("->"), sourceTo);
+		out.sprintf(TEXT("%s%s%s"),
+			m_source->vertexIndexToString(sourceFrom).c_str(),
+			bidirectional ? TEXT("<->") : TEXT("->"),
+			m_source->vertexIndexToString(sourceTo).c_str()
+		);
 		return out;
 	}
 

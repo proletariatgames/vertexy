@@ -17,6 +17,7 @@ void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol
     m_index = 0;
     m_subIndex = 0;
     m_forceConcrete = !m_term.containsAbstracts();
+    m_visited.clear();
     match(overrideMap, boundVertex);
 }
 
@@ -78,8 +79,8 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
                         continue;
                     }
         
-                    if (m_term.match(concreteSymbol, overrideMap, boundVertex))
-                    {                        
+                    if (matches(concreteSymbol, overrideMap, boundVertex))
+                    {
                         m_term.assignedToFact = isFact(atom);
                         ++m_subIndex;
                         return;
@@ -89,8 +90,9 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
                 continue;
             }
 
-            if (m_term.match(atom.symbol, overrideMap, boundVertex))
+            if (matches(atom.symbol, overrideMap, boundVertex))
             {
+                m_visited.insert(atom.symbol);
                 m_term.assignedToFact = isFact(atom);
                 moveNextDomainAtom();
                 return;
@@ -104,6 +106,22 @@ void FunctionInstantiator::moveNextDomainAtom()
 {
     ++m_index;
     m_subIndex = 0;
+}
+
+bool FunctionInstantiator::matches(const ProgramSymbol& symbol, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    if (!m_term.match(symbol, overrideMap, boundVertex))
+    {
+        return false;
+    }
+
+    auto applied = m_term.eval(overrideMap, boundVertex);
+    if (m_visited.find(applied) == m_visited.end())
+    {
+        m_visited.insert(applied);
+        return true; 
+    }
+    return false;
 }
 
 bool FunctionInstantiator::hitEnd() const

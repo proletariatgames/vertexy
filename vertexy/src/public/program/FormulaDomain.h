@@ -1,6 +1,7 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 #include "ConstraintTypes.h"
+#include "variable/SolverVariableDomain.h"
 
 namespace Vertexy
 {
@@ -59,6 +60,8 @@ public:
 
     const wchar_t* getName() const { return m_name; }
     int getDomainSize() const { return m_domainSize; }
+
+    SolverVariableDomain getSolverDomain() const { return SolverVariableDomain(0, m_domainSize-1); }
     
 protected:
     FormulaDomainValue addValue(const wchar_t* valueName)

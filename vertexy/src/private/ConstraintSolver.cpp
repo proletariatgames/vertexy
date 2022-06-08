@@ -2040,6 +2040,8 @@ wstring ConstraintSolver::literalArrayToString(const vector<Literal>& clauses) c
 wstring ConstraintSolver::literalToString(const Literal& lit) const
 {
 	wstring out = m_variableDB.getVariableName(lit.variable);
+	out.append_sprintf(TEXT("[%d]"), lit.variable.raw());
+	
 	ValueSet values = lit.values;
 	if (values.getNumSetBits() > (values.size() >> 1))
 	{
