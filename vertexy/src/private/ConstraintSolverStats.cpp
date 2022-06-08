@@ -59,6 +59,7 @@ wstring ConstraintSolverStats::toString(bool verbose)
 
 	if (verbose)
 	{
+		out.append_sprintf(TEXT("\n\tTight: %s"), nonTightRules ? TEXT("NO") : TEXT("YES"));
 		out.append_sprintf(TEXT("\n\tNumber of variables: %d"), m_solver.getVariableDB()->getNumVariables());
 		out.append_sprintf(TEXT("\n\tNumber of initial constraints: %d"), numInitialConstraints);
 		out.append_sprintf(TEXT("\n\tNumber of learned constraints: %d"), numConstraintsLearned);

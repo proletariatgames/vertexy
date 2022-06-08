@@ -800,6 +800,7 @@ void ProgramCompiler::exportRules()
                 formulaUID,
                 formulaName,
                 domainSize,
+                domain->abstractTopology,
                 foundBinder != m_binders.end() ? foundBinder->second.get() : nullptr
             );
            
@@ -1275,12 +1276,13 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
     return true;
 }
 
-FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, BindCaller* binder)
+FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, const ITopologyPtr& topology, BindCaller* binder)
     : m_rdb(&rdb)
     , m_solver(m_rdb->getSolver())
     , m_formulaUID(formulaUID)
     , m_formulaName(formulaName)
     , m_domainSize(domainSize)
+    , m_topology(topology)
     , m_binder(binder)
 {
 }
@@ -1320,7 +1322,7 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, const V
                 {
                     name.append(TEXT(", "));
                 }
-                name.append(concrete[i].toString());
+                name.append(m_topology->vertexIndexToString(concrete[i].getInt()));
             }
             name.append(TEXT(")"));
 

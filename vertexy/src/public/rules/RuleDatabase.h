@@ -120,6 +120,7 @@ public:
 
         bool isChoiceAtom() const { return !trueFacts.isSingleton() && !falseFacts.isSingleton(); }
         
+        bool isEstablished(const ValueSet& values) const;
         ETruthStatus getTruthStatus(int index) const;
         Literal getLiteralForIndex(int index) const;
 
@@ -321,11 +322,20 @@ protected:
         {
             return compareBodies(lhs->atomLits, rhs->atomLits);
         }
-        int32_t operator()(const BodyInfo* lhs) const
+        size_t operator()(const BodyInfo* lhs) const
         {
             return hashBody(lhs->atomLits);
         }
 
+        bool operator()(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs) const
+        {
+            return compareBodies(lhs, rhs);
+        }
+        size_t operator()(const vector<AtomLiteral>& lhs) const
+        {
+            return hashBody(lhs);
+        }
+        
         static bool compareBodies(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs);
         static int32_t hashBody(const vector<AtomLiteral>& body);
     };
@@ -368,7 +378,7 @@ protected:
     bool emptyBodyQueue();
 
     BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo, bool forceAbstract);
-    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const;
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, int parentVertex=-1) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -443,6 +453,7 @@ protected:
     // Stored bodies.
     BodySet m_bodySet;
     vector<unique_ptr<BodyInfo>> m_bodies;
+    hash_map<vector<AtomLiteral>, Literal, BodyHasher, BodyHasher> m_bodyLiterals;
 
     // Whether any abstract heads or bodies exist.
     bool m_hasAbstract = false;

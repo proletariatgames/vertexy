@@ -9,9 +9,11 @@ using namespace Vertexy;
 
 static constexpr bool LOG_CONCRETE_BODIES = false;
 static constexpr bool LOG_ATOM_FACTS = false;
+static constexpr bool LOG_BODY_FACTS = false;
 
 static const SolverVariableDomain booleanVariableDomain(0, 1);
 static const ValueSet TRUE_VALUE = booleanVariableDomain.getBitsetForValue(1);
+static const ValueSet FALSE_VALUE = booleanVariableDomain.getBitsetForValue(0);
 
 #define VERTEXY_RULE_NAME_ATOMS 1
 
@@ -316,27 +318,17 @@ bool RuleDatabase::finalize()
             
             for (auto& absLit : abstractAtom->abstractLiterals)
             {
-                if (absLit.second != ETruthStatus::Undetermined)
+                if (absLit.second != ETruthStatus::Undetermined || !abstractAtom->containsUnknowns(absLit.first.getMask()))
                 {
                     continue;
                 }
-
-                if (!abstractAtom->containsUnknowns(absLit.first.getMask()))
-                {
-                    continue;
-                }
-
+                
                 auto filter = abstractAtom->getFilter(absLit.first);
 
                 for (auto& bodyInfo : abstractAtom->supports)
                 {
                     // Abstract atoms might have still have a body marked trivially true without the atom state
                     // being trivially true.
-                    if (bodyInfo.body->status != ETruthStatus::Undetermined)
-                    {
-                        continue;
-                    }
-
                     if (bodyInfo.body->isFullyKnown())
                     {
                         continue;
@@ -473,13 +465,23 @@ void RuleDatabase::addRule(const AtomLiteral& head, const vector<AtomLiteral>& b
     }
 }
 
-RuleDatabase::BodyInfo* RuleDatabase::findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const
+RuleDatabase::BodyInfo* RuleDatabase::findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, int parentVertex) const
 {
     outHash = BodyHasher::hashBody(body);
     auto range = m_bodySet.find_range_by_hash(outHash);
     for (auto it = range.first; it != range.second; ++it)
     {
-        if (headRelationInfo == (*it)->headRelationInfo && BodyHasher::compareBodies((*it)->atomLits, body))
+        if (parentVertex >= 0)
+        {
+            auto concreteBody = (*it)->asConcrete();
+            if (!concreteBody || concreteBody->parentVertex != parentVertex)
+            {
+                continue;
+            }
+        }
+        
+        if (headRelationInfo == (*it)->headRelationInfo &&
+            BodyHasher::compareBodies((*it)->atomLits, body))
         {
             return *it;
         }
@@ -572,32 +574,51 @@ bool RuleDatabase::getLiteralForBody(const AbstractBodyInfo& body, const vector<
     ConcreteBodyInfo* concreteBody = it->second;
     
     outLit = concreteBody->equivalence;
-    if (!outLit.isValid())
+    if (outLit.isValid())
     {
-        wstring name = TEXT("graphBody(");
-        for (int i = 0; i < headArguments.size(); ++i)
+        return true;
+    }
+
+    vector<AtomLiteral> unknownLits;
+    for (auto& lit : concreteBody->atomLits)
+    {
+        if (getAtom(lit.id())->getTruthStatus(lit.getMask()) == ETruthStatus::Undetermined)
         {
-            if (i > 0) name += TEXT(", ");
-            // !!FIXME!! This isn't quite right: we're just assuming the first index is a vertex and remaining
-            // indices are not.
-            name += i == 0 ? body.getTopology()->vertexIndexToString(headArguments[i]) : to_wstring(headArguments[i]);
-        }
-        name += TEXT(") [[");
-        name += literalsToString(concreteBody->atomLits, false);
-        name += TEXT("]]");
+            unknownLits.push_back(lit);
+        }        
+    }
 
-        VarID newVar = m_solver.makeBoolean(name);
-        outLit = Literal(newVar, SolverVariableDomain(0,1).getBitsetForValue(1));
+    size_t bodyHash = BodyHasher()(unknownLits);
 
-        auto db = m_solver.getVariableDB();
-        if ((concreteBody->status == ETruthStatus::True && !db->constrainToValues(outLit, nullptr)) ||
-            (concreteBody->status == ETruthStatus::False && !db->excludeValues(outLit, nullptr)))
-        {
-            setConflicted();
-        }
+    auto found = m_bodyLiterals.find_by_hash(unknownLits, bodyHash);
+    if (found != m_bodyLiterals.end())
+    {
+        outLit = concreteBody->equivalence = found->second;
+        return true;
+    }
+    
+    wstring name = TEXT("graphBody(");
+    for (int i = 0; i < headArguments.size(); ++i)
+    {
+        if (i > 0) name += TEXT(", ");
+        // !!FIXME!! This isn't quite right: not everything is necessarily a vertex index
+        name += body.getTopology()->vertexIndexToString(headArguments[i]);
+    }
+    name += TEXT(") [[");
+    name += literalsToString(unknownLits, false);
+    name += TEXT("]]");
 
-        concreteBody->equivalence = outLit;
-    }    
+    VarID newVar = m_solver.makeBoolean(name);
+    outLit = concreteBody->equivalence = Literal(newVar, SolverVariableDomain(0,1).getBitsetForValue(1));
+
+    auto db = m_solver.getVariableDB();
+    if ((concreteBody->status == ETruthStatus::True && !db->constrainToValues(outLit, nullptr)) ||
+        (concreteBody->status == ETruthStatus::False && !db->excludeValues(outLit, nullptr)))
+    {
+        setConflicted();
+    }
+
+    m_bodyLiterals.insert(bodyHash, nullptr, {unknownLits, outLit});    
     return true; 
 }
 
@@ -799,45 +820,57 @@ bool RuleDatabase::setAtomLiteralStatus(AtomID atomID, const ValueSet& mask, ETr
         return true;
     }
 
+    vxy_sanity(!mask.isZero());
+
     auto atom = getAtom(atomID)->asConcrete();
     vxy_assert(atom != nullptr);
-   
-    auto& setBits = status == ETruthStatus::True ? atom->trueFacts : atom->falseFacts;
-    auto& oppBits = status == ETruthStatus::True ? atom->falseFacts : atom->trueFacts;
+    vxy_assert(atom->domainSize == mask.size());
 
-    // Handling masks:
-    // foo.mask(0);  <<-- sets 1st bit as true, 2nd bit as false.
-    // foo.mask(0|1); <<-- overlaps false bits. Remove false bits (2nd) from mask. Remainder overlaps true bits (1st): OK.
-    // foo.mask(1); <<- overlaps false bits. Remove false bits (2nd) from mask. Remainder doesn't overlap true bits (1st): conflict.
-
-    ValueSet finalMask = mask;
-    if (finalMask.anyPossible(oppBits))
-    {
-        finalMask.exclude(oppBits);
-        if (!finalMask.anyPossible(setBits))
-        {
-            setConflicted();
-            return false;
-        }
-    }
+    ValueSet finalMask = (status == ETruthStatus::True) ? mask : mask.inverted();
     
-    finalMask.exclude(setBits);
-    if (finalMask.isZero())
+    if (atom->trueFacts.isZero())
     {
+        // First time establishing, we can just copy over the mask.
+        atom->trueFacts = finalMask;
+        atom->falseFacts = atom->trueFacts.inverted();
+    }
+    else if (atom->trueFacts.isSubsetOf(finalMask))
+    {
+        // No new facts.
         return true;
     }
+    else if (!atom->trueFacts.anyPossible(finalMask))
+    {
+        // We've already been established as being a value outside of the mask.
+        setConflicted();
+        return false;
+    }
+    else
+    {
+        // True fact bits are the (valid) intersection of all fact statements. 
+        atom->trueFacts.intersect(finalMask);
+        vxy_sanity(!atom->trueFacts.isZero());
+        atom->falseFacts = atom->trueFacts.inverted();
+    }
     
-    setBits.include(finalMask);
-    oppBits.include(finalMask.inverted());
-
     if constexpr (LOG_ATOM_FACTS)
     {
-        VERTEXY_LOG("Atom %d %s%s -> %s",
-            atom->id.value,
-            atom->name.c_str(),
-            finalMask.toString().c_str(),
-            status == ETruthStatus::True ? TEXT("TRUE") : TEXT("FALSE")
-        );
+        if (!atom->trueFacts.isZero())
+        {
+            VERTEXY_LOG("Atom %d %s%s -> TRUE",
+                atom->id.value,
+                atom->name.c_str(),
+                atom->trueFacts.size() > 1 ? atom->trueFacts.toString().c_str() : TEXT("") 
+            );
+        }
+        else
+        {
+            VERTEXY_LOG("Atom %d %s%s -> FALSE",
+                atom->id.value,
+                atom->name.c_str(),
+                atom->falseFacts.size() > 1 ? atom->falseFacts.toString().c_str() : TEXT("") 
+            );
+        }
     }
     
     if (!atom->synchronize(*this))
@@ -868,8 +901,8 @@ bool RuleDatabase::setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status)
         {
             body->status = status;
             body->numUndeterminedTails = -1;
-
-            if constexpr (LOG_ATOM_FACTS)
+            
+            if constexpr (LOG_BODY_FACTS)
             {
                 VERTEXY_LOG("Body %d %s -> %s",
                     body->id,
@@ -877,18 +910,14 @@ bool RuleDatabase::setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status)
                     status == ETruthStatus::True ? TEXT("TRUE") : TEXT("FALSE")
                 );
             }
-            
-            if (body->equivalence.isValid())
+
+            if (body->isNegativeConstraint && status == ETruthStatus::True)
             {
-                auto db = m_solver.getVariableDB();
-                if ((status == ETruthStatus::True && !db->constrainToValues(body->equivalence, nullptr)) ||
-                    (status == ETruthStatus::False && !db->excludeValues(body->equivalence, nullptr)))
-                {
-                    setConflicted();
-                    return false;
-                }
+                setConflicted();
+                return false;
             }
 
+            vxy_assert(!body->equivalence.isValid());
             if (body->abstractParent != nullptr)
             {
                 vxy_assert(body->abstractParent->numUnknownConcretes > 0);
@@ -1046,9 +1075,6 @@ wstring RuleDatabase::literalsToString(const vector<AtomLiteral>& lits, bool cul
     bool first = true; 
     for (auto& lit : lits)
     {
-        auto atomInfo = getAtom(lit.id());
-        if (lit.getMask().isSubsetOf(atomInfo->trueFacts))
-        
         if (auto concreteAtom = getAtom(lit.id())->asConcrete())
         {
             auto status = concreteAtom->getTruthStatus(lit.getMask());
@@ -1320,7 +1346,7 @@ vector<AtomLiteral> RuleDatabase::groundLiteralsToConcrete(int vertex, const vec
                 continue;
             }
 
-            AtomLiteral newLit(found->second->id, oldLit.sign(), oldLit.getMask(), oldLit.getRelationInfo());
+            AtomLiteral newLit(found->second->id, oldLit.sign(), oldLit.getMask());
 
             auto foundAtom = found->second;
             if (auto status = foundAtom->getTruthStatus(newLit.getMask());
@@ -1373,7 +1399,7 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
             const bool hasUntrueLits = containsPredicate(newValues.begin(), newValues.end(), [&](auto&& lit)
             {
                 auto status = getAtom(lit.id())->asConcrete()->getTruthStatus(lit.getMask());
-                return ((lit.sign() && status != ETruthStatus::True) || (!lit.sign() && status == ETruthStatus::False));
+                return ((lit.sign() && status != ETruthStatus::True) || (!lit.sign() && status != ETruthStatus::False));
             });
             if (!hasUntrueLits)
             {
@@ -1384,7 +1410,7 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
             }
             
             size_t hash;
-            if (auto existingBody = findBodyInfo(newValues, nullptr, hash))
+            if (auto existingBody = findBodyInfo(newValues, nullptr, hash, newValues.empty() ? -1 : vertex))
             {
                 for (auto& head : newHeads)
                 {
@@ -1470,9 +1496,8 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
             for (int i = 0; i < args.size(); ++i)
             {
                 if (i > 0) name += TEXT(", ");
-                // !!FIXME!! This isn't quite right: we're just assuming the first index is a vertex and remaining
-                // indices are not.
-                name += i == 0 ? oldAbstractAtom->getTopology()->vertexIndexToString(args[i]) : to_wstring(args[i]);
+                // !!FIXME!! This isn't quite right: not everything is necessarily a vertex index
+                name += oldAbstractAtom->getTopology()->vertexIndexToString(args[i]);
             }
             name += TEXT(")");
 
@@ -1498,7 +1523,7 @@ int32_t RuleDatabase::BodyHasher::hashBody(const vector<AtomLiteral>& body)
     int32_t hash = 0;
     for (const auto& it : body)
     {
-        hash += eastl::hash<int32_t>()(it.id().value);
+        hash = combineHashes(hash, it.hash());
     }
     return hash;
 }
@@ -1543,9 +1568,8 @@ RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(const AtomLite
     else
     {
         vxy_assert(equivalence.isValid());
-        ValueSet mask(1, false);
-        mask.append(atomLit.getMask(), domainSize);
-        return Literal(equivalence.variable, atomLit.sign() ? mask : mask.inverted());
+        vxy_assert(domainSize == 1);
+        return Literal(equivalence.variable, atomLit.sign() ? TRUE_VALUE : FALSE_VALUE);
     }
 }
 
@@ -1574,15 +1598,19 @@ Literal RuleDatabase::ConcreteAtomInfo::getLiteralForIndex(int index) const
     else
     {
         vxy_assert(equivalence.isValid());
-        ValueSet mask(domainSize+1, false);
-        mask[index+1] = true;
-        return Literal(equivalence.variable, mask);
+        vxy_assert(domainSize == 1);
+        return equivalence;
     }
+}
+
+bool RuleDatabase::ConcreteAtomInfo::isEstablished(const ValueSet& values) const
+{
+    return values.excluding(trueFacts).excluding(falseFacts).isZero();
 }
 
 bool RuleDatabase::ConcreteAtomInfo::containsUnknowns(const ValueSet& values) const
 {
-    return !values.excluding(trueFacts).excluding(falseFacts).isZero();
+    return getTruthStatus(values) == ETruthStatus::Undetermined;
 }
 
 RuleDatabase::ETruthStatus RuleDatabase::ConcreteAtomInfo::getTruthStatus(const ValueSet& values) const
@@ -1637,8 +1665,9 @@ void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
         }
         else
         {
-            VarID var = rdb.m_solver.makeVariable(name, SolverVariableDomain(0, domainSize));
-            equivalence = Literal(var, ValueSet(domainSize+1, true));
+            vxy_assert(domainSize == 1);
+            VarID var = rdb.m_solver.makeBoolean(name);
+            equivalence = Literal(var, TRUE_VALUE);
         }
 
         vxy_assert(equivalence.isValid());
@@ -1656,35 +1685,23 @@ bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
         return true;
     }
     
-    Literal trueEquivalence, falseEquivalence;
+    Literal trueEquivalence;
     if (parentRelationInfo != nullptr)
     {
         vxy_assert(binder == nullptr);
         parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, trueFacts, trueEquivalence);
-        parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, falseFacts, falseEquivalence);
     }
     else if (binder != nullptr)
     {
         trueEquivalence = binder(trueFacts);
-        falseEquivalence = binder(falseFacts);
     }
-    else if (equivalence.isValid())
+    else
     {
-        trueEquivalence.variable = equivalence.variable;
-        trueEquivalence.values = ValueSet(1, false);
-        trueEquivalence.values.append(trueFacts, trueFacts.size());
-
-        falseEquivalence.variable = equivalence.variable;
-        falseEquivalence.values = ValueSet(1, true);
-        falseEquivalence.values.append(falseFacts, falseFacts.size());
+        vxy_assert(domainSize == 1);
+        trueEquivalence = trueFacts[0] ? equivalence : equivalence.inverted();
     }
 
     if (trueEquivalence.isValid() && !rdb.m_solver.getVariableDB()->constrainToValues(trueEquivalence, nullptr))
-    {
-        rdb.setConflicted();
-        return false;
-    }
-    if (falseEquivalence.isValid() && !rdb.m_solver.getVariableDB()->excludeValues(falseEquivalence, nullptr))
     {
         rdb.setConflicted();
         return false;
@@ -2165,12 +2182,11 @@ FactGraphFilter::FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo,
             continue;
         }
 
-        // Exclude any vertices where the concrete atom for this vertex is known to be within the mask
-        // (or known to be outside the mask).
+        // Exclude any vertices where the mask has known values for the concrete atom
         auto it = atomInfo->concreteAtoms.find(args);
         if (it != atomInfo->concreteAtoms.end())
         {
-            if (!it->second->containsUnknowns(mask))
+            if (it->second->isEstablished(mask))
             {
                 m_filter[vertex] = false;
             }

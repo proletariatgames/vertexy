@@ -20,6 +20,7 @@ public:
 
 protected:
     void moveNextDomainAtom();
+    bool matches(const ProgramSymbol& symbol, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex);
 
     FunctionTerm& m_term;
     const ProgramCompiler::AtomDomain& m_domain;
@@ -28,6 +29,7 @@ protected:
     int m_subIndex = 0;
     bool m_forceConcrete = false;
     mutable bool m_hitEnd = false;
+    hash_set<ProgramSymbol, call_hash> m_visited;
 };
 
 class ExternalFunctionInstantiator : public Instantiator

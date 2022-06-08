@@ -63,7 +63,8 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 	int nErrorCount = 0;
 
 	auto grid = make_shared<PlanarGridTopology>(numCols, numRows);
-
+	auto edges = make_shared<EdgeTopology>(ITopology::adapt(grid), true, false);
+	
 	// Define a domain that can be used by formulas. This defines the potential values that a formula can be
 	// resolved to.
 	VXY_DOMAIN_BEGIN(CellDomain)
@@ -116,6 +117,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		
 		VXY_VARIABLE(RIGHT); VXY_VARIABLE(DOWN);
 		VXY_VARIABLE(LEFT); VXY_VARIABLE(UP);
+		VXY_VARIABLE(DOWN_RIGHT);
 		
 		VXY_FORMULA(deadEnd, 1);
 		deadEnd(vertex) <<= left(vertex, LEFT) && right(vertex, RIGHT) && up(vertex, UP) &&
@@ -128,7 +130,6 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 			cellType(vertex).is(M_PASSABLE) && cellType(UP).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE);
 		
 		// disallow a 2x2 block of walls
-		VXY_VARIABLE(DOWN_RIGHT);
 		Program::disallow(right(vertex, RIGHT) && down(vertex, DOWN) && right(DOWN, DOWN_RIGHT) &&
 			cellType(vertex).is(M_IMPASSABLE) && cellType(RIGHT).is(M_IMPASSABLE) && cellType(DOWN).is(M_IMPASSABLE) && cellType(DOWN_RIGHT).is(M_IMPASSABLE)
 		);
@@ -156,51 +157,71 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		Program::disallow(cellType(vertex).is(cellType.keys) && ~deadEnd(vertex));
 	});
 
+	VXY_DOMAIN_BEGIN(CellStepDomain)
+		VXY_DOMAIN_VALUE(unreachable);
+		VXY_DOMAIN_VALUE(reachable);
+		VXY_DOMAIN_VALUE(origin);
+	VXY_DOMAIN_END()
+
+	struct StepResult
+	{
+		FormulaResult<1, CellStepDomain> stepCell;
+		FormulaResult<2> edgeOpen;
+	};
+	
 	// Defines each "step" of the maze: retrieving a key and unlocking a door. The final step is reaching the exit.
 	auto stepProgram = Program::define([&](ProgramVertex vertex, int step)
 	{
-		VXY_VARIABLE(X);
+		VXY_VARIABLE(X); VXY_VARIABLE(Y);
 				
 		VXY_FORMULA(prevStep, 1);
 		prevStep = Program::range(0, step-1);
 		VXY_FORMULA(laterStep, 1);
 		laterStep = Program::range(step+1, NUM_KEYS);
-		
+
 		// Define what is passable for this step: empty tiles and doors we have keys for 
 		VXY_FORMULA(stepPassable, 1);
 		stepPassable(vertex) <<= cellType(vertex).is(M_PASSABLE);
 		stepPassable(vertex) <<= cellType(vertex).is(cellType.doors[X]) && prevStep(X);
+
+		VXY_FORMULA(edgeOpen, 2);
+		edgeOpen(X,Y) <<= Program::graphEdge(X, Y) && stepPassable(X) && stepPassable(Y);
 		
-		// Define reachability for this step
-		VXY_FORMULA(stepReach, 1);
-		stepReach(vertex) <<= cellType(vertex).is(cellType.entrance);
-		stepReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X) && stepPassable(vertex);
+		VXY_DOMAIN_FORMULA(stepCell, CellStepDomain, 1);
+		auto M_STEP_REACHABLE = stepCell.reachable|stepCell.origin;
 		
-		// adjacentReach is true only if the cell is adjacent to a reachable cell. 
-		VXY_FORMULA(adjacentReach, 1);
-		adjacentReach(vertex) <<= Program::graphEdge(X, vertex) && stepReach(X);
+		stepCell(vertex).is(stepCell.origin) <<= cellType(vertex).is(cellType.entrance);
+		stepCell(vertex).is(stepCell.reachable|stepCell.unreachable) <<= ~cellType(vertex).is(cellType.entrance);
+		stepCell(vertex).is(stepCell.unreachable) <<= ~stepPassable(vertex);
+		Program::disallow(stepCell(vertex).is(M_STEP_REACHABLE) && edgeOpen(vertex, X) && ~stepCell(X).is(M_STEP_REACHABLE));
+
+		VXY_FORMULA(adjacentReachable, 1);
+		adjacentReachable(vertex) <<= Program::graphEdge(X, vertex) && stepCell(X).is(M_STEP_REACHABLE);
 		
 		// Key for this step must be reachable
-		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepReach(vertex));
-		// Keys for later steps cannot be reachable 
-		Program::disallow(cellType(vertex).is(cellType.keys[X]) && stepReach(vertex) && laterStep(X));
+		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepCell(vertex).is(stepCell.reachable));
 		// Door for this step must be reachable
-		Program::disallow(cellType(vertex).is(cellType.doors[step]) && ~adjacentReach(vertex));
+		// Program::disallow(cellType(vertex).is(cellType.doors[step]) && ~adjacentReachable(vertex));
+		
+		// Keys for later steps cannot be reachable 
+		Program::disallow(cellType(vertex).is(cellType.keys[X]) && stepCell(vertex).is(stepCell.reachable) && laterStep(X));
 		// Door for later steps cannot be reachable
-		Program::disallow(cellType(vertex).is(cellType.doors[X]) && adjacentReach(vertex) && laterStep(X));
+		Program::disallow(cellType(vertex).is(cellType.doors[X]) && laterStep(X) && adjacentReachable(vertex));
 		// If this is not the last step, the exit should not be reachable
-		Program::disallow(step < NUM_KEYS && cellType(vertex).is(cellType.exit) && stepReach(vertex));
+		Program::disallow(step < NUM_KEYS && cellType(vertex).is(cellType.exit) && stepCell(vertex).is(stepCell.reachable));
 		// If this is the last step, any empty tile (including exit) must be reachable.
-		Program::disallow(step == NUM_KEYS && cellType(vertex).is(M_PASSABLE) && ~stepReach(vertex));
-	});
+		Program::disallow(step == NUM_KEYS && cellType(vertex).is(M_PASSABLE) && ~stepCell(vertex).is(M_STEP_REACHABLE));
 
+		return StepResult{stepCell, edgeOpen};
+	});
+	
 	ConstraintSolver solver(TEXT("mazeProgram"), seed);
 
 	//
 	// Allocate solver variables to link to cellType, and bind them.
 	//
-	
-	SolverVariableDomain cellDomain(0, 3 + NUM_KEYS + NUM_KEYS);
+
+	auto cellDomain = CellDomain::get()->getSolverDomain();
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
 	cellType.bind(solver, [&](const ValueSet& mask, const ProgramSymbol& vert)
 	{
@@ -231,10 +252,34 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 	);
 	solver.addProgram(baseProgramInst);
 
+	auto stepDomain = CellStepDomain::get()->getSolverDomain();
+	auto edgeDomain = SolverVariableDomain(0, 1);
 	for (int step = 0; step <= NUM_KEYS; ++step)
 	{
+		wstring stepName(wstring::CtorSprintf(), TEXT("Step-%d-TileVars"), step);
+		auto stepData = solver.makeVariableGraph(stepName, ITopology::adapt(grid), stepDomain, {wstring::CtorSprintf(), TEXT("stepCell"), step});
+		wstring stepEdgeName(wstring::CtorSprintf(), TEXT("Step-%d-EdgeVars"), step);
+		auto stepEdgeData = solver.makeVariableGraph(stepEdgeName, ITopology::adapt(edges), edgeDomain, {wstring::CtorSprintf(), TEXT("stepEdge "), step});
+
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
+		auto& stepResult = stepInst->getResult();
+		stepResult.stepCell.bind([&, stepData](const ValueSet& mask, const ProgramSymbol& vert)
+		{
+			return Literal(stepData->get(vert.getInt()), mask);
+		});
+		stepResult.edgeOpen.bind([&, stepEdgeData](const ProgramSymbol& startVert, const ProgramSymbol& endVert)
+		{
+			int edgeVert = edges->getVertexForSourceEdge(startVert.getInt(), endVert.getInt());
+			return stepEdgeData->get(edgeVert);
+		});
+		
 		solver.addProgram(stepInst);
+
+		// Ensure reachability for this step
+		auto reachabilityOrigin = vector{CellStepDomain::get()->origin.getValueIndex()};
+		auto reachableMask = vector{CellStepDomain::get()->reachable.getValueIndex()};
+		auto edgeBlockedMask = vector{0};
+		solver.makeConstraint<ReachabilityConstraint>(stepData, reachabilityOrigin, reachableMask, stepEdgeData, edgeBlockedMask);
 	}
 
 	//

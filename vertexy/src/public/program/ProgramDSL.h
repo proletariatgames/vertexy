@@ -12,7 +12,7 @@
 
 #define VXY_DOMAIN_BEGIN(name) struct name : public FormulaDomainDescriptor { \
     name() : FormulaDomainDescriptor(L#name) {} \
-    const name* get() { static name inst; return &inst; }
+    static const name* get() { static name inst; return &inst; }
 
 #define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name)
 #define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size)
