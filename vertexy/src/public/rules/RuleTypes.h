@@ -42,7 +42,7 @@ public:
     // Whether we need to instantiate this atom. Only true if the underlying formula has a binder.
     virtual bool needsInstantiation() const = 0;    
     // Bind the variable for this vertex and assign its deduced value.
-    virtual bool instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const = 0;
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const = 0;
     // Notify the relation that it should not create any more variables/that the RDB has been destroyed.
     virtual void lockVariableCreation() const = 0;
 };
@@ -86,18 +86,6 @@ public:
     {
         return !(operator==(rhs));
     }
-
-    const GraphLiteralRelationPtr& getInverseRelation() const
-    {
-        if (m_invRelation == nullptr)
-        {
-            m_invRelation = make_shared<InvertLiteralGraphRelation>(literalRelation);
-        }
-        return m_invRelation;
-    }
-
-private:
-    mutable GraphLiteralRelationPtr m_invRelation;
 };
 using AbstractAtomRelationInfoPtr = shared_ptr<AbstractAtomRelationInfo>;
 

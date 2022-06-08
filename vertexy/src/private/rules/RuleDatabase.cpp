@@ -96,7 +96,7 @@ bool RuleDatabase::finalize()
     //
     for (auto& bodyInfo : m_bodies)
     {
-        if (bodyInfo->asConcrete() && bodyInfo->asConcrete()->abstractParent)
+        if (bodyInfo->asConcrete() && !bodyInfo->asConcrete()->abstractParents.empty())
         {
             continue;
         }
@@ -657,45 +657,41 @@ AtomID RuleDatabase::getTrueAtom()
     {
         return m_trueAtom;
     }
-    m_trueAtom = createAtom(TEXT("<true-fact>"), 1, true);
+    m_trueAtom = createAtom(TEXT("<true-fact>"), 1, m_solver.getTrue(), true);
 
     setAtomLiteralStatus(m_trueAtom, ValueSet(1,true), ETruthStatus::True);
     return m_trueAtom;
 }
 
-AtomID RuleDatabase::createAtom(const wchar_t* name, int domainSize, bool external)
+AtomID RuleDatabase::createAtom(const wchar_t* name, int domainSize, const Literal& equivalence, bool external)
 {
-    AtomID newAtom(m_atoms.size());
-
-    m_atoms.push_back(make_unique<ConcreteAtomInfo>(newAtom, domainSize));
-    m_atoms.back()->isExternal = external;
+    AtomID newAtomID(m_atoms.size());
+    auto newAtom = make_unique<ConcreteAtomInfo>(newAtomID, domainSize);
 #if VERTEXY_RULE_NAME_ATOMS
     if (name == nullptr)
     {
-        m_atoms.back()->name.sprintf(TEXT("atom%d"), newAtom.value);
+        newAtom->name.sprintf(TEXT("atom%d"), newAtomID.value);
     }
     else
     {
-        m_atoms.back()->name = name;
+        newAtom->name = name;
     }
 #endif
+    
+    newAtom->isExternal = external;
+    newAtom->equivalence = equivalence;
+    if (equivalence.isValid())
+    {
+        newAtom->equivalenceOffset = equivalence.values.indexOf(true);
+        vxy_assert(newAtom->equivalenceOffset >= 0);
+    }
+    m_atoms.push_back(move(newAtom));
+
     if (external)
     {
-        setAtomLiteralStatus(newAtom,ValueSet(domainSize, true), ETruthStatus::True);
+        setAtomLiteralStatus(newAtomID, ValueSet(domainSize, true), ETruthStatus::True);
     }
-    
-    return newAtom;
-}
-
-AtomID RuleDatabase::createBoundAtom(const AtomBinder& binder, const wchar_t* name, int domainSize, bool external)
-{
-    AtomID newAtom = createAtom(name, domainSize, external);
-
-    auto newAtomInfo = m_atoms[newAtom.value]->asConcrete();
-    vxy_assert_msg(newAtomInfo != nullptr, "expected concrete atom");
-
-    newAtomInfo->binder = binder;
-    return newAtom;
+    return newAtomID;
 }
 
 AtomID RuleDatabase::createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name, int domainSize, bool external)
@@ -918,10 +914,10 @@ bool RuleDatabase::setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status)
             }
 
             vxy_assert(!body->equivalence.isValid());
-            if (body->abstractParent != nullptr)
+            for (auto& abstractParent : body->abstractParents)
             {
-                vxy_assert(body->abstractParent->numUnknownConcretes > 0);
-                body->abstractParent->numUnknownConcretes--;
+                vxy_assert(abstractParent->numUnknownConcretes > 0);
+                abstractParent->numUnknownConcretes--;
             }
         }
         else
@@ -1410,13 +1406,15 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
             }
             
             size_t hash;
-            if (auto existingBody = findBodyInfo(newValues, nullptr, hash, newValues.empty() ? -1 : vertex))
+            if (auto existingBody = findBodyInfo(newValues, nullptr, hash, vertex))
             {
                 for (auto& head : newHeads)
                 {
                     linkHeadToBody(head, existingBody);
                 }
+                existingBody->asConcrete()->abstractParents.push_back(oldAbstractBody);
                 oldAbstractBody->concreteBodies.insert({move(headArgs), existingBody->asConcrete()});
+
                 if (existingBody->status == ETruthStatus::Undetermined)
                 {
                     oldAbstractBody->numUnknownConcretes++;
@@ -1429,7 +1427,7 @@ void RuleDatabase::groundBodyToConcrete(BodyInfo& oldBody, GroundingData& ground
                 newBody->isNegativeConstraint = oldAbstractBody->isNegativeConstraint;
                 newBody->atomLits = move(newValues);
                 newBody->status = oldAbstractBody->status;
-                newBody->abstractParent = oldAbstractBody;
+                newBody->abstractParents.push_back(oldAbstractBody);
                 newBody->parentVertex = vertex;
 
                 oldAbstractBody->numUnknownConcretes++;
@@ -1559,48 +1557,30 @@ RuleDatabase::AtomInfo::AtomInfo(AtomID id, int domainSize)
 RuleDatabase::ALiteral RuleDatabase::ConcreteAtomInfo::getLiteral(const AtomLiteral& atomLit) const
 {
     vxy_assert_msg(abstractParent == nullptr, "Should not call getLiteral on a concrete atom created from an abstract!");
-   
-    if (binder != nullptr)
+    vxy_assert(equivalence.isValid());
+
+    if (atomLit.sign())
     {
-        Literal lit = binder(atomLit.getMask());
-        return atomLit.sign() ? lit : lit.inverted();
+        Literal lit(equivalence.variable, ValueSet(equivalence.values.size(), false));
+        lit.values.includeAt(atomLit.getMask(), equivalenceOffset);
+        return lit;
     }
     else
     {
-        vxy_assert(equivalence.isValid());
-        vxy_assert(domainSize == 1);
-        return Literal(equivalence.variable, atomLit.sign() ? TRUE_VALUE : FALSE_VALUE);
+        Literal lit(equivalence.variable, ValueSet(equivalence.values.size(), true));
+        lit.values.excludeAt(atomLit.getMask(), equivalenceOffset);
+        return lit;
     }
 }
 
 Literal RuleDatabase::ConcreteAtomInfo::getLiteralForIndex(int index) const
 {
     vxy_assert(getTruthStatus(index) == ETruthStatus::Undetermined);
-    if (abstractParent != nullptr)
-    {
-        vxy_assert(binder == nullptr);
-        ValueSet mask(domainSize, false);
-        mask[index] = true;
+    vxy_assert(equivalence.isValid());
 
-        AtomLiteral parentLit(abstractParent->id, true, mask, parentRelationInfo);
-        auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(parentLit));
-
-        Literal outLit;
-        vxy_verify(rel->getRelation(parentVertex, outLit));
-        return outLit;
-    }
-    else if (binder != nullptr)
-    {
-        ValueSet mask(domainSize, false);
-        mask[index] = true;
-        return binder(mask);
-    }
-    else
-    {
-        vxy_assert(equivalence.isValid());
-        vxy_assert(domainSize == 1);
-        return equivalence;
-    }
+    Literal lit(equivalence.variable, ValueSet(equivalence.values.size(), false));
+    lit.values[equivalenceOffset+index] = true;
+    return lit;
 }
 
 bool RuleDatabase::ConcreteAtomInfo::isEstablished(const ValueSet& values) const
@@ -1653,24 +1633,20 @@ void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
     if (!equivalence.variable.isValid())
     {
         if (abstractParent != nullptr)
-        {            
-            vxy_assert(binder == nullptr);
-            AtomLiteral parentLit(abstractParent->id, true, ValueSet(domainSize, true), parentRelationInfo);
-            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(parentLit));
-            vxy_verify(rel->getRelation(parentVertex, equivalence));
-        }
-        else if (binder != nullptr)
         {
-            equivalence = binder(ValueSet(domainSize, true));
+            vxy_verify(parentRelationInfo->literalRelation->getRelation(parentVertex, equivalence));
+            equivalenceOffset = equivalence.values.indexOf(true);
+            vxy_assert(equivalenceOffset >= 0);
         }
         else
         {
-            vxy_assert(domainSize == 1);
-            VarID var = rdb.m_solver.makeBoolean(name);
-            equivalence = Literal(var, TRUE_VALUE);
+            auto var = rdb.getSolver().makeVariable(name, SolverVariableDomain(0, domainSize));
+            equivalence.variable = var;
+            equivalence.values = ValueSet(domainSize+1, true);
+            equivalence.values[0] = false; // reserved for "false/doesn't exist"
+            equivalenceOffset = 1;
         }
 
-        vxy_assert(equivalence.isValid());
         if (!synchronize(rdb))
         {
             rdb.setConflicted();
@@ -1680,28 +1656,45 @@ void RuleDatabase::ConcreteAtomInfo::createLiteral(RuleDatabase& rdb)
 
 bool RuleDatabase::ConcreteAtomInfo::synchronize(RuleDatabase& rdb)
 {
-    if (trueFacts.isZero() && falseFacts.isZero())
+    bool hasTrueFacts = !trueFacts.isZero();
+    if (!hasTrueFacts && falseFacts.isZero())
     {
         return true;
     }
-    
-    Literal trueEquivalence;
-    if (parentRelationInfo != nullptr)
+
+    if (!equivalence.isValid())
     {
-        vxy_assert(binder == nullptr);
-        parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, trueFacts, trueEquivalence);
+        if (parentRelationInfo != nullptr)
+        {
+            if (!parentRelationInfo->literalRelation->instantiateNecessary(parentVertex, equivalence) || !equivalence.isValid())
+            {
+                return true;
+            }
+            
+            equivalenceOffset = equivalence.values.indexOf(true);
+            vxy_assert(equivalenceOffset >= 0);
+        }
+        else
+        {
+            return true;
+        }
     }
-    else if (binder != nullptr)
+
+    Literal constrainedLit(equivalence.variable, {});
+    if (hasTrueFacts)
     {
-        trueEquivalence = binder(trueFacts);
+        constrainedLit.values.pad(equivalenceOffset, false);
+        constrainedLit.values.append(trueFacts, trueFacts.size());
+        constrainedLit.values.pad(equivalence.values.size(), false);
     }
     else
     {
-        vxy_assert(domainSize == 1);
-        trueEquivalence = trueFacts[0] ? equivalence : equivalence.inverted();
+        constrainedLit.values.pad(equivalenceOffset, true);
+        constrainedLit.values.pad(equivalenceOffset + trueFacts.size(), false);
+        constrainedLit.values.pad(equivalence.values.size(), true);
     }
-
-    if (trueEquivalence.isValid() && !rdb.m_solver.getVariableDB()->constrainToValues(trueEquivalence, nullptr))
+    
+    if (!rdb.m_solver.getVariableDB()->constrainToValues(constrainedLit, nullptr))
     {
         rdb.setConflicted();
         return false;
@@ -1719,7 +1712,7 @@ RuleDatabase::AbstractAtomInfo::AbstractAtomInfo(AtomID inID, int inDomainSize, 
 
 RuleDatabase::ALiteral RuleDatabase::AbstractAtomInfo::getLiteral(const AtomLiteral& atomLit) const
 {
-    return atomLit.sign() ? atomLit.getRelationInfo()->literalRelation : atomLit.getRelationInfo()->getInverseRelation();
+    return make_shared<AtomMaskingRelation>(atomLit.getRelationInfo()->literalRelation, atomLit.getMask(), atomLit.sign());
 }
 
 FactGraphFilterPtr RuleDatabase::AbstractAtomInfo::getFilter(const AtomLiteral& literal) const
@@ -1766,9 +1759,9 @@ RuleDatabase::ALiteral RuleDatabase::ConcreteBodyInfo::getLiteral(RuleDatabase& 
 {
     if (!equivalence.variable.isValid())
     {
-        if (abstractParent != nullptr)
+        if (!abstractParents.empty())
         {
-            auto rel = get<GraphLiteralRelationPtr>(abstractParent->getLiteral(rdb, allowCreation, false));
+            auto rel = get<GraphLiteralRelationPtr>(abstractParents[0]->getLiteral(rdb, allowCreation, false));
             vxy_verify(rel->getRelation(parentVertex, equivalence));
         }
         else
@@ -1776,22 +1769,7 @@ RuleDatabase::ALiteral RuleDatabase::ConcreteBodyInfo::getLiteral(RuleDatabase& 
             vxy_assert(allowCreation);
 
             wstring name = TEXT("body[[");
-            bool first = true;
-            for (auto& bodyLit : atomLits)
-            {
-                if (!first)
-                {
-                    name.append(TEXT(", "));
-                }
-                first = false;
-
-                auto atomInfo = rdb.getAtom(bodyLit.id());
-                if (!bodyLit.sign())
-                {
-                    name.append(TEXT("~"));
-                }
-                name.append(atomInfo->name);
-            }
+            name += rdb.literalsToString(atomLits);            
             name.append(TEXT("]]"));
 
             equivalence.variable = rdb.m_solver.makeBoolean(name);
@@ -2248,4 +2226,63 @@ FactGraphFilterPtr FactGraphFilter::combine(const FactGraphFilterPtr& a, const F
     newFilter->m_filter = a->m_filter;
     newFilter->m_filter.intersect(b->m_filter);
     return newFilter;
+}
+
+AtomMaskingRelation::AtomMaskingRelation(const shared_ptr<const IGraphRelation<Literal>>& inner, const ValueSet& mask, bool sign)
+    : m_inner(inner)
+    , m_mask(sign ? mask : mask.inverted())
+    , m_sign(sign)
+{
+}
+
+bool AtomMaskingRelation::getRelation(int sourceVertex, Literal& out) const
+{
+    if (!m_inner->getRelation(sourceVertex, out))
+    {
+        return false;
+    }
+
+    if (m_cachedMaskOffset < 0)
+    {
+        m_cachedMaskOffset = out.values.indexOf(true);
+    }
+    vxy_sanity_msg(out.values.indexOf(true) == m_cachedMaskOffset, "Formula binders must always return the same ValueSet");
+
+    if (m_sign)
+    {
+        out.values.intersectAt(m_mask, m_cachedMaskOffset);
+    }
+    else
+    {
+        out.values.invert();
+        out.values.includeAt(m_mask, m_cachedMaskOffset); // mask is already inverted
+    }
+    
+    return true;
+}
+
+wstring AtomMaskingRelation::toString() const
+{
+    wstring out;
+    out += TEXT("Mask(");
+    out += m_mask.toString();
+    out += TEXT(" : ");
+    out += m_inner->toString();
+    out += TEXT(")");
+    return out;
+}
+
+bool AtomMaskingRelation::equals(const IGraphRelation<Literal>& rhs) const
+{
+    if (this == &rhs)
+    {
+        return true;
+    }
+    auto typedRHS = dynamic_cast<const AtomMaskingRelation*>(&rhs);
+    return typedRHS != nullptr && m_sign == typedRHS->m_sign && m_mask == typedRHS->m_mask && m_inner->equals(*typedRHS->m_inner);
+}
+
+size_t AtomMaskingRelation::hash() const
+{
+    return combineHashes(m_inner->hash(), eastl::hash<ValueSet>()(m_mask));
 }

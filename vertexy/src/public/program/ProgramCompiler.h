@@ -30,7 +30,7 @@ public:
     };
     
     FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, const ITopologyPtr& topology, BindCaller* binder);
-    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, const ValueSet& mask, CreationType creationType) const;
+    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, CreationType creationType) const;
     FormulaUID getFormulaUID() const { return m_formulaUID; }
     
     void setAtomID(AtomID id) { m_atomId = id; }
@@ -48,7 +48,7 @@ private:
             size_t hash = 0;
             for (auto& arg : concreteArgs)
             {
-                combineHashes(hash, arg.hash());
+                hash = combineHashes(hash, arg.hash());
             }
             return hash;
         }
@@ -63,7 +63,7 @@ private:
     ITopologyPtr m_topology;
     BindCaller* m_binder = nullptr;
 
-    using BindMap = hash_map<vector<ProgramSymbol>, VarID, ArgumentHasher>; 
+    using BindMap = hash_map<vector<ProgramSymbol>, Literal, ArgumentHasher>; 
     mutable BindMap m_bindMap;
 };
 using FormulaMapperPtr = shared_ptr<FormulaMapper>;
@@ -77,7 +77,7 @@ public:
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
 
     virtual bool needsInstantiation() const override { return false; }    
-    virtual bool instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const override { return false; }
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override { return false; }
     virtual void lockVariableCreation() const override {}
     
 protected:
@@ -99,7 +99,7 @@ public:
     virtual wstring toString() const override;
 
     virtual bool needsInstantiation() const override;
-    virtual bool instantiateNecessary(int vertex, const ValueSet& atomMask, Literal& outLiteral) const override;
+    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override;
     virtual void lockVariableCreation() const override;
 
 private:
@@ -314,7 +314,7 @@ protected:
     hash_map<FormulaUID, UExportMap> m_exportedLits;
     hash_map<FormulaUID, FormulaMapperPtr> m_exportedFormulas;
     hash_map<FormulaUID, FormulaUID> m_choiceFormulas;
-
+    
     bool m_failure = false;
     bool m_foundRecursion = false;
 };

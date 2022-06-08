@@ -29,9 +29,7 @@ public:
         True,
         Undetermined
     };
-
-    using AtomBinder = function<Literal(const ValueSet&)>;
-
+    
     using ALiteral = variant<Literal, GraphLiteralRelationPtr>;
     struct ConcreteAtomInfo;
     struct AbstractAtomInfo;
@@ -127,10 +125,10 @@ public:
         void createLiteral(RuleDatabase& rdb);
         bool synchronize(RuleDatabase& rdb);
 
-        // Binder for creating equivalence
-        AtomBinder binder = nullptr;
-        // Optional equivalence to a constraint solver literal
+        // Equivalence to a constraint solver literal.
         Literal equivalence;
+        // The index at which the mask begins within the equivalence literal.
+        int equivalenceOffset = -1;
 
         AbstractAtomInfo* abstractParent = nullptr;
         int parentVertex = -1;
@@ -227,7 +225,7 @@ public:
         // the solver literal corresponding with this body
         mutable Literal equivalence;
         
-        AbstractBodyInfo* abstractParent = nullptr;
+        vector<AbstractBodyInfo*> abstractParents;
         int parentVertex = -1;
     };
 
@@ -281,9 +279,8 @@ public:
     RuleDatabase(const RuleDatabase&) = delete;
     RuleDatabase(RuleDatabase&&) = delete;
 
-    AtomID createAtom(const wchar_t* name=nullptr, int domainSize=1, bool external=false);
+    AtomID createAtom(const wchar_t* name=nullptr, int domainSize=1, const Literal& equivalence={}, bool external=false);
     AtomID createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name=nullptr, int domainSize=1, bool external=false);
-    AtomID createBoundAtom(const AtomBinder& binder, const wchar_t* name=nullptr, int domainSize=1, bool external=false);
     
     const ConstraintSolver& getSolver() const { return m_solver; }
     ConstraintSolver& getSolver() { return m_solver; }
@@ -541,6 +538,25 @@ public:
 protected:
     ITopologyPtr m_topology;
     ValueSet m_filter;
+};
+
+/** Maps a Vertex->Literal relation to a masked literal */
+class AtomMaskingRelation : public IGraphRelation<Literal>
+{
+public:
+    AtomMaskingRelation(const shared_ptr<const IGraphRelation<Literal>>& inner, const ValueSet& mask, bool sign);
+    virtual bool getRelation(int sourceVertex, Literal& out) const override;
+    virtual wstring toString() const override;
+    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual size_t hash() const override;
+
+    const shared_ptr<const IGraphRelation<Literal>>& getInner() const { return m_inner; }
+
+protected:
+    shared_ptr<const IGraphRelation<Literal>> m_inner;
+    ValueSet m_mask;
+    bool m_sign;
+    mutable int m_cachedMaskOffset = -1;
 };
 
 } // namespace Vertexy

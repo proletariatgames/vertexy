@@ -790,7 +790,7 @@ protected:
 	int m_edgeIndex;
 };
 
-/** Maps a Vertex->FLiteral relation to the inverse of the literal */
+/** Maps a Vertex->Literal relation to the inverse of the literal */
 class InvertLiteralGraphRelation : public IGraphRelation<Literal>
 {
 public:
@@ -805,7 +805,6 @@ public:
 protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
 };
-
 
 class NegateGraphRelation : public IGraphRelation<int>
 {

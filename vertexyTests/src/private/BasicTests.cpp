@@ -642,31 +642,22 @@ int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
 	{
 		int x = _x.getInt(), y = _y.getInt();
 		VarID* dest = y < x ? &graphEdgeTestVars[x].left : &graphEdgeTestVars[x].right;
-		if (!dest->isValid())
-		{
-			VarID var = solver.makeBoolean(inst->getResult().graphEdgeTest.toString(x,y));
-			*dest = var;
-		}
+		vxy_assert(!dest->isValid());
+		*dest = solver.makeBoolean(inst->getResult().graphEdgeTest.toString(x,y));
 		return *dest;
 	});
 	inst->getResult().rightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
-		if (!rightTestVars[x].isValid())
-		{
-			VarID var = solver.makeBoolean(inst->getResult().rightTest.toString(x));
-			rightTestVars[x] = var;
-		}
+		vxy_assert(!rightTestVars[x].isValid());
+		rightTestVars[x] = solver.makeBoolean(inst->getResult().rightTest.toString(x));
 		return rightTestVars[x];
 	});
 	inst->getResult().negRightTest.bind([&](const ProgramSymbol& _x)
 	{
 		int x = _x.getInt();
-		if (!negRightTestVars[x].isValid())
-		{
-			VarID var = solver.makeBoolean(inst->getResult().negRightTest.toString(x));
-			negRightTestVars[x] = var;
-		}
+		vxy_assert(!negRightTestVars[x].isValid());
+		negRightTestVars[x] = solver.makeBoolean(inst->getResult().negRightTest.toString(x));
 		return negRightTestVars[x];
 	});
 	
@@ -812,15 +803,14 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 	inst->getResult().path.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
-		if (!pathVars[x][y].isValid())
-		{
-			// Create a boolean solver variable to hold the result of this path(x,y).
-			wstring varName = inst->getResult().path.toString(x,y);
-			VarID var = solver.makeBoolean(varName);
+		vxy_assert(!pathVars[x][y].isValid());
 
-			// Store it and return it as the variable to bind to.
-			pathVars[x][y] = var;
-		}
+		// Create a boolean solver variable to hold the result of this path(x,y).
+		wstring varName = inst->getResult().path.toString(x,y);
+		VarID var = solver.makeBoolean(varName);
+
+		// Store it and return it as the variable to bind to.
+		pathVars[x][y] = var;
 		return pathVars[x][y];
 	});
 
@@ -906,15 +896,14 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 	inst->getResult().path.bind([&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
-		if (!pathVars[x][y].isValid())
-		{
-			// Create a boolean solver variable to hold the result of this path(x,y).
-			wstring varName = inst->getResult().path.toString(x,y);
-			VarID var = solver.makeBoolean(varName);
+		vxy_assert(!pathVars[x][y].isValid());
+		
+		// Create a boolean solver variable to hold the result of this path(x,y).
+		wstring varName = inst->getResult().path.toString(x,y);
+		VarID var = solver.makeBoolean(varName);
 
-			// Store it and return it as the variable to bind to.
-			pathVars[x][y] = var;
-		}
+		// Store it and return it as the variable to bind to.
+		pathVars[x][y] = var;
 		return pathVars[x][y];
 	});
 
