@@ -261,15 +261,19 @@ void CardinalityConstraint::backtrack(const IVariableDatabase* db, SolverDecisio
 		m_backtrackStack.pop_back();
 	}
 
-	int c = 0;
-	for (auto v : m_upperBoundVariables)
+	#if VERTEXY_SANITY_CHECKS
 	{
-		if (!db->anyPossible(v, m_upperBoundConstrainedValues))
+		int c = 0;
+		for (auto v : m_upperBoundVariables)
 		{
-			++c;
+			if (!db->anyPossible(v, m_upperBoundConstrainedValues))
+			{
+				++c;
+			}
 		}
+		vxy_assert(c == m_numUpperBoundVarsOutsideUBC);
 	}
-	vxy_assert(c == m_numUpperBoundVarsOutsideUBC);
+	#endif
 }
 
 CardinalityConstraint::BacktrackInfo& CardinalityConstraint::backtrackRecord(SolverDecisionLevel level)
