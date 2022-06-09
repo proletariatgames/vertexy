@@ -175,7 +175,6 @@ public:
 	inline void setPromotedToGraph()
 	{
 		vxy_assert(isLearned());
-		vxy_assert(m_graphRelationInfo != nullptr);
 		vxy_assert(m_extendedInfo != nullptr);
 		m_extendedInfo->isPromoted = true;
 	}

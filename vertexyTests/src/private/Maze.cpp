@@ -200,7 +200,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		
 		// Key for this step must be reachable
 		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepCell(vertex).is(stepCell.reachable));
-		// Door for this step must be reachable
+		// Door for this step must be reachable (not necessary because this is implicit from other constraints)
 		// Program::disallow(cellType(vertex).is(cellType.doors[step]) && ~adjacentReachable(vertex));
 		
 		// Keys for later steps cannot be reachable 
