@@ -159,18 +159,13 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConst
 		}
 	}
 
-	// Register watchers. We only need to do this if we have more than one support (otherwise we just narrow or fail
-	// immediately below), or if we have an outer constraint (in which case we can't rely on narrowing permanently)
-	if (numSupports > 1 || outerConstraint != nullptr)
+	if (m_numLiterals >= 1)
 	{
-		if (m_numLiterals >= 1)
-		{
-			m_watches[0] = db->addVariableValueWatch(m_literals[0].variable, m_literals[0].values, this);
-		}
-		if (m_numLiterals >= 2)
-		{
-			m_watches[1] = db->addVariableValueWatch(m_literals[1].variable, m_literals[1].values, this);
-		}
+		m_watches[0] = db->addVariableValueWatch(m_literals[0].variable, m_literals[0].values, this);
+	}
+	if (m_numLiterals >= 2)
+	{
+		m_watches[1] = db->addVariableValueWatch(m_literals[1].variable, m_literals[1].values, this);
 	}
 
 	if (numSupports == 0)
