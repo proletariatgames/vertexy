@@ -1,6 +1,7 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/ClauseConstraint.h"
 
+#include "ConstraintSolver.h"
 #include "variable/IVariableDatabase.h"
 #include "variable/SolverVariableDatabase.h"
 
@@ -123,11 +124,10 @@ vector<VarID> ClauseConstraint::getConstrainingVariables() const
 bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConstraint)
 {
 	int numSupports = m_numLiterals;
-	if (!isLearned() || isPromotedFromGraph())
+	vxy_assert_msg(!isPromotedFromGraph(), "initializePromotedGraphConstraint should be called instead");
+	if (!isLearned())
 	{
-		// User-specified constraints and those created from graph promotion don't necessarily have true literals
-		// at the front. Make it so.
-
+		// User-specified constraints don't necessarily have true literals at the front. Make it so.
 		// TODO: We could move the false literals to the back of the list and keep a separate NumValidLiterals count,
 		// but that would increase storage size of the literal. Worth investigating.
 
@@ -178,6 +178,102 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConst
 		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this))
 		{
 			return false;
+		}
+	}
+
+	return true;
+}
+
+bool ClauseConstraint::initializePromotedGraphConstraint(IVariableDatabase* db, vector<Literal>* outPropagations)
+{
+	vxy_assert(isLearned() && isPromotedFromGraph());
+
+	// Find first/second supports, with most-recently-modified first.	
+	int numSupports = 0;
+	bool fullySatisfied = false;
+	for (int destIndex = 0; destIndex < 2; ++destIndex)
+	{
+		vector<Literal> newLiterals;
+
+		int latest = -1;
+		SolverTimestamp latestTS = -1;
+		SolverTimestamp latestTrueTS = -1;
+
+		bool found = false;
+		for (int searchIndex = destIndex; searchIndex < m_numLiterals; ++searchIndex)
+		{
+			auto& lit = m_literals[searchIndex];
+			auto& vals = db->getPotentialValues(lit.variable);
+			SolverTimestamp ts = db->getLastModificationTimestamp(lit.variable);
+			if (vals.anyPossible(lit.values) && ts >= latestTrueTS)
+			{
+				latestTrueTS = ts;
+				found = true;
+					
+				if (vals.isSubsetOf(lit.values))
+				{
+					fullySatisfied = true;
+				}
+					
+				swap(m_literals[destIndex], m_literals[searchIndex]);
+			}
+			else if (ts >= latestTS)
+			{
+				latest = searchIndex;
+				latestTS = ts;
+			}
+		}
+
+		if (!found)
+		{
+			swap(m_literals[destIndex], m_literals[latest]);
+		}
+		else
+		{
+			++numSupports;
+		}
+	}
+
+	if (fullySatisfied)
+	{
+		db->markConstraintFullySatisfied(this);
+	}
+
+	if (getID() == 22447)
+	{
+		for (int i = 0; i < m_numLiterals; ++i)
+		{
+			VERTEXY_LOG("OGLES initial %s=%s %d", db->getSolver()->getVariableName(m_literals[i].variable).c_str(), db->getPotentialValues(m_literals[i].variable).toString().c_str(), db->getLastModificationTimestamp(m_literals[i].variable));
+		}
+	}
+	
+	if (m_numLiterals >= 1)
+	{
+		if (getID() == 22447) VERTEXY_LOG("OGLES watch %s", db->getSolver()->getVariableName(m_literals[0].variable).c_str()); 
+		m_watches[0] = db->addVariableValueWatch(m_literals[0].variable, m_literals[0].values, this);
+	}
+	if (m_numLiterals >= 2)
+	{
+		if (getID() == 22447) VERTEXY_LOG("OGLES watch %s", db->getSolver()->getVariableName(m_literals[1].variable).c_str());
+		m_watches[1] = db->addVariableValueWatch(m_literals[1].variable, m_literals[1].values, this);
+	}
+	
+	if (numSupports == 0)
+	{
+		return false;
+	}
+	else if (numSupports == 1 && !db->getPotentialValues(m_literals[0].variable).isSubsetOf(m_literals[0].values))
+	{
+		// Propagate unit clause
+		if (getID() == 22447) VERTEXY_LOG("OGLES constrain %s->%s", db->getSolver()->getVariableName(m_literals[0].variable).c_str(), m_literals[0].values.toString().c_str());
+		if (!db->constrainToValues(m_literals[0].variable, m_literals[0].values, this))
+		{
+			return false;
+		}
+
+		if (outPropagations != nullptr)
+		{
+			outPropagations->push_back(m_literals[0]);
 		}
 	}
 
@@ -249,6 +345,7 @@ void ClauseConstraint::reset(IVariableDatabase* db)
 
 bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet&, bool& removeWatch)
 {
+	if (getID() == 22447) VERTEXY_LOG("OGLES narrowed %s", db->getSolver()->getVariableName(variable).c_str());
 	vxy_assert(variable == m_literals[0].variable || variable == m_literals[1].variable);
 	int index = (variable == m_literals[0].variable) ? 0 : 1;
 	int otherIndex = index == 0 ? 1 : 0;
@@ -286,10 +383,12 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 			// remove old watch
 			// NOTE we only do this if we find a support. We still need two watches if we backtrack.
 			removeWatch = true;
-
+			if (getID() == 22447) VERTEXY_LOG("OGLES stopWatch %s", db->getSolver()->getVariableName(m_literals[index].variable).c_str());
+			
 			swap(nextSupportLit, narrowedLit);
 
 			// add new watch
+			if (getID() == 22447) VERTEXY_LOG("OGLES watch %s", db->getSolver()->getVariableName(m_literals[index].variable).c_str());
 			m_watches[index] = db->addVariableValueWatch(m_literals[index].variable, m_literals[index].values, this);
 			return true;
 		}
@@ -304,14 +403,17 @@ bool ClauseConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable,
 
 	if (USE_WATCHER_DISABLE && db->getDomainSize(variable) > DISABLE_WATCHER_MIN_DOMAIN_LENGTH)
 	{
+		if (getID() == 22447) VERTEXY_LOG("OGLES stopWatch %s", db->getSolver()->getVariableName(narrowedLit.variable).c_str());
 		db->disableWatcherUntilBacktrack(m_watches[index], narrowedLit.variable, this);
 	}
 
 	if (otherIndex >= m_numLiterals)
 	{
 		// should only be possible when we are a child constraint
+		if (getID() == 22447) VERTEXY_LOG("OGLES fail %s", db->getSolver()->getVariableName(m_literals[index].variable).c_str());
 		return false;
 	}
+	if (getID() == 22447) VERTEXY_LOG("OGLES constrain %s->%s", db->getSolver()->getVariableName(m_literals[otherIndex].variable).c_str(), m_literals->values.toString().c_str());
 	return db->constrainToValues(m_literals[otherIndex].variable, m_literals[otherIndex].values, this);
 }
 
