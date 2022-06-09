@@ -110,8 +110,14 @@ void PrefabManager::createPrefabFromJson(string filePath)
 	std::stringstream strStream;
 	strStream << file.rdbuf();
 
+	// Pass the string along to be parsed and converted to a prefab
+	createPrefabFromJsonString(strStream.str().c_str());
+}
+
+void PrefabManager::createPrefabFromJsonString(string jsonString)
+{
 	// Parse the json string and extract the tiles
-	auto j = json::parse(strStream.str().c_str());
+	auto j = json::parse(jsonString.c_str());
 	vector<vector<Tile>> tiles;
 
 	for (const auto& elem : j["tiles"])
@@ -128,14 +134,14 @@ void PrefabManager::createPrefabFromJson(string filePath)
 	// Ensure tiles isn't empty
 	if (tiles.size() == 0 || tiles[0].size() == 0)
 	{
-		vxy_assert_msg(false, "Error! Json file passed to createPrefabFromJson contains no tiles!");
+		vxy_assert_msg(false, "Error! Json string passed to createPrefabFromJsonString contains no tiles!");
 	}
 
 	// Parse additional variables
 	string name = "";
 	bool allowRotation = false;
 	bool allowReflection = false;
-	
+
 	if (j.contains("name"))
 	{
 		std::string jsonName = j["name"];
@@ -146,7 +152,7 @@ void PrefabManager::createPrefabFromJson(string filePath)
 	{
 		allowRotation = j["allowRotation"];
 	}
-	
+
 	if (j.contains("allowReflection"))
 	{
 		allowReflection = j["allowReflection"];

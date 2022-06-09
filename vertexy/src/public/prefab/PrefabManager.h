@@ -24,6 +24,9 @@ namespace Vertexy
 		// Creates a prefab from a json file identified by fileName
 		void createPrefabFromJson(string fileName);
 
+		// Creates a prefab from a json string
+		void createPrefabFromJsonString(string jsonString);
+
 		// Generates constraints for all prefabs associated with this manager
 		void generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData);
 
