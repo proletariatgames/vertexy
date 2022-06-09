@@ -115,7 +115,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     {
         for (auto& supportLink : atomInfo->supports)
         {
-            if (supportLink.values[bit] && supportLink.body->isChoiceBody())
+            if (supportLink.mask[bit] && supportLink.body->isChoiceBody())
             {
                 callback(supportLink.body);
             }
@@ -126,7 +126,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
     {
         for (auto& bodyLink : atomInfo->positiveDependencies)
         {
-            if (bodyLink.values[bit] &&
+            if (bodyLink.mask[bit] &&
                 bodyLink.body->isChoiceBody() &&
                 atomInfo->scc >= 0 && bodyLink.body->asConcrete()->scc == atomInfo->scc)
             {

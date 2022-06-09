@@ -49,7 +49,7 @@ public:
 
     struct AtomLinkage
     {
-        ValueSet values;
+        ValueSet mask;
         BodyInfo* body;
     };
 
@@ -149,16 +149,25 @@ public:
 
         void lockVariableCreation();
         
-        template<typename ValueType>
-        using RelationMap = hash_map<AtomLiteral, ValueType, call_hash>;
-        
         // Set of relations where this atom was in the head of a rule
-        RelationMap<ETruthStatus> abstractLiterals;
+        using RelationMap = hash_map<AtomLiteral, ETruthStatus, call_hash>;        
+        RelationMap abstractLiterals;
+
+        // The set of AtomLiterals necessary to constrain the entire set of concrete atoms.
+        // This will be a subset of abstractLiterals.
+        vector<AtomLiteral> abstractLiteralsToConstrain;
+
         // The topology used for making this atom concrete
         ITopologyPtr topology;
-        
-        hash_map<vector<int>, ConcreteAtomInfo*, ArgumentHasher> concreteAtoms;
-        ValueSet indicesWithConcretes;
+
+        struct ConcreteAtomRecord
+        {
+            ConcreteAtomInfo* atom;
+            hash_set<ValueSet> seenMasks;
+        };
+
+        // The set of concrete atoms created from this abstract atom, keyed by the concrete atom's arguments.
+        hash_map<vector<int>, ConcreteAtomRecord, ArgumentHasher> concreteAtoms;
     };
 
     struct ConcreteBodyInfo;
@@ -224,9 +233,9 @@ public:
 
         // the solver literal corresponding with this body
         mutable Literal equivalence;
-        
-        vector<AbstractBodyInfo*> abstractParents;
-        int parentVertex = -1;
+
+        // Maps an abstract parent of this body to the vertex it was instantiated for.
+        hash_map<AbstractBodyInfo*, int> abstractParents;
     };
 
     struct AbstractBodyInfo : public BodyInfo
@@ -375,7 +384,7 @@ protected:
     bool emptyBodyQueue();
 
     BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo, bool forceAbstract);
-    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, int parentVertex=-1) const;
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -489,7 +498,7 @@ protected:
 class BoundBodyInstantiatorRelation : public IGraphRelation<Literal>
 {
 public:
-    BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations);
+    BoundBodyInstantiatorRelation(const wstring& name, const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations);
 
     virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
     virtual size_t hash() const override;
