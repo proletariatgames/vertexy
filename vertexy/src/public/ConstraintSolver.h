@@ -535,7 +535,7 @@ protected:
 	// Learned constraints that will never be purged
 	vector<ClauseConstraint*> m_permanentLearnedConstraints;
 	// Hashset of constraints - used to prevent duplicates during graph promotion
-	hash_set<ClauseConstraint*, ConstraintHashFuncs> m_learnedConstraintSet;
+	hash_set<ClauseConstraint*, ConstraintHashFuncs, ConstraintHashFuncs> m_learnedConstraintSet;
 	// Queue of constraints ready to be propagated across graphs, mapped to the next vertex index to be processed.
 	hash_map<ClauseConstraint*, int> m_constraintsToPromoteToGraph;
 

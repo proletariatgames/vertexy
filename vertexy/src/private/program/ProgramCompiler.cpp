@@ -1013,12 +1013,12 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     FormulaMapperPtr& formulaMapper = m_exportedFormulas[symbol.getFormula()->uid];
     if (symbol.isExternalFormula())
     {
-        litRelation = make_shared<ExternalFormulaGraphRelation>(symbol.absolute(), m_rdb.getSolver().getTrue());
+        litRelation = make_shared<ExternalFormulaGraphRelation>(absoluteUnmaskedSym, m_rdb.getSolver().getTrue());
     }
     else
     {
         vxy_assert(symbol.isNormalFormula());
-        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, symbol.absolute(), forHead);
+        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, absoluteUnmaskedSym, forHead);
     }
     relationInfo->literalRelation = litRelation;
 
