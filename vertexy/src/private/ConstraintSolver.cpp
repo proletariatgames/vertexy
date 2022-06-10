@@ -40,8 +40,6 @@ using namespace Vertexy;
 static constexpr bool EXPLANATION_SANITY_CHECK = VERTEXY_SANITY_CHECKS;
 // Whether graph-learning is enabled. When enabled, some learned constraints can be promoted to all vertices on a graph.
 static constexpr bool GRAPH_LEARNING_ENABLED = true;
-// Whether we should log every graph promotion that happens.
-static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Whether we should test that graph promotions are valid. Happens after solve is complete (SAT or UNSAT).
 // Can be used even if GRAPH_LEARNING_ENABLED = false, to verify that graph constraints *would've* been (in)correct
 static constexpr bool TEST_GRAPH_PROMOTIONS = true;
@@ -57,8 +55,10 @@ static constexpr int DECISION_LOG_FREQUENCY = -1;
 static constexpr bool LOG_VARIABLE_PROPAGATIONS = false;
 // Whether to log every time the solver backtracks. Very noisy!
 static constexpr bool LOG_BACKTRACKS = false;
-// Log every clause constraint created
+// Log every initial clause constraint created
 static constexpr bool LOG_CLAUSE_CONSTRAINTS = false;
+// Whether we should log every graph promotion that happens.
+static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Log the set of variables that remain unsolved after initialization
 static constexpr bool LOG_INITIAL_UNSOLVED_VARIABLES = false;
 
