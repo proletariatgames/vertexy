@@ -1325,7 +1325,7 @@ void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel,
 	}
 
 	const SolverTimestamp newTimestamp = getTimestampForDecisionLevel(decisionLevel + 1);
-	m_variableDB.backtrack(newTimestamp);
+	m_variableDB.backtrack(newTimestamp, m_decisionLevels.back().modificationIndex);
 
 	while (getCurrentDecisionLevel() > decisionLevel)
 	{
