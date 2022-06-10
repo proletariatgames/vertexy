@@ -477,9 +477,11 @@ protected:
 	bool emptyConstraintQueue();
 
 	void backtrackUntilDecision(SolverDecisionLevel decisionLevel, bool isRestart = false);
+	bool shouldRestart();
 
 	ClauseConstraint* learn(const vector<Literal>& learnedClause, const ConstraintGraphRelationInfo* relationInfo);
-	bool promoteConstraintToGraph(ClauseConstraint& constraint, int& startVertex);
+	void promoteConstraintToGraph(ClauseConstraint& constraint);
+	bool registerQueuedGraphPromotions();
 	bool createLiteralsForGraphPromotion(const ClauseConstraint& promotingCons, int destVertex, ConstraintGraphRelationInfo& outRelInfo, vector<Literal>& outLits) const;
 
 	void markConstraintActivity(ClauseConstraint& constraint, bool recomputeLBD = true);
@@ -536,8 +538,8 @@ protected:
 	vector<ClauseConstraint*> m_permanentLearnedConstraints;
 	// Hashset of constraints - used to prevent duplicates during graph promotion
 	hash_set<ClauseConstraint*, ConstraintHashFuncs, ConstraintHashFuncs> m_learnedConstraintSet;
-	// Queue of constraints ready to be propagated across graphs, mapped to the next vertex index to be processed.
-	hash_map<ClauseConstraint*, int> m_constraintsToPromoteToGraph;
+	// Queue of constraints that were created from graph promotions but have not been registered yet.
+	vector<ClauseConstraint*> m_pendingPromotedConstraints;
 
 	// State for a given variable+value decision on the search stack
 	struct DecisionRecord

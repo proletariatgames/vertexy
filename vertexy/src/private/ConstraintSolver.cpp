@@ -45,6 +45,8 @@ static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Whether we should test that graph promotions are valid. Happens after solve is complete (SAT or UNSAT).
 // Can be used even if GRAPH_LEARNING_ENABLED = false, to verify that graph constraints *would've* been (in)correct
 static constexpr bool TEST_GRAPH_PROMOTIONS = true;
+// How many constraints promoted from a graph constraint should be queued before we restart solving and initialize them.
+static constexpr int NUM_PENDING_PROMOTIONS_BEFORE_RESTART = 500;
 
 // Whether we attempt to simplify clause constraints prior to solving.
 static constexpr bool SIMPLIFY_CONSTRAINTS = true;
@@ -1039,6 +1041,16 @@ EConstraintSolverResult ConstraintSolver::step()
 
 	++m_stats.stepCount;
 
+	if (getCurrentDecisionLevel() == 0)
+	{
+		if (!registerQueuedGraphPromotions())
+		{
+			m_stats.endTime = TimeUtils::getSeconds();
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return EConstraintSolverResult::Unsatisfiable;
+		}
+	}
+
 	// Propagate any assignments made. If this returns false, then a constraint has reported failure,
 	// or a variable has no potential values left.
 	if (!propagate())
@@ -1099,7 +1111,7 @@ EConstraintSolverResult ConstraintSolver::step()
 	else
 	{
 		// Check if we should restart now
-		if (getCurrentDecisionLevel() > 0 && m_restartPolicy.shouldRestart())
+		if (getCurrentDecisionLevel() > 0 && shouldRestart())
 		{
 			backtrackUntilDecision(0, true);
 
@@ -1173,22 +1185,6 @@ EConstraintSolverResult ConstraintSolver::step()
 
 bool ConstraintSolver::propagate()
 {
-	// If we have any constraints queued up to be propagated across graphs, do so now.
-	if (GRAPH_LEARNING_ENABLED)
-	{
-		for (auto it = m_constraintsToPromoteToGraph.begin(), itEnd = m_constraintsToPromoteToGraph.end(); it != itEnd;)
-		{
-			if (!it->first->isPromotableToGraph() || promoteConstraintToGraph(*it->first, it->second))
-			{
-				it = m_constraintsToPromoteToGraph.erase(it);
-			}
-			else
-			{
-				return false;
-			}
-		}
-	}
-
 	if (!propagateVariables())
 	{
 		return false;
@@ -1293,6 +1289,21 @@ bool ConstraintSolver::getNextDecisionLiteral(VarID& variable, ValueSet& value)
 	}
 
 	// No more variables to pick - we're solved!
+	return false;
+}
+
+bool ConstraintSolver::shouldRestart()
+{
+	if (m_restartPolicy.shouldRestart())
+	{
+		return true;
+	}
+
+	if (m_pendingPromotedConstraints.size() >= NUM_PENDING_PROMOTIONS_BEFORE_RESTART)
+	{
+		return true;
+	}
+
 	return false;
 }
 
@@ -1531,8 +1542,7 @@ ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, co
 			// instantiate it over the whole graph.
 			if (canPromoteToGraph)
 			{
-				vxy_sanity(m_constraintsToPromoteToGraph.find(learnedCons) == m_constraintsToPromoteToGraph.end());
-				m_constraintsToPromoteToGraph[learnedCons] = 0;
+				promoteConstraintToGraph(*learnedCons);
 			}
 		}
 		else
@@ -1621,17 +1631,21 @@ void ConstraintSolver::markConstraintActivity(ClauseConstraint& constraint, bool
 
 			// Once a constraint learned from a graph is promoted to permanent pool, we
 			// instantiate it over the whole graph.
-			if (GRAPH_LEARNING_ENABLED && constraint.isPromotableToGraph() &&
-				m_constraintsToPromoteToGraph.find(&constraint) == m_constraintsToPromoteToGraph.end())
+			if (constraint.isPromotableToGraph())
 			{
-				m_constraintsToPromoteToGraph[&constraint] = 0;
+				promoteConstraintToGraph(constraint);
 			}
 		}
 	}
 }
 
-bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, int& startVertex)
+void ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint)
 {
+	if (!GRAPH_LEARNING_ENABLED)
+	{
+		return;
+	}
+	
 	vxy_assert(constraint.isLearned());
 	vxy_assert(constraint.isPermanent());
 	vxy_assert(constraint.getGraph() != nullptr);
@@ -1650,13 +1664,10 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 	// Instantiate the constraint for each applicable node in the graph
 	//
 
-	bool success = true;
-
 	auto& filter = constraint.getGraphRelationInfo()->getFilter();
 
 	static vector<Literal> nodeClauses;
-	vxy_sanity(startVertex < graph->getNumVertices());
-	for (int nodeIndex = startVertex; nodeIndex < graph->getNumVertices(); ++nodeIndex)
+	for (int nodeIndex = 0; nodeIndex < graph->getNumVertices(); ++nodeIndex)
 	{
 		// No need to create the same exact clause we're promoting
 		if (nodeIndex == promotingNode)
@@ -1696,27 +1707,10 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 		else
 		{
 			++numCreated;
-			++m_stats.numGraphClonedConstraints;
-			++m_stats.numConstraintsLearned;
-
 			registerConstraint(newCons);
-			m_learnedConstraintSet.insert(hash, nullptr, newCons);
-
 			newCons->setStepLearned(m_stats.stepCount);
 			newCons->setPromotionSource(&constraint);
-
-			m_temporaryLearnedConstraints.push_back(newCons);
-
-			m_lastTriggeredSink = newCons;
-			m_lastTriggeredTs = m_variableDB.getTimestamp();
-			if (!newCons->initialize(&m_variableDB, nullptr))
-			{
-				success = false;
-				startVertex = nodeIndex;
-				break;
-			}
-			m_lastTriggeredSink = nullptr;
-			m_lastTriggeredTs = -1;
+			m_pendingPromotedConstraints.push_back(newCons);
 		}
 	}
 
@@ -1759,12 +1753,31 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 		++m_stats.numFailedConstraintPromotions;
 	}
 
-	if (success)
+	constraint.setPromotedToGraph();
+}
+
+bool ConstraintSolver::registerQueuedGraphPromotions()
+{
+	for (auto cons : m_pendingPromotedConstraints)
 	{
-		constraint.setPromotedToGraph();
-		startVertex = graph->getNumVertices();
+		++m_stats.numGraphClonedConstraints;
+		++m_stats.numConstraintsLearned;
+		
+		m_temporaryLearnedConstraints.push_back(cons);
+		m_learnedConstraintSet.insert(cons);
+
+		m_lastTriggeredSink = cons;
+		m_lastTriggeredTs = m_variableDB.getTimestamp();
+		if (!cons->initialize(&m_variableDB, nullptr))
+		{
+			return false;
+		}
+		m_lastTriggeredSink = nullptr;
+		m_lastTriggeredTs = -1;
 	}
-	return success;
+	m_pendingPromotedConstraints.clear();
+
+	return true;
 }
 
 bool ConstraintSolver::createLiteralsForGraphPromotion(const ClauseConstraint& promotingCons, int destVertex, ConstraintGraphRelationInfo& outRelInfo, vector<Literal>& outLits) const
@@ -1936,8 +1949,11 @@ void ConstraintSolver::sanityCheckGraphClauses()
 			{
 				int startNode = 0;
 				constraint->setPermanent();
-				bool promoted = promoteConstraintToGraph(*constraint, startNode);
-				vxy_assert_msg(promoted, "Invalid graph constraint %d: %s", constraint->getID(), clauseConstraintToString(*constraint).c_str());
+				promoteConstraintToGraph(*constraint);
+				if (!registerQueuedGraphPromotions())
+				{
+					vxy_fail_msg("Invalid graph constraint %d: %s", constraint->getID(), clauseConstraintToString(*constraint).c_str());
+				}
 			}
 		}
 	}
