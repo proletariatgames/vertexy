@@ -14,18 +14,6 @@ static constexpr bool LOG_RULE_EXPORTS = false;
 static constexpr bool LOG_MATH_REWRITE = false;
 static constexpr bool LOG_VAR_INSTANTIATION = false;
 
-struct VariableNameAllocator
-{
-    static const wchar_t* allocate()
-    {
-        storage.emplace_back(wstring::CtorSprintf(), TEXT("__M%d"), count++);
-        return storage.back().c_str();
-    }
-    static void reset() { count = 1; }
-    inline static int count = 1;
-    inline static vector<wstring> storage = {};
-};
-
 hash_set<ConstantFormula*, ConstantFormula::Hash, ConstantFormula::Hash> ConstantFormula::s_lookup;
 vector<unique_ptr<ConstantFormula>> ConstantFormula::s_formulas;
 
@@ -101,11 +89,10 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
 
     for (auto& stmt : statements)
     {
-        VariableNameAllocator::reset();
-
         hash_map<const BinaryOpTerm*, ProgramVariable, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
         hash_map<ProgramVariable, UBinaryOpTerm> assignments;
 
+        int synthVariableCount = 0;
         stmt.statement->visit<Term>([&](const Term* term)
         {
             if (auto binOpTerm = dynamic_cast<const BinaryOpTerm*>(term))
@@ -115,7 +102,8 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
                     auto insertionPoint = replacements.find(binOpTerm);
                     if (insertionPoint == replacements.end())
                     {
-                        ProgramVariable newVar(VariableNameAllocator::allocate());
+                        wstring name{wstring::CtorSprintf(), TEXT("__M%d"), synthVariableCount++};
+                        ProgramVariable newVar(name.c_str());
 
                         auto clone = UBinaryOpTerm(move(static_cast<BinaryOpTerm*>(binOpTerm->clone().detach())));
 

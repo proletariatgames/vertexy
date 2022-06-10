@@ -419,7 +419,7 @@ protected:
 };
 
 ProgramVariable::ProgramVariable(const wchar_t* name)
-    : m_name(name)
+    : m_name(name ? name : TEXT(""))
 {
     m_uid = Program::allocateVariableUID();
 }

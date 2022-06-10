@@ -19,7 +19,7 @@ class ProgramVariable
 public:
     explicit ProgramVariable(const wchar_t* name=nullptr);
     VariableUID getID() const { return m_uid; }
-    const wchar_t* getName() const { return m_name; }
+    const wchar_t* getName() const { return m_name.c_str(); }
 
     bool operator==(const ProgramVariable& rhs) const
     {
@@ -27,7 +27,7 @@ public:
     }
 
 private:
-    const wchar_t* m_name;
+    wstring m_name;
     VariableUID m_uid = VariableUID(0);
 };
 
