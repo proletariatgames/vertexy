@@ -36,13 +36,13 @@ struct AtomID
 };
 
 // Relation type for abstract atom literals.
-class IAtomGraphRelation : public IGraphRelation<Literal>
+class IAtomGraphRelation : public IGraphRelation<VarID>
 {
 public:
-    // Whether we need to instantiate this atom. Only true if the underlying formula has a binder.
-    virtual bool needsInstantiation() const = 0;    
+    // Gets an array mapping the values of the atom domain to the atoms of the variable domain.  
+    virtual void getDomainMapping(vector<int>& outMapping) const = 0;
     // Bind the variable for this vertex and assign its deduced value.
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const = 0;
+    virtual bool instantiateNecessary(int vertex, VarID& outVar) const = 0;
     // Notify the relation that it should not create any more variables/that the RDB has been destroyed.
     virtual void lockVariableCreation() const = 0;
 };
@@ -54,20 +54,32 @@ class AbstractAtomRelationInfo
 public:
     // Maps the abstract atom literal to the variable/value it is bound to.
     AtomGraphRelationPtr literalRelation;
+    // Optional filter of where this atom is valid on the graph.
+    IGraphRelationPtr<bool> filterRelation;
     // The set of relations used to map this abstract literal to its body
     vector<GraphVertexRelationPtr> argumentRelations;
 
-    size_t hash() const { return literalRelation->hash(); }
+    size_t hash() const { return literalRelation != nullptr ? literalRelation->hash() : filterRelation->hash(); }
     bool operator==(const AbstractAtomRelationInfo& rhs) const
     {
         if (this == &rhs)
         {
             return true;
         }
-        if (!literalRelation->equals(*rhs.literalRelation))
+
+        if ((literalRelation == nullptr) != (rhs.literalRelation == nullptr))
+        {
+            return false;
+        }        
+        if (literalRelation != nullptr && !literalRelation->equals(*rhs.literalRelation))
         {
             return false;
         }
+        if (filterRelation != nullptr && !filterRelation->equals(*rhs.filterRelation))
+        {
+            return false;
+        }
+        
         if (argumentRelations.size() != rhs.argumentRelations.size())
         {
             return false;

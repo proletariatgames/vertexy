@@ -501,35 +501,67 @@ public:
     FormulaUID getUID() const { return m_uid; }
     const wchar_t* getName() const { return m_name; }
 
-    // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
-    // the solver variable + value that should be linked with the truth of this formula.
-    void bind(ConstraintSolver& solver, typename FormulaBinder<SignedClause, ARITY>::type&& binder) const
-    {
-        solver.bindFormula(m_uid, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
-    }
-
-    // Same as above, but instantiation returns a literal instead of a SignedClause.
-    void bind(ConstraintSolver& solver, typename FormulaBinder<Literal, ARITY>::type&& binder) const
-    {
-        solver.bindFormula(m_uid, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
-    }
-
     // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
     // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
-    void bind(ConstraintSolver& solver, typename FormulaBinder<VarID, ARITY>::type&& binder) const
+    // Provide a function that given a specific instantiation of this formula, returns a variable to store the solved formula value.
+    // If mapping is provided, this maps the values in the domain of the variable to values in the domain of the formula.
+    void bind(ConstraintSolver& solver, typename FormulaBinder<VarID, ARITY>::type&& binder, const vector<int>& inMapping={}) const
     {
-        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+        int domainSize = FORMULA_DOMAIN::getDomainSize();
+
+        auto mapping = inMapping;
+        if (mapping.empty())
+        {
+            if (domainSize == 1)
+            {
+                mapping.push_back(1);
+            }
+            else
+            {
+                for (int i = 0; i < domainSize; ++i)
+                {
+                    mapping.push_back(i);
+                }
+            }
+        }
+        else
+        {
+            vxy_assert_msg(inMapping.size() == domainSize, "Incorrect number of arguments");
+        }
+        
+        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>(domainSize, eastl::move(binder), mapping));
     }
 
     // Boolean formulas that have no arguments can be bound directly to a boolean variable.
     template<typename = enable_if_t<ARITY == 0>>
-    void bind(ConstraintSolver& solver, VarID var) const
+    void bind(ConstraintSolver& solver, VarID var, const vector<int>& inMapping={}) const
     {
         vxy_assert_msg(solver.getDomain(var).getDomainSize() == 2, "bind variable must be a boolean");
-        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>([&]()
+        int domainSize = FORMULA_DOMAIN::getDomainSize();
+        auto mapping = inMapping;
+        if (mapping.empty())
+        {
+            if (domainSize == 1)
+            {
+                mapping.push_back(1);
+            }
+            else
+            {
+                for (int i = 0; i < domainSize; ++i)
+                {
+                    mapping.push_back(i);
+                }
+            }
+        }
+        else
+        {
+            vxy_assert_msg(inMapping.size() == domainSize, "Incorrect number of arguments");
+        }
+
+        solver.bindFormula(m_uid, eastl::make_unique<TBindVarCaller<ARITY>>(domainSize, [&]()
         {
             return var;
-        }));
+        }), mapping);
     }
 
     template<typename... ARGS>
@@ -632,35 +664,58 @@ public:
         m_formulaDomainSize = formula.getDomainSize();
     }
 
-    // Provide a function that given a specific instantiation of this formula, returns a SignedClause representing
-    // the solver variable + value that should be linked with the truth of this formula.
-    void bind(typename FormulaBinder<SignedClause, ARITY>::type&& binder) const
+    // Provide a function that given a specific instantiation of this formula, returns a variable to store the solved formula value.
+    // If mapping is provided, this maps the values in the domain of the variable to values in the domain of the formula.
+    void bind(typename FormulaBinder<VarID, ARITY>::type&& binder, const vector<int>& inMapping={}) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
-        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindClauseCaller<ARITY>>(eastl::move(binder)));
-    }
-
-    // Same as above, but returns a Literal instead of a SignedClause
-    void bind(typename FormulaBinder<Literal, ARITY>::type&& binder) const
-    {
-        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
-        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindLiteralCaller<ARITY>>(eastl::move(binder)));
-    }
-    
-    // Provide a function that given a specific instantiation of this formula, returns a VarID that should be linked
-    // with the truth of this formula. The variable must be a boolean (i.e. have a domain size of exactly 2).
-    void bind(typename FormulaBinder<VarID, ARITY>::type&& binder) const
-    {
-        vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
-        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(eastl::move(binder)));
+        auto mapping = inMapping;
+        if (mapping.empty())
+        {
+            if (m_formulaDomainSize == 1)
+            {
+                mapping.push_back(1);
+            }
+            else
+            {
+                for (int i = 0; i < m_formulaDomainSize; ++i)
+                {
+                    mapping.push_back(i);
+                }
+            }
+        }
+        else
+        {
+            vxy_assert_msg(inMapping.size() == m_formulaDomainSize, "Incorrect number of arguments");
+        }
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(m_formulaDomainSize, eastl::move(binder), mapping));
     }
 
     // Boolean formulas that take no arguments can be bound directly to a variable.
     template<typename = enable_if_t<ARITY == 0>>
-    void bind(VarID var) const
+    void bind(VarID var, const vector<int>& inMapping={}) const
     {
         vxy_assert_msg(m_instance && m_formulaUID >= 0, "FormulaResult not bound to a formula");
-        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>([var](){ return var; }));
+        auto mapping = inMapping;
+        if (mapping.empty())
+        {
+            if (m_formulaDomainSize == 1)
+            {
+                mapping.push_back(1);
+            }
+            else
+            {
+                for (int i = 0; i < m_formulaDomainSize; ++i)
+                {
+                    mapping.push_back(i);
+                }
+            }
+        }
+        else
+        {
+            vxy_assert_msg(inMapping.size() == m_formulaDomainSize, "Incorrect number of arguments");
+        }
+        m_instance->addBinder(m_formulaUID, eastl::make_unique<TBindVarCaller<ARITY>>(m_formulaDomainSize, [var](){ return var; }, mapping));
     }
 
     template<typename... ARGS>

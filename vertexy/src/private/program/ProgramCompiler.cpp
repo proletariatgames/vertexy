@@ -818,10 +818,11 @@ void ProgramCompiler::exportRules()
                 vxy_assert(!atom.symbol.isNegated());
                 auto unmaskedSym = atom.symbol.unmasked();
 
-                Literal equivalence;
+                SignedClause equivalence;
                 if (foundBinder != m_binders.end())
                 {
-                    equivalence = foundBinder->second->call(m_rdb, unmaskedSym.getFormula()->args);
+                    equivalence.variable = foundBinder->second->call(m_rdb, unmaskedSym.getFormula()->args);
+                    equivalence.values = foundBinder->second->getDomainMapping();
                 }
                 
                 AtomID atomID = m_rdb.createAtom(unmaskedSym.toString().c_str(), domainSize, equivalence);
@@ -951,9 +952,9 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     {
         // TODO: hash/reuse these?
         auto relationInfo = make_shared<AbstractAtomRelationInfo>();
-        relationInfo->literalRelation = make_shared<HasRelationGraphRelation>(symbol.getAbstractRelation(), m_rdb.getSolver().getTrue());
+        relationInfo->filterRelation = make_shared<HasRelationGraphRelation>(symbol.getAbstractRelation());
 
-        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->literalRelation->toString().c_str(), 1, true);
+        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->filterRelation->toString().c_str(), 1, true);
         return AtomLiteral(abstractID, symbol.isPositive(), ValueSet(1, true), relationInfo);
     }
 
@@ -1013,7 +1014,7 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     FormulaMapperPtr& formulaMapper = m_exportedFormulas[symbol.getFormula()->uid];
     if (symbol.isExternalFormula())
     {
-        litRelation = make_shared<ExternalFormulaGraphRelation>(absoluteUnmaskedSym, m_rdb.getSolver().getTrue());
+        litRelation = make_shared<ExternalFormulaGraphRelation>(absoluteUnmaskedSym, SignedClause(m_rdb.getSolver().getTrue().variable, vector{1}));
     }
     else
     {
@@ -1036,17 +1037,23 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
     {
         if (!sym.containsAbstract())
         {
-            Literal lit = found->second->call(m_rdb, sym.getFormula()->args);
-            
-            int maskOffset = lit.values.indexOf(true);
-            vxy_assert(maskOffset >= 0);
-
-            lit.values = ValueSet(lit.values.size(), false);
-            lit.values.includeAt(sym.getFormula()->mask, maskOffset);
-            
-            if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+            VarID boundVar = found->second->call(m_rdb, sym.getFormula()->args);
+            if (boundVar.isValid())
             {
-                m_failure = true;
+                auto& formulaMask = sym.getFormula()->mask;
+                auto& varDomain = m_rdb.getSolver().getDomain(boundVar);
+                auto& domainMapping = found->second->getDomainMapping();
+
+                Literal lit(boundVar, ValueSet(varDomain.getDomainSize(), false));
+                for (auto it = formulaMask.beginSetBits(), itEnd = formulaMask.endSetBits(); it != itEnd; ++it)
+                {
+                    lit.values[ varDomain.getIndexForValue(domainMapping[*it]) ] = true;
+                }
+                
+                if (!m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                {
+                    m_failure = true;
+                }
             }
         }
         else
@@ -1057,16 +1064,23 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
                 ProgramSymbol concreteSym = sym.makeConcrete(vertex);
                 if (concreteSym.isValid())
                 {
-                    Literal lit = found->second->call(m_rdb, concreteSym.getFormula()->args);
-                    int maskOffset = lit.values.indexOf(true);
-                    vxy_assert(maskOffset >= 0);
-
-                    lit.values = ValueSet(lit.values.size(), false);
-                    lit.values.includeAt(sym.getFormula()->mask, maskOffset);
-                    
-                    if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                    VarID boundVar = found->second->call(m_rdb, sym.getFormula()->args);
+                    if (boundVar.isValid())
                     {
-                        m_failure = true;
+                        auto& formulaMask = sym.getFormula()->mask;
+                        auto& varDomain = m_rdb.getSolver().getDomain(boundVar);
+                        auto& domainMapping = found->second->getDomainMapping();
+
+                        Literal lit(boundVar, ValueSet(varDomain.getDomainSize(), false));
+                        for (auto it = formulaMask.beginSetBits(), itEnd = formulaMask.endSetBits(); it != itEnd; ++it)
+                        {
+                            lit.values[ varDomain.getIndexForValue(domainMapping[*it]) ] = true;
+                        }
+                       
+                        if (!m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                        {
+                            m_failure = true;
+                        }
                     }
                 }
             }
@@ -1298,7 +1312,7 @@ void FormulaMapper::lockVariableCreation()
     m_rdb = nullptr;
 }
 
-Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, CreationType creationType) const
+VarID FormulaMapper::getVariableForArguments(const vector<ProgramSymbol>& concrete, CreationType creationType) const
 {
     size_t hashCode = ArgumentHasher()(concrete);
     auto found = m_bindMap.find_by_hash(concrete, hashCode);
@@ -1314,11 +1328,11 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
     
     if (m_binder != nullptr)
     {
-        Literal lit = m_binder->call(*m_rdb, concrete);
-        vxy_assert(lit.isValid());
+        VarID var = m_binder->call(*m_rdb, concrete);
+        vxy_assert(var.isValid());
 
-        m_bindMap.insert(hashCode, nullptr, {concrete, lit});
-        return lit;
+        m_bindMap.insert(hashCode, nullptr, {concrete, var});
+        return var;
     }
 
     if (creationType == CreateIfBound)
@@ -1339,16 +1353,29 @@ Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, Creatio
     name.append(TEXT(")"));
 
     auto newVar = m_rdb->getSolver().makeVariable(name, SolverVariableDomain(0, m_domainSize));
-    Literal lit(newVar, ValueSet(m_domainSize+1, true));
-    lit.values[0] = false; // reserve for "false/doesn't exist"
-
     if (LOG_VAR_INSTANTIATION)
     {
         VERTEXY_LOG("  Created %s", name.c_str());
     }
 
-    m_bindMap.insert(hashCode, nullptr, {concrete, lit});
-    return lit;
+    m_bindMap.insert(hashCode, nullptr, {concrete, newVar});
+    return newVar;
+}
+
+void FormulaMapper::getDomainMapping(vector<int>& outMapping) const
+{
+    if (m_binder != nullptr)
+    {
+        outMapping = m_binder->getDomainMapping();
+    }
+    else
+    {
+        outMapping.clear();
+        for (int i = 1; i <= m_domainSize; ++i)
+        {
+            outMapping.push_back(i);
+        }
+    }
 }
 
 FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm)
@@ -1361,18 +1388,23 @@ FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, c
     vxy_assert(m_formulaMapper->getFormulaUID() == symbol.getFormula()->uid);
 }
 
-bool FormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+void FormulaGraphRelation::getDomainMapping(vector<int>& outMapping) const
+{
+    m_formulaMapper->getDomainMapping(outMapping);
+}
+
+bool FormulaGraphRelation::getRelation(VertexID sourceVertex, VarID& out) const
 {
     if (!makeConcrete(sourceVertex, m_concrete))
     {
         return false;
     }
 
-    out = m_formulaMapper->getLiteral(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
+    out = m_formulaMapper->getVariableForArguments(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
     return out.isValid();
 }
 
-bool FormulaGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool FormulaGraphRelation::equals(const IGraphRelation<VarID>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const FormulaGraphRelation*>(&rhs))
     {
@@ -1393,20 +1425,15 @@ wstring FormulaGraphRelation::toString() const
     return out;
 }
 
-bool FormulaGraphRelation::needsInstantiation() const
-{
-    return m_formulaMapper->hasBinder();
-}
-
-bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral) const
+bool FormulaGraphRelation::instantiateNecessary(int vertex, VarID& outVar) const
 {
     if (!makeConcrete(vertex, m_concrete))
     {
         return false;
     }
 
-    outLiteral = m_formulaMapper->getLiteral(m_concrete, FormulaMapper::CreateIfBound);
-    return outLiteral.isValid();
+    outVar = m_formulaMapper->getVariableForArguments(m_concrete, FormulaMapper::CreateIfBound);
+    return outVar.isValid();
 }
 
 void FormulaGraphRelation::lockVariableCreation() const
@@ -1431,7 +1458,7 @@ bool FormulaGraphRelation::makeConcrete(int vertex, vector<ProgramSymbol>& outCo
     return true;
 }
 
-ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const Literal& trueValue)
+ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const SignedClause& trueValue)
     : m_symbol(symbol)
     , m_trueValue(trueValue)
 {
@@ -1439,15 +1466,21 @@ ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& 
     vxy_assert(!m_symbol.isNegated());
 }
 
-bool ExternalFormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+void ExternalFormulaGraphRelation::getDomainMapping(vector<int>& outMapping) const
 {
-    out = m_trueValue;
+    outMapping.clear();
+    outMapping.push_back(1);
+}
+
+bool ExternalFormulaGraphRelation::getRelation(VertexID sourceVertex, VarID& out) const
+{
+    out = m_trueValue.variable;
 
     ProgramSymbol concrete = m_symbol.makeConcrete(sourceVertex);
     return concrete.isValid();
 }
 
-bool ExternalFormulaGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool ExternalFormulaGraphRelation::equals(const IGraphRelation<VarID>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const ExternalFormulaGraphRelation*>(&rhs))
     {
@@ -1468,29 +1501,23 @@ wstring ExternalFormulaGraphRelation::toString() const
     return out;
 }
 
-HasRelationGraphRelation::HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation, const Literal& trueValue)
+HasRelationGraphRelation::HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation)
     : m_relation(relation)
-    , m_trueValue(trueValue)
 {
 }
 
-bool HasRelationGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+bool HasRelationGraphRelation::getRelation(VertexID sourceVertex, bool& out) const
 {
-    out = m_trueValue;
-
     int ignored;
-    if (!m_relation->getRelation(sourceVertex, ignored))
-    {
-        out = out.inverted();
-    }
+    out = m_relation->getRelation(sourceVertex, ignored);
     return true;
 }
 
-bool HasRelationGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool HasRelationGraphRelation::equals(const IGraphRelation<bool>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const HasRelationGraphRelation*>(&rhs))
     {
-        return m_relation->equals(*rrhs->m_relation) && m_trueValue == rrhs->m_trueValue;
+        return m_relation->equals(*rrhs->m_relation);
     }
     return false;
 }

@@ -102,6 +102,8 @@ public:
 		return !(*this == rhs);
 	}
 
+	bool isValid() const { return variable.isValid(); }
+
 	VariableType variable;
 	EClauseSign sign;
 	vector<int> values;
