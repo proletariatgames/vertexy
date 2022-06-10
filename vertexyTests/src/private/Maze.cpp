@@ -225,7 +225,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 	auto cells = solver.makeVariableGraph(TEXT("Grid"), ITopology::adapt(grid), cellDomain, TEXT("cell"));
 	cellType.bind(solver, [&](const ProgramSymbol& vert)
 	{
-		return Literal(cells->get(vert.getInt()), ValueSet(cellDomain.getDomainSize(), true));
+		return cells->get(vert.getInt());
 	});
 	
 	//
@@ -265,7 +265,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		auto& stepResult = stepInst->getResult();
 		stepResult.stepCell.bind([&, stepData](const ProgramSymbol& vert)
 		{
-			return Literal(stepData->get(vert.getInt()), ValueSet(stepDomain.getDomainSize(), true));
+			return stepData->get(vert.getInt());
 		});
 		stepResult.edgeOpen.bind([&, stepEdgeData](const ProgramSymbol& startVert, const ProgramSymbol& endVert)
 		{
@@ -407,7 +407,7 @@ int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed,
 	cellType.bind(solver, [&](const ProgramSymbol& _x, const ProgramSymbol& _y)
 	{
 		int x = _x.getInt(), y = _y.getInt();
-		return Literal(cells->get(grid->coordinateToIndex(x, y)), ValueSet(cellDomain.getDomainSize(), true));
+		return cells->get(grid->coordinateToIndex(x, y));
 	});
 	
 	hash_map<int, tuple<int, int>> globalCardinalities;

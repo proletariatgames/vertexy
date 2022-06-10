@@ -30,7 +30,9 @@ public:
     };
     
     FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, const ITopologyPtr& topology, BindCaller* binder);
-    Literal getLiteral(const vector<ProgramSymbol>& concreteArgs, CreationType creationType) const;
+    VarID getVariableForArguments(const vector<ProgramSymbol>& concreteArgs, CreationType creationType) const;
+    void getDomainMapping(vector<int>& outMapping) const;
+    
     FormulaUID getFormulaUID() const { return m_formulaUID; }
     
     void setAtomID(AtomID id) { m_atomId = id; }
@@ -63,12 +65,12 @@ private:
     ITopologyPtr m_topology;
     BindCaller* m_binder = nullptr;
 
-    using BindMap = hash_map<vector<ProgramSymbol>, Literal, ArgumentHasher>; 
+    using BindMap = hash_map<vector<ProgramSymbol>, VarID, ArgumentHasher>; 
     mutable BindMap m_bindMap;
 };
 using FormulaMapperPtr = shared_ptr<FormulaMapper>;
 
-class AbstractAtomLiteralRelation : public IAtomGraphRelation
+class AbstractAtomRelation : public IAtomGraphRelation
 {
 public:
     void setAtomID(AtomID atomID) { m_atomID = atomID; }
@@ -76,8 +78,7 @@ public:
     void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
 
-    virtual bool needsInstantiation() const override { return false; }    
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override { return false; }
+    virtual bool instantiateNecessary(int vertex, VarID& outVar) const override { return false; }
     virtual void lockVariableCreation() const override {}
     
 protected:
@@ -85,21 +86,21 @@ protected:
     AtomID m_atomID;
 };
 
-using AbstractMapperRelationPtr = shared_ptr<AbstractAtomLiteralRelation>;
+using AbstractMapperRelationPtr = shared_ptr<AbstractAtomRelation>;
 
 
-class FormulaGraphRelation : public AbstractAtomLiteralRelation
+class FormulaGraphRelation : public AbstractAtomRelation
 {
 public:
     FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm);
 
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
-    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual void getDomainMapping(vector<int>& outMapping) const override;
+    virtual bool getRelation(VertexID sourceVertex, VarID& out) const override;
+    virtual bool equals(const IGraphRelation<VarID>& rhs) const override;
     virtual size_t hash() const override;
     virtual wstring toString() const override;
 
-    virtual bool needsInstantiation() const override;
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const override;
+    virtual bool instantiateNecessary(int vertex, VarID& outVar) const override;
     virtual void lockVariableCreation() const override;
 
 private:
@@ -113,38 +114,38 @@ private:
 };
 
 //
-// Translates the vertex->vertex relation created by an external formula into a vertex->Literal relation,
-// where the returned literal is always true if the relation exists, and always false if the relation
+// Translates the vertex->vertex relation created by an external formula into a vertex->variable relation,
+// where the returned variable is always true if the relation exists, and always false if the relation
 // does not exist.
 //
-class ExternalFormulaGraphRelation : public AbstractAtomLiteralRelation
+class ExternalFormulaGraphRelation : public AbstractAtomRelation
 {
 public:
-    ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const Literal& trueValue);
+    ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const SignedClause& trueValue);
 
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
-    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual void getDomainMapping(vector<int>& outMapping) const override;
+    virtual bool getRelation(VertexID sourceVertex, VarID& out) const override;
+    virtual bool equals(const IGraphRelation<VarID>& rhs) const override;
     virtual size_t hash() const override;
     virtual wstring toString() const override;
 
 protected:
     ProgramSymbol m_symbol;
-    Literal m_trueValue;
+    SignedClause m_trueValue;
 };
 
-class HasRelationGraphRelation : public AbstractAtomLiteralRelation
+class HasRelationGraphRelation : public IGraphRelation<bool>
 {
 public:
-    HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation, const Literal& trueValue);
+    HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation);
 
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
-    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual bool getRelation(VertexID sourceVertex, bool& out) const override;
+    virtual bool equals(const IGraphRelation<bool>& rhs) const override;
     virtual size_t hash() const override;
     virtual wstring toString() const override;
 
 protected:
     IGraphRelationPtr<VertexID> m_relation;
-    Literal m_trueValue;
 };
 
 //

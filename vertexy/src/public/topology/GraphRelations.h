@@ -121,7 +121,7 @@ public:
 		return eastl::hash<T>()(m_val);
 	}
 
-	virtual wstring toString() const override { return eastl::to_wstring(m_val); }
+	virtual wstring toString() const override { return TEXT("constant"); }
 
 	const T& getConstant() const { return m_val; }
 	
@@ -819,6 +819,52 @@ public:
 
 protected:
     IGraphRelationPtr<int> m_child;
+};
+
+template<typename T>
+class NotGraphRelation : public IGraphRelation<T>
+{
+public:
+	explicit NotGraphRelation(const IGraphRelationPtr<T>& child)
+		: m_child(child)
+	{		
+	}
+
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
+	{
+		if (this == &rhs) return true;
+		if (auto rrhs = dynamic_cast<const NotGraphRelation<T>*>(&rhs))
+		{
+			return rrhs->m_child->equals(*m_child);	
+		}
+		return false;
+	}
+	
+	virtual bool getRelation(int sourceVertex, T& out) const override
+	{		
+		if (!m_child->getRelation(sourceVertex, out))
+		{
+			return false;
+		}
+
+		out = !out;
+		return true;
+	}
+	
+	virtual size_t hash() const override
+	{
+		return m_child->hash();
+	}
+	
+	virtual wstring toString() const override
+	{
+		return TEXT("~") + m_child->toString();
+	}
+	
+	const IGraphRelationPtr<T>& getInner() const { return m_child; }
+
+protected:
+	IGraphRelationPtr<T> m_child;
 };
 
 class BinOpGraphRelation : public IGraphRelation<int>

@@ -271,14 +271,13 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         auto newBody = new (&m_bodyBuffer[outBodyOffsets[i]]) BodyData();
         const RuleDatabase::ConcreteBodyInfo* bodyInfo = rdb.getBody(relevantBodies[i])->asConcrete();
 
-        auto bodyLit = get<Literal>(bodyInfo->getLiteral(rdb, false, false));
+        auto bodyLit = get<SignedClause>(bodyInfo->getClause(rdb, false, false)).translateToLiteral(rdb);
         
         newBody->variable = bodyLit.variable;
         newBody->scc = bodyInfo->scc+1;
         newBody->numWatching = 0;
         vxy_assert(newBody->variable.isValid());
-        vxy_sanity(bodyInfo->equivalence.values == TRUE_VALUE);
-
+        
         int offs = 0;
         visitBodyHeads(bodyInfo, [&](auto atomInfo, int bitIndex)
         {

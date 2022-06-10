@@ -41,48 +41,19 @@ struct FormulaBinder
 class BindCaller
 {
 public:
+    explicit BindCaller(int formulaDomainSize, const vector<int>& domainMapping)
+        : m_formulaDomainSize(formulaDomainSize)
+        , m_domainMapping(domainMapping)
+    {        
+    }
     virtual ~BindCaller() {}
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
-};
+    virtual VarID call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) = 0;
 
-// Wraps a binder function that returns a SignedClause.
-template<size_t ARITY>
-class TBindClauseCaller : public BindCaller
-{
-public:
-    TBindClauseCaller(typename FormulaBinder<SignedClause, ARITY>::type&& bindFun)
-        : m_bindFun(eastl::move(bindFun))
-    {
-    }
-
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
-    {
-        vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        SignedClause clause = std::apply(m_bindFun, zip(syms));
-        return clause.translateToLiteral(provider);
-    }
-
-    // zip up ARITY elements from the vector into a tuple
-    static auto zip(const vector<ProgramSymbol>& syms)
-    {
-        return zipper<0>(std::tuple<>(), syms);
-    }
-
-    template<size_t I, typename... Ts>
-    static auto zipper(std::tuple<Ts...>&& t, const vector<ProgramSymbol>& syms)
-    {
-        if constexpr (I == ARITY)
-        {
-            return t;
-        }
-        else
-        {
-            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::make_tuple(syms[I])), syms);
-        }
-    }
+    const vector<int>& getDomainMapping() const { return m_domainMapping; }
 
 protected:
-    typename FormulaBinder<SignedClause, ARITY>::type m_bindFun;
+    int m_formulaDomainSize;
+    vector<int> m_domainMapping;
 };
 
 // Wraps a binder function that returns a VarID.
@@ -90,62 +61,13 @@ template<size_t ARITY>
 class TBindVarCaller : public BindCaller
 {
 public:
-    TBindVarCaller(typename FormulaBinder<VarID, ARITY>::type&& bindFun)
-        : m_bindFun(eastl::move(bindFun))
+    TBindVarCaller(int formulaDomainSize, typename FormulaBinder<VarID, ARITY>::type&& bindFun, const vector<int>& domainMapping)
+        : BindCaller(formulaDomainSize, domainMapping)
+        , m_bindFun(eastl::move(bindFun))
     {
     }
 
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
-    {
-        vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
-        VarID boundVar = std::apply(m_bindFun, zip(syms));
-        if (!boundVar.isValid())
-        {
-            return {};
-        }
-        
-        Literal out;
-        out.variable = boundVar;
-        out.values = ValueSet(provider.getDomain(boundVar).getDomainSize(), true);
-        out.values[0] = false;
-        
-        return out;
-    }
-
-    // zip up ARITY elements from the vector into a tuple
-    static auto zip(const vector<ProgramSymbol>& syms)
-    {
-        return zipper<0>(std::tuple<>(), syms);
-    }
-
-    template<size_t I, typename... Ts>
-    static auto zipper(std::tuple<Ts...>&& t, const vector<ProgramSymbol>& syms)
-    {
-        if constexpr (I == ARITY)
-        {
-            return t;
-        }
-        else
-        {
-            return zipper<I+1>(std::tuple_cat(eastl::move(t), std::make_tuple(syms[I])), syms);
-        }
-    }
-
-protected:
-    typename FormulaBinder<VarID, ARITY>::type m_bindFun;
-};
-
-// Wraps a binder function that, given a mask, returns the corresponding literal.
-template<size_t ARITY>
-class TBindLiteralCaller : public BindCaller
-{
-public:
-    TBindLiteralCaller(typename FormulaBinder<Literal, ARITY>::type&& bindFun)
-        : m_bindFun(eastl::move(bindFun))
-    {
-    }
-
-    virtual Literal call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
+    virtual VarID call(const IVariableDomainProvider& provider, const vector<ProgramSymbol>& syms) override
     {
         vxy_assert_msg(syms.size() == ARITY, "wrong number of symbols");
         return std::apply(m_bindFun, zip(syms));
@@ -170,7 +92,8 @@ public:
         }
     }
 
-    typename FormulaBinder<Literal, ARITY>::type m_bindFun;
+protected:
+    typename FormulaBinder<VarID, ARITY>::type m_bindFun;
 };
 
 // Base class for instantiated programs (once they have been given their arguments)
