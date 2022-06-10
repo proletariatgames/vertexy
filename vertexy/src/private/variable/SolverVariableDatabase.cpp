@@ -241,15 +241,20 @@ SolverTimestamp SolverVariableDatabase::getModificationTimePriorTo(VarID variabl
 	return t;
 }
 
-void SolverVariableDatabase::backtrack(SolverTimestamp timestamp)
+void SolverVariableDatabase::backtrack(SolverTimestamp timestamp, SolverTimestamp latestDecisionLevelTimestamp)
 {
 	vxy_assert(m_isSolving);
 	m_assignmentStack.backtrackToTime(timestamp, [&](const AssignmentStack::Modification& mod)
 	{
 		VariableInfo& varInfo = m_variableInfo[mod.variable.raw()];
 
+		//
+		// "Phase-saving": store the value of any variable that was solved before the current decision level.
+		// When restarting, we will use this value (if it is currently allowed), so that we remain within
+		// same search-space and exploit learned constraints.
+		//			
 		int solvedValue;
-		if (varInfo.potentialValues.isSingleton(solvedValue))
+		if (varInfo.latestModification < latestDecisionLevelTimestamp && varInfo.potentialValues.isSingleton(solvedValue))
 		{
 			m_lastSolvedValues[mod.variable.raw()] = solvedValue + 1;
 		}
