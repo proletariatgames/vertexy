@@ -36,17 +36,6 @@ void ConstraintGraphRelationInfo::addVariableRelation(VarID var, const IGraphRel
 {
 	vxy_assert(relation != nullptr);
 
-	auto it = find_if(m_variableRelations.begin(), m_variableRelations.end(), [&](auto&& entry)
-	{
-		return entry.var == var;
-	});
-	if (it != m_variableRelations.end())
-	{
-		VERTEXY_WARN("Variable %d is being referred to by multiple relations in the same constraint. This will prevent it from being used for graph learning.", var.raw());
-		m_isValid = false;
-		return;
-	}
-
 	auto itLit = find_if(m_literalRelations.begin(), m_literalRelations.end(), [&](auto&& entry) { return entry.lit.variable == var; });
 	if (itLit != m_literalRelations.end())
 	{
@@ -54,8 +43,19 @@ void ConstraintGraphRelationInfo::addVariableRelation(VarID var, const IGraphRel
 		m_isValid = false;
 		return;
 	}
-	
-	m_variableRelations.push_back({var, relation});
+
+	auto it = find_if(m_variableRelations.begin(), m_variableRelations.end(), [&](auto&& entry)
+	{
+		return entry.var == var;
+	});
+	if (it != m_variableRelations.end())
+	{
+		it->relation = TManyToOneGraphRelation<VarID>::combine(it->relation, relation);
+	}
+	else
+	{
+		m_variableRelations.push_back({var, relation});
+	}
 }
 
 void ConstraintGraphRelationInfo::addLiteralRelation(const Literal& lit, const IGraphRelationPtr<Literal>& relation)

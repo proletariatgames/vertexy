@@ -165,8 +165,8 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 
 	struct StepResult
 	{
-		FormulaResult<1, CellStepDomain> stepCell;
-		FormulaResult<2> edgeOpen;
+		FormulaResult<2, CellStepDomain> stepCell;
+		FormulaResult<3> edgeOpen;
 	};
 	
 	// Defines each "step" of the maze: retrieving a key and unlocking a door. The final step is reaching the exit.
@@ -180,37 +180,37 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		laterStep = Program::range(step+1, NUM_KEYS);
 
 		// Define what is passable for this step: empty tiles and doors we have keys for 
-		VXY_FORMULA(stepPassable, 1);
-		stepPassable(vertex) <<= cellType(vertex).is(M_PASSABLE);
-		stepPassable(vertex) <<= cellType(vertex).is(cellType.doors[X]) && prevStep(X);
+		VXY_FORMULA(stepPassable, 2);
+		stepPassable(vertex,step) <<= cellType(vertex).is(M_PASSABLE);
+		stepPassable(vertex,step) <<= cellType(vertex).is(cellType.doors[X]) && prevStep(X);
 
-		VXY_FORMULA(edgeOpen, 2);
-		edgeOpen(X,Y) <<= Program::graphEdge(X, Y) && stepPassable(X) && stepPassable(Y);
+		VXY_FORMULA(edgeOpen, 3);
+		edgeOpen(X,Y,step) <<= Program::graphEdge(X, Y) && stepPassable(X,step) && stepPassable(Y,step);
 		
-		VXY_DOMAIN_FORMULA(stepCell, CellStepDomain, 1);
+		VXY_DOMAIN_FORMULA(stepCell, CellStepDomain, 2);
 		auto M_STEP_REACHABLE = stepCell.reachable|stepCell.origin;
 		
-		stepCell(vertex).is(stepCell.origin) <<= cellType(vertex).is(cellType.entrance);
-		stepCell(vertex).is(stepCell.reachable|stepCell.unreachable) <<= ~cellType(vertex).is(cellType.entrance);
-		stepCell(vertex).is(stepCell.unreachable) <<= ~stepPassable(vertex);
-		Program::disallow(stepCell(vertex).is(M_STEP_REACHABLE) && edgeOpen(vertex, X) && ~stepCell(X).is(M_STEP_REACHABLE));
+		stepCell(vertex,step).is(stepCell.origin) <<= cellType(vertex).is(cellType.entrance);
+		stepCell(vertex,step).is(stepCell.reachable|stepCell.unreachable) <<= ~cellType(vertex).is(cellType.entrance);
+		stepCell(vertex,step).is(stepCell.unreachable) <<= ~stepPassable(vertex,step);
+		Program::disallow(stepCell(vertex,step).is(M_STEP_REACHABLE) && edgeOpen(vertex, X, step) && ~stepCell(X,step).is(M_STEP_REACHABLE));
 
-		VXY_FORMULA(adjacentReachable, 1);
-		adjacentReachable(vertex) <<= Program::graphEdge(X, vertex) && stepCell(X).is(M_STEP_REACHABLE);
+		VXY_FORMULA(adjacentReachable, 2);
+		adjacentReachable(vertex, step) <<= Program::graphEdge(X, vertex) && stepCell(X,step).is(M_STEP_REACHABLE);
 		
 		// Key for this step must be reachable
-		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepCell(vertex).is(stepCell.reachable));
+		Program::disallow(cellType(vertex).is(cellType.keys[step]) && ~stepCell(vertex,step).is(stepCell.reachable));
 		// Door for this step must be reachable (not necessary because this is implicit from other constraints)
 		// Program::disallow(cellType(vertex).is(cellType.doors[step]) && ~adjacentReachable(vertex));
 		
 		// Keys for later steps cannot be reachable 
-		Program::disallow(cellType(vertex).is(cellType.keys[X]) && stepCell(vertex).is(stepCell.reachable) && laterStep(X));
+		Program::disallow(cellType(vertex).is(cellType.keys[X]) && stepCell(vertex,step).is(stepCell.reachable) && laterStep(X));
 		// Door for later steps cannot be reachable
-		Program::disallow(cellType(vertex).is(cellType.doors[X]) && laterStep(X) && adjacentReachable(vertex));
+		Program::disallow(cellType(vertex).is(cellType.doors[X]) && laterStep(X) && adjacentReachable(vertex,step));
 		// If this is not the last step, the exit should not be reachable
-		Program::disallow(step < NUM_KEYS && cellType(vertex).is(cellType.exit) && stepCell(vertex).is(stepCell.reachable));
+		Program::disallow(step < NUM_KEYS && cellType(vertex).is(cellType.exit) && stepCell(vertex,step).is(stepCell.reachable));
 		// If this is the last step, any empty tile (including exit) must be reachable.
-		Program::disallow(step == NUM_KEYS && cellType(vertex).is(M_PASSABLE) && ~stepCell(vertex).is(M_STEP_REACHABLE));
+		Program::disallow(step == NUM_KEYS && cellType(vertex).is(M_PASSABLE) && ~stepCell(vertex,step).is(M_STEP_REACHABLE));
 
 		return StepResult{stepCell, edgeOpen};
 	});
@@ -263,11 +263,11 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
 		auto& stepResult = stepInst->getResult();
-		stepResult.stepCell.bind([&, stepData](const ProgramSymbol& vert)
+		stepResult.stepCell.bind([&, stepData](const ProgramSymbol& vert, const ProgramSymbol& inStep)
 		{
 			return stepData->get(vert.getInt());
 		});
-		stepResult.edgeOpen.bind([&, stepEdgeData](const ProgramSymbol& startVert, const ProgramSymbol& endVert)
+		stepResult.edgeOpen.bind([&, stepEdgeData](const ProgramSymbol& startVert, const ProgramSymbol& endVert, const ProgramSymbol& inStep)
 		{
 			int edgeVert = edges->getVertexForSourceEdge(startVert.getInt(), endVert.getInt());
 			return stepEdgeData->get(edgeVert);

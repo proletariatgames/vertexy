@@ -89,8 +89,6 @@ ClauseConstraint::ClauseConstraint(const ConstraintFactoryParams& params, const 
 		for (int i = 0; i < m_numLiterals; ++i)
 		{
 			vxy_sanity_msg(m_literals[i].isValid(), "Invalid literal passed to clause constraint");
-			vxy_sanity_msg(m_literals[i].values.contains(false), "Always-satisfied literal passed to clause constraint");
-			vxy_sanity_msg(m_literals[i].values.contains(true), "Never-satisfied literal passed to clause constraint");
 			for (int j = i+1; j < m_numLiterals; ++j)
 			{
 				vxy_sanity_msg(m_literals[i].variable != m_literals[j].variable,
