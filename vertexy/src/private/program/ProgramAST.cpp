@@ -180,6 +180,11 @@ bool VariableTerm::containsAbstracts() const
 
 ProgramSymbol VariableTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
+    if (sharedBoundRef == nullptr)
+    {
+        return {};
+    }
+    
     auto found = overrideMap.find(sharedBoundRef.get());
     return found != overrideMap.end() ? found->second : *sharedBoundRef;
 }
@@ -316,7 +321,7 @@ bool FunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor) c
     return true;
 }
 
-void FunctionTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void FunctionTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     for (auto& arg : arguments)
     {
@@ -574,7 +579,7 @@ bool UnaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) co
     }
 }
 
-void UnaryOpTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void UnaryOpTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     if (!maybeReplaceChild(child, visitor))
     {
@@ -684,7 +689,7 @@ bool BinaryOpTerm::visit(const function<EVisitResponse(const Term*)>& visitor) c
     return true;
 }
 
-void BinaryOpTerm::replace(const function<UTerm(const Term*)>& visitor)
+void BinaryOpTerm::replace(const function<UTerm(Term*)>& visitor)
 {
     if (!maybeReplaceChild(lhs, visitor))
     {
@@ -856,6 +861,106 @@ bool BinaryOpTerm::operator==(const LiteralTerm& term) const
     return false;
 }
 
+LinearTerm::LinearTerm(ULiteralTerm&& varTerm, int offset, int multiplier)
+    : childTerm(move(varTerm))
+    , offset(move(offset))
+    , multiplier(move(multiplier))
+{
+}
+
+bool LinearTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+{
+    auto resp = visitor(this);
+    if (resp == ETopologySearchResponse::Abort)
+    {
+        return false;
+    }
+    else if (resp != ETopologySearchResponse::Skip)
+    {
+        if (!childTerm->visit(visitor))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void LinearTerm::replace(const function<UTerm(Term*)>& visitor)
+{
+    if (!maybeReplaceChild(childTerm, visitor))
+    {
+        childTerm->replace(visitor);
+    }
+}
+
+void LinearTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+{
+    return childTerm->collectVars(outVars, canEstablish);
+}
+
+bool LinearTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    if (sym.isInteger())
+    {
+        int shifted = sym.getInt() - offset;
+        if ((shifted % multiplier) == 0)
+        {
+            return childTerm->match(ProgramSymbol(shifted/multiplier), overrideMap, boundVertex);
+        }
+    }
+    return false;
+}
+
+ProgramSymbol LinearTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    ProgramSymbol v = childTerm->eval(overrideMap, boundVertex);
+    vxy_assert_msg(v.isInteger(), "Math operations on abstracts NYI");
+    return v.getInt()*multiplier + offset;
+}
+
+bool LinearTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
+{
+    return childTerm->hasBoundAbstracts(compiler, varBindings);
+}
+
+bool LinearTerm::containsAbstracts() const
+{
+    return childTerm->containsAbstracts();
+}
+
+UTerm LinearTerm::clone() const
+{
+    auto clonedVarTerm = static_cast<VariableTerm*>(childTerm->clone().detach());
+    return make_unique<LinearTerm>(UVariableTerm(move(clonedVarTerm)), offset, multiplier);
+}
+
+wstring LinearTerm::toString() const
+{
+    if (multiplier != 1)
+    {
+        return childTerm->toString() + TEXT("*") + to_wstring(multiplier) + TEXT(" + ") + to_wstring(offset);
+    }
+    else
+    {
+        return childTerm->toString() + TEXT(" + ") + to_wstring(offset);
+    }
+}
+
+size_t LinearTerm::hash() const
+{
+    return combineHashes(combineHashes(childTerm->hash(), eastl::hash<int>()(multiplier)), eastl::hash<int>()(offset));
+}
+
+bool LinearTerm::operator==(const LiteralTerm& rhs) const
+{
+    if (this == &rhs) { return true; }
+    if (auto rrhs = dynamic_cast<const LinearTerm*>(&rhs))
+    {
+        return rrhs->multiplier == multiplier && rrhs->offset == offset && *childTerm == *rrhs->childTerm;
+    }
+    return false;
+}
+
 ExplicitDomainTerm::ExplicitDomainTerm(ValueSet&& mask)
     : mask(move(mask))
 {    
@@ -927,7 +1032,7 @@ unique_ptr<Term> SubscriptDomainTerm::clone() const
     return make_unique<SubscriptDomainTerm>(array, ULiteralTerm(move(clonedSubscript)));
 }
 
-void SubscriptDomainTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void SubscriptDomainTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     if (!maybeReplaceChild(subscriptTerm, visitor))
     {
@@ -1010,7 +1115,7 @@ unique_ptr<Term> UnionDomainTerm::clone() const
     return make_unique<UnionDomainTerm>(UDomainTerm(move(clonedLeft)), UDomainTerm(move(clonedRight)));
 }
 
-void UnionDomainTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void UnionDomainTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     if (!maybeReplaceChild(left, visitor))
     {
@@ -1139,7 +1244,7 @@ bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visito
     return true;
 }
 
-void FunctionHeadTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void FunctionHeadTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     for (auto& arg : arguments)
     {
@@ -1214,7 +1319,7 @@ bool DisjunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor
     return true;
 }
 
-void DisjunctionTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void DisjunctionTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     for (auto& child : children)
     {
@@ -1307,7 +1412,7 @@ bool ChoiceTerm::visit(const function<EVisitResponse(const Term*)>& visitor) con
     return true;
 }
 
-void ChoiceTerm::replace(const function<unique_ptr<Term>(const Term*)>& visitor)
+void ChoiceTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
 {
     if (!maybeReplaceChild(subTerm, visitor))
     {
