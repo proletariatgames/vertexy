@@ -92,6 +92,45 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
         hash_map<const BinaryOpTerm*, ProgramVariable, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
         hash_map<ProgramVariable, UBinaryOpTerm> assignments;
 
+        stmt.statement->replace<BinaryOpTerm>([&](BinaryOpTerm* opTerm) -> UTerm
+        {
+            ProgramSymbol eff = opTerm->eval(AbstractOverrideMap{}, {});
+            if (eff.isValid())
+            {
+                return make_unique<SymbolTerm>(ProgramSymbol(eff));
+            }
+
+            ProgramSymbol left = opTerm->lhs->eval(AbstractOverrideMap{}, {});
+            ProgramSymbol right = opTerm->rhs->eval(AbstractOverrideMap{}, {});
+
+            if (left.isInteger())
+            {
+                switch (opTerm->op)
+                {
+                case EBinaryOperatorType::Add:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), left.getInt(), 1);
+                case EBinaryOperatorType::Subtract:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), -left.getInt(), 1);
+                case EBinaryOperatorType::Multiply:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), 0, left.getInt());
+                }
+            }
+            else if (right.isInteger())
+            {
+                switch (opTerm->op)
+                {
+                case EBinaryOperatorType::Add:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), right.getInt(), 1);
+                case EBinaryOperatorType::Subtract:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), -right.getInt(), 1);
+                case EBinaryOperatorType::Multiply:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), 0, right.getInt());
+                }
+            }
+            
+            return nullptr; 
+        });
+
         int synthVariableCount = 0;
         stmt.statement->visit<Term>([&](const Term* term)
         {

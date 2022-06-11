@@ -357,10 +357,10 @@ int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed,
 		Program::disallow(cellType(X,Y).is(M_PASSABLE) && cellType(X+1,Y+1).is(M_PASSABLE) && cellType(X+1,Y).is(M_IMPASSABLE) && cellType(X,Y+1).is(M_IMPASSABLE));
 		
 		VXY_FORMULA(hasAdjacentWall, 2);
-		hasAdjacentWall(X-1,Y) <<= cellType(X,Y).is(M_IMPASSABLE);
-		hasAdjacentWall(X+1,Y) <<= cellType(X,Y).is(M_IMPASSABLE);
-		hasAdjacentWall(X,Y-1) <<= cellType(X,Y).is(M_IMPASSABLE);
-		hasAdjacentWall(X,Y+1) <<= cellType(X,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y) <<= cellType(X+1,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y) <<= cellType(X-1,Y).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y) <<= cellType(X,Y+1).is(M_IMPASSABLE);
+		hasAdjacentWall(X,Y) <<= cellType(X,Y-1).is(M_IMPASSABLE);
 		
 		Program::disallow(cellType(X,Y).is(M_IMPASSABLE) && ~border(X,Y) && ~hasAdjacentWall(X,Y));
 		Program::disallow(cellType(X,Y).is(cellType.keys) && ~deadEnd(X,Y));
