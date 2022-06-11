@@ -184,9 +184,9 @@ bool ClauseConstraint::initialize(IVariableDatabase* db, IConstraint* outerConst
 	return true;
 }
 
-bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarID>& outVarsRemoved)
+bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<Literal>& outLitsRemoved)
 {
-	outVarsRemoved.clear();
+	outLitsRemoved.clear();
 
 	// Remove any literals that are impossible
 	for (int i = 0; i < m_numLiterals;)
@@ -197,7 +197,7 @@ bool ClauseConstraint::propagateAndStrengthen(IVariableDatabase* db, vector<VarI
 		}
 		else
 		{
-			outVarsRemoved.push_back(m_literals[i].variable);
+			outLitsRemoved.push_back(m_literals[i]);
 			removeLiteralAt(db, i);
 		}
 	}
