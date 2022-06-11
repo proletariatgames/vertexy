@@ -117,7 +117,7 @@ public:
 		return nullptr;
 	}
 
-	bool propagateAndStrengthen(IVariableDatabase* db, vector<VarID>& outVarsRemoved);
+	bool propagateAndStrengthen(IVariableDatabase* db, vector<Literal>& outLitsRemoved);
 	void removeLiteralAt(IVariableDatabase* db, int litIndex);
 
 	void getLiterals(vector<Literal>& outLiterals) const;

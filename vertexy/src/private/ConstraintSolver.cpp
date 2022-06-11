@@ -443,8 +443,10 @@ void ConstraintSolver::addProgram(const ProgramInstancePtr& instance)
 
 bool ConstraintSolver::simplify()
 {
-	vector<vector<int>> occurList;
-	occurList.resize(m_variableDB.getNumVariables()+1, {});
+	double startTime = TimeUtils::getSeconds();
+	
+	vector<hash_map<ValueSet, vector<int>>> occurList;
+	occurList.resize(m_variableDB.getNumVariables()+1);
 
 	vector<ClauseConstraint*> clauses;
 	clauses.reserve(m_constraints.size());
@@ -479,7 +481,7 @@ bool ConstraintSolver::simplify()
 	// Note that we may discover the problem is UNSAT here.
 	auto propagateTopLevel = [&]()
 	{
-		vector<VarID> varsRemoved;
+		vector<Literal> litsRemoved;
 		bool fixPoint = false;
 		while (!fixPoint)
 		{
@@ -491,20 +493,20 @@ bool ConstraintSolver::simplify()
 					continue;
 				}
 
-				varsRemoved.clear();
-				if (!clauses[i]->propagateAndStrengthen(&m_variableDB, varsRemoved))
+				litsRemoved.clear();
+				if (!clauses[i]->propagateAndStrengthen(&m_variableDB, litsRemoved))
 				{
 					return false;
 				}
 
-				if (!varsRemoved.empty())
+				if (!litsRemoved.empty())
 				{
 					fixPoint = false;
 
 					strengthenedConstraints.add(i);
-					for (auto& var : varsRemoved)
+					for (auto& lit : litsRemoved)
 					{
-						occurList[var.raw()].erase_first_unsorted(i);
+						occurList[lit.variable.raw()][lit.values].erase_first_unsorted(i);
 						++numLiteralsRemoved;
 					}
 				}
@@ -520,14 +522,14 @@ bool ConstraintSolver::simplify()
 
 					for (auto itLit = clauses[i]->beginLiterals(), itLitEnd = clauses[i]->endLiterals(); itLit != itLitEnd; ++itLit)
 					{
-						occurList[itLit->variable.raw()].erase_first_unsorted(i);
+						occurList[itLit->variable.raw()][itLit->values].erase_first_unsorted(i);
 						++numLiteralsRemoved;
 					}
 
 					m_constraints[clauses[i]->getID()].reset();
 					clauses[i] = nullptr;
 				}
-				else if (!varsRemoved.empty())
+				else if (!litsRemoved.empty())
 				{
 					clauseHashes[i] = hashClause(clauses[i]);
 				}
@@ -555,7 +557,7 @@ bool ConstraintSolver::simplify()
 				for (int i = 0; i < clauseCon->getNumLiterals(); ++i)
 				{
 					auto& lit = clauseCon->getLiteral(i);
-					occurList[lit.variable.raw()].push_back(clauses.size());
+					occurList[lit.variable.raw()][lit.values].push_back(clauses.size());
 				}
 				numTotalLiterals += clauseCon->getNumLiterals();
 
@@ -596,6 +598,11 @@ bool ConstraintSolver::simplify()
 
 			if (negateVar == it->variable)
 			{
+				// TODO: This seems like it would be correct, but not totally sure:
+				// if (!found->values.isSubsetOf(it->values.inverted()))
+				// {
+				// 	return false;
+				// }
 				if (found->values != it->values.inverted())
 				{
 					return false;
@@ -621,13 +628,15 @@ bool ConstraintSolver::simplify()
 
 		outConsumed.clear();
 
-		VarID bestVar = cons->getLiteral(0).variable;
+		const Literal* bestLit = &cons->getLiteral(0);
+		int bestSize = occurList[bestLit->variable.raw()][bestLit->values].size();
 		for (int i = 1; i < cons->getNumLiterals(); ++i)
 		{
 			auto& lit = cons->getLiteral(i);
-			if (occurList[lit.variable.raw()].size() < occurList[bestVar.raw()].size())
+			int size = occurList[lit.variable.raw()][lit.values].size();
+			if (size < bestSize)
 			{
-				bestVar = lit.variable;
+				bestLit = &lit;
 			}
 		}
 
@@ -638,7 +647,7 @@ bool ConstraintSolver::simplify()
 			negateVar = cons->getLiteral(negateLitIdx).variable;
 		}
 
-		for (int& occur : occurList[bestVar.raw()])
+		for (int occur : occurList[bestLit->variable.raw()][bestLit->values])
 		{
 			if (isSubsetOf(clauseIdx, occur, negateVar))
 			{
@@ -659,19 +668,21 @@ bool ConstraintSolver::simplify()
 		{
 			auto& lit = cons->getLiteral(i);
 			findSubsumed(clauseIdx, consumed, i);
-			for (int& clause : consumed)
+			for (int consumedIdx : consumed)
 			{
-				auto strCons = clauses[clause];
+				vxy_assert(consumedIdx != clauseIdx);
+				auto strCons = clauses[consumedIdx];
 				bool found = false;
 				for (int j = 0; j < strCons->getNumLiterals(); ++j)
 				{
 					if (strCons->getLiteral(j).variable == lit.variable)
 					{
 						vxy_sanity(strCons->getLiteral(j).values == lit.values.inverted());
+						occurList[lit.variable.raw()][strCons->getLiteral(j).values].erase_first_unsorted(consumedIdx);
+
 						strCons->removeLiteralAt(&m_variableDB, j);
-						clauseHashes[clause] = hashClause(strCons);
-						occurList[lit.variable.raw()].erase_first_unsorted(clause);
-						strengthenedConstraints.add(clause);
+						clauseHashes[consumedIdx] = hashClause(strCons);
+						strengthenedConstraints.add(consumedIdx);
 
 						++numLiteralsRemoved;
 
@@ -687,15 +698,10 @@ bool ConstraintSolver::simplify()
 	// Return all clauses that contain the specified literal (exact match)
 	auto getClausesWithLiteral = [&](const Literal& lit, LookupSet& outClauses)
 	{
-		const auto& list = occurList[lit.variable.raw()];
+		const auto& list = occurList[lit.variable.raw()][lit.values];
 		for (int listLit : list)
 		{
-			auto cons = clauses[listLit];
-			auto found = find_if(cons->beginLiterals(), cons->endLiterals(), [&](auto& l) { return l.variable == lit.variable; });
-			if (found != cons->endLiterals() && found->values == lit.values)
-			{
-				outClauses.add(listLit);
-			}
+			outClauses.add(listLit);
 		}
 	};
 
@@ -770,7 +776,7 @@ bool ConstraintSolver::simplify()
 				auto subsumed = clauses[subsumedIdx];
 				for (auto itLit = subsumed->beginLiterals(), itLitEnd = subsumed->endLiterals(); itLit != itLitEnd; ++itLit)
 				{
-					occurList[itLit->variable.raw()].erase_first_unsorted(subsumedIdx);
+					occurList[itLit->variable.raw()][itLit->values].erase_first_unsorted(subsumedIdx);
 					++numLiteralsRemoved;
 				}
 
@@ -782,9 +788,10 @@ bool ConstraintSolver::simplify()
 		}
 	}
 
+	double endTime = TimeUtils::getSeconds();
 	if (numConstraintsRemoved > 0 || numLiteralsRemoved > 0)
 	{
-		VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+		VERTEXY_LOG("Simplification in %.2fs: removed %d/%d clause constraints, %d/%d clause literals", endTime-startTime, numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
 	}
 	return true;
 }
