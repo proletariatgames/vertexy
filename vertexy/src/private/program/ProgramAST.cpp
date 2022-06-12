@@ -411,30 +411,6 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     return true;
 }
 
-bool FunctionTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
-{
-    for (auto& arg : arguments)
-    {
-        if (arg->hasBoundAbstracts(compiler, varBindings))
-        {
-            return true;
-        }
-
-        if (auto varArg = dynamic_cast<const VariableTerm*>(arg.get()))
-        {
-            auto found = varBindings.find(varArg->var);
-            if (found != varBindings.end())
-            {
-                if (compiler.getDomain(functionUID).containsAbstract)
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
-}
-
 bool FunctionTerm::containsAbstracts() const
 {
     for (auto& arg : arguments)
@@ -621,11 +597,6 @@ ProgramSymbol UnaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const Pr
     return {};
 }
 
-bool UnaryOpTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
-{
-    return child->hasBoundAbstracts(compiler, varBindings);
-}
-
 bool UnaryOpTerm::containsAbstracts() const
 {
     return child->containsAbstracts();
@@ -782,11 +753,6 @@ ProgramSymbol BinaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const P
     }
 }
 
-bool BinaryOpTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
-{
-    return lhs->hasBoundAbstracts(compiler, varBindings) || rhs->hasBoundAbstracts(compiler, varBindings);
-}
-
 bool BinaryOpTerm::containsAbstracts() const
 {
     return lhs->containsAbstracts() || rhs->containsAbstracts();
@@ -916,11 +882,6 @@ ProgramSymbol LinearTerm::eval(const AbstractOverrideMap& overrideMap, const Pro
     ProgramSymbol v = childTerm->eval(overrideMap, boundVertex);
     vxy_assert_msg(v.isInteger(), "Math operations on abstracts NYI");
     return v.getInt()*multiplier + offset;
-}
-
-bool LinearTerm::hasBoundAbstracts(const ProgramCompiler& compiler, const VariableMap& varBindings) const
-{
-    return childTerm->hasBoundAbstracts(compiler, varBindings);
 }
 
 bool LinearTerm::containsAbstracts() const

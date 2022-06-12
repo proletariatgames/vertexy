@@ -887,16 +887,16 @@ template <>
 template <typename U>
 shared_ptr<const IGraphRelation<typename U::RelationType>> IGraphRelation<int>::map(const shared_ptr<U>& relation) const
 {
-	if constexpr (is_same_v<typename U::RelationType, int>)
+	if (dynamic_cast<const IdentityGraphRelation*>(this) != nullptr)
+	{
+		return relation;
+	}
+	else if constexpr (is_same_v<typename U::RelationType, int>)
 	{
 		if (dynamic_cast<const IdentityGraphRelation*>(relation.get()) != nullptr)
 		{
 			return shared_from_this();
 		}
-	}
-	else if (dynamic_cast<const IdentityGraphRelation*>(this) != nullptr)
-	{
-		return relation;
 	}
 	
 	return make_shared<TMappingGraphRelation<typename U::RelationType>>(shared_from_this(), const_shared_pointer_cast<U, add_const<U>::type>(relation));

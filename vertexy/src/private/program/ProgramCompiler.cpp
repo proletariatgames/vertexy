@@ -463,9 +463,11 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
 
     //
     // Terms will bind variables in the following precedence:
-    // 1) External terms will always bind variables first (if they can).
-    // 2) Function terms that contain abstract terms (either previously bound abstract variables or VertexTerms) are next.
-    // 3) Finally, precedence follows right-to-left order.
+    // 1) Constant terms are always bound first
+    // 2) Terms that contain a Vertex literal are next.
+    // 3) External terms that can bind any unbound variables are next.
+    // 4) Terms that contain a bound variable are next.
+    // 5) Finally, precedence follows right-to-left order.
     // 
     auto shouldTakePrecedence = [&](const LitNode* testLit, const LitNode* checkLit)
     {
@@ -476,6 +478,17 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             return true;
         }
         else if (!testLitSymTerm && checkLitSymTerm)
+        {
+            return false;
+        }
+        
+        bool testHasVertex = testLit->lit->contains<VertexTerm>();
+        bool checkHasVertex = checkLit->lit->contains<VertexTerm>();
+        if (testHasVertex && !checkHasVertex)
+        {
+            return true;
+        }
+        else if (!testHasVertex && checkHasVertex)
         {
             return false;
         }
@@ -494,13 +507,14 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             return false;
         }
 
-        bool testIsAbstract = testLit->lit->hasBoundAbstracts(*this, bound);
-        bool checkIsAbstract = checkLit->lit->hasBoundAbstracts(*this, bound);
-        if (testIsAbstract && !checkIsAbstract)
+        auto isBound = [&](auto&& varTerm) { return bound.find(varTerm->var) != bound.end(); };
+        bool testAllUnbound = !testLit->lit->contains<VariableTerm>(isBound);
+        bool checkAllUnbound = !checkLit->lit->contains<VariableTerm>(isBound);
+        if (!testAllUnbound && checkAllUnbound)
         {
             return true;
         }
-        else if (!testIsAbstract && checkIsAbstract)
+        else if (testAllUnbound && !checkAllUnbound)
         {
             return false;
         }
@@ -1091,7 +1105,7 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
                 ProgramSymbol concreteSym = sym.makeConcrete(vertex);
                 if (concreteSym.isValid())
                 {
-                    VarID boundVar = found->second->call(m_rdb, sym.getFormula()->args);
+                    VarID boundVar = found->second->call(m_rdb, concreteSym.getFormula()->args);
                     if (boundVar.isValid())
                     {
                         auto& formulaMask = sym.getFormula()->mask;

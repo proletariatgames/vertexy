@@ -322,7 +322,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[1].getWriteable() = ProgramSymbol(make_shared<OutgoingEdgeRelation>(m_topology, m_nextEdge));
+            *m_matchResult[1].getWriteable() = ProgramSymbol(left.getAbstractRelation()->map(make_shared<OutgoingEdgeRelation>(m_topology, m_nextEdge)));
             ++m_nextEdge;
             return true;
         }
@@ -359,7 +359,7 @@ protected:
                 return false;
             }
 
-            *m_matchResult[0].getWriteable() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, m_nextEdge));
+            *m_matchResult[0].getWriteable() = ProgramSymbol(make_shared<IncomingEdgeRelation>(m_topology, m_nextEdge)->map(right.getAbstractRelation()));
             ++m_nextEdge;
             return true;
         }
