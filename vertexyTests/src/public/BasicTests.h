@@ -15,6 +15,10 @@ class TestSolvers
 	}
 
 public:
+	static int bitsetTests();
+	static int digraphTests();
+	static int ruleSCCTests();
+
 	static int solveAllDifferentSmall(int times, int seed, bool printVerbose = true);
 	static int solveAllDifferentLarge(int times, int seed, bool printVerbose = true);
 	static int solveCardinalityBasic(int times, int seed, bool printVerbose = true);

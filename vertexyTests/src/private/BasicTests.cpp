@@ -2,10 +2,13 @@
 #include "BasicTests.h"
 
 #include <EASTL/hash_map.h>
+#include <EASTL/set.h>
 
 #include "ConstraintSolver.h"
+#include "ds/ESTree.h"
 #include "EATest/EATest.h"
 #include "program/ProgramDSL.h"
+#include "rules/RuleDatabase.h"
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"
 #include "util/SolverDecisionLog.h"
@@ -15,6 +18,240 @@ using namespace VertexyTests;
 
 // Whether to write a decision log as DecisionLog.txt
 static constexpr bool WRITE_BREADCRUMB_LOG = false;
+
+int TestSolvers::bitsetTests()
+{
+	int nErrorCount = 0;
+	using vbs = TValueBitset<>;
+
+	{
+		vbs a;
+		EATEST_VERIFY(a.size() == 0);
+
+		a.pad(33, false);
+		EATEST_VERIFY(a.size() == 33);
+
+		EATEST_VERIFY(a.indexOf(true) < 0);
+		EATEST_VERIFY(a.indexOf(false) == 0);
+		EATEST_VERIFY(a.lastIndexOf(true) < 0);
+		EATEST_VERIFY(a.lastIndexOf(false) == 32);
+
+		a.pad(31, false);
+		EATEST_VERIFY(a.size() == 33);
+	}
+
+
+	{
+		vbs a;
+		a.pad(33, true);
+		EATEST_VERIFY(a.size() == 33);
+		EATEST_VERIFY(a.indexOf(false) < 0);
+		EATEST_VERIFY(a.indexOf(true) == 0);
+		EATEST_VERIFY(a.lastIndexOf(false) < 0);
+		EATEST_VERIFY(a.lastIndexOf(true) == 32);
+	}
+	{
+		vbs a;
+		a.pad(48, false);
+		a[31] = true;
+		EATEST_VERIFY(a.indexOf(true) == 31);
+		EATEST_VERIFY(a.lastIndexOf(true) == 31);
+
+		a[32] = true;
+		EATEST_VERIFY(a.indexOf(true) == 31);
+		EATEST_VERIFY(a.lastIndexOf(true) == 32);
+
+		a[47] = true;
+		EATEST_VERIFY(a.indexOf(true) == 31);
+		EATEST_VERIFY(a.lastIndexOf(true) == 47);
+	}
+
+	{
+		vbs a;
+		a.pad(48, false);
+
+		a.setRange(5, 10, true);
+		EATEST_VERIFY(a[5]);
+		EATEST_VERIFY(a[6]);
+		EATEST_VERIFY(a[7]);
+		EATEST_VERIFY(a[8]);
+		EATEST_VERIFY(a[9]);
+		EATEST_VERIFY(!a[10]);
+
+		a.setRange(30, 35, true);
+		EATEST_VERIFY(!a[29]);
+		EATEST_VERIFY(a[30]);
+		EATEST_VERIFY(a[31]);
+		EATEST_VERIFY(a[32]);
+		EATEST_VERIFY(a[33]);
+		EATEST_VERIFY(a[34]);
+		EATEST_VERIFY(!a[35]);
+	}
+
+	{
+		vbs a(48, false);
+		vbs b;
+
+		a.setRange(30, 35, true);
+		b = a;
+		EATEST_VERIFY(b.size() == a.size());
+		EATEST_VERIFY(b.indexOf(true) == 30);
+
+		vbs c(a);
+		EATEST_VERIFY(c.size() == a.size());
+		EATEST_VERIFY(c.indexOf(true) == 30);
+
+		vbs d = move(a);
+		EATEST_VERIFY(d.size() == b.size());
+		EATEST_VERIFY(d.indexOf(true) == 30);
+	}
+
+	{
+		vbs a(48, false);
+		a.setRange(30, 35, true);
+
+		a.pad(900, false);
+		EATEST_VERIFY(a[30]);
+		EATEST_VERIFY(a[31]);
+		EATEST_VERIFY(a[32]);
+		EATEST_VERIFY(a[33]);
+		EATEST_VERIFY(a[34]);
+		EATEST_VERIFY(a.indexOf(true) == 30);
+		EATEST_VERIFY(a.lastIndexOf(true) == 34);
+	}
+
+	{
+		vbs a(48, false);
+		a[0] = true;
+		a[1] = true;
+		a[20] = true;
+		a[32] = true;
+		a[45] = true;
+		a[46] = true;
+		a[47] = true;
+
+		set<int32_t> Found;
+		for (auto it = a.beginSetBits(); it != a.endSetBits(); ++it)
+		{
+			Found.insert(*it);
+		}
+
+		EATEST_VERIFY(Found.find(0) != Found.end());
+		EATEST_VERIFY(Found.find(1) != Found.end());
+		EATEST_VERIFY(Found.find(20) != Found.end());
+		EATEST_VERIFY(Found.find(32) != Found.end());
+		EATEST_VERIFY(Found.find(45) != Found.end());
+		EATEST_VERIFY(Found.find(46) != Found.end());
+		EATEST_VERIFY(Found.find(47) != Found.end());
+		EATEST_VERIFY(Found.size() == 7);
+	}
+
+	{
+		vbs a(64, false);
+		a[30] = true;
+
+		vbs b(64, false);
+		b[58] = true;
+
+		vbs c = a.including(b);
+		EATEST_VERIFY(c[30]);
+		EATEST_VERIFY(c[58]);
+
+		a[58] = true;
+		c = a.excluding(b);
+		EATEST_VERIFY(c[30]);
+		EATEST_VERIFY(!c[58]);
+
+		a[58] = false;
+		b[30] = true;
+		c = a.intersecting(b);
+		EATEST_VERIFY(c[30]);
+		EATEST_VERIFY(!c[58]);
+
+		c = a.xoring(b);
+		EATEST_VERIFY(!c[30]);
+		EATEST_VERIFY(c[58]);
+
+		a[58] = true;
+		c.init(64, false);
+		c[30] = true;
+		EATEST_VERIFY(!a.isSubsetOf(c));
+		c[58] = true;
+		EATEST_VERIFY(a.isSubsetOf(c));
+		c[59] = true;
+		EATEST_VERIFY(a.isSubsetOf(c));
+	}
+
+	return nErrorCount;
+}
+
+int TestSolvers::digraphTests()
+{
+	int nErrorCount = 0;
+
+	shared_ptr<DigraphTopology> graph = make_shared<DigraphTopology>();
+	vector<int> nodes = {
+		graph->addVertex(),
+		graph->addVertex(),
+		graph->addVertex(),
+		graph->addVertex(),
+		graph->addVertex(),
+		graph->addVertex()
+	};
+
+	graph->addEdge(nodes[0], nodes[2]);
+	for (int i = 0; i < nodes.size() - 1; ++i)
+	{
+		graph->addEdge(nodes[i], nodes[i + 1]);
+	}
+
+	ESTree<> tree(graph);
+	tree.initialize(nodes[0]);
+	EATEST_VERIFY(!containsPredicate(nodes.begin(), nodes.end(), [&](int Node) { return !tree.isReachable(Node); }));
+
+	graph->removeEdge(nodes[0], nodes[1]);
+	EATEST_VERIFY(!tree.isReachable(nodes[1]));
+	EATEST_VERIFY(!containsPredicate(nodes.begin(), nodes.end(), [&](int Node) { return Node != nodes[1] && !tree.isReachable(Node); }));
+
+	graph->removeEdge(nodes[0], nodes[2]);
+	EATEST_VERIFY(!containsPredicate(nodes.begin(), nodes.end(), [&](int Node) { return Node != nodes[0] && tree.isReachable(Node); }));
+
+	return nErrorCount;
+}
+
+int TestSolvers::ruleSCCTests()
+{
+	int nErrorCount = 0;
+
+	ConstraintSolver solver;
+	auto& rdb = solver.getRuleDB();
+	auto a = rdb.createAtom(TEXT("a"));
+	auto b = rdb.createAtom(TEXT("b"));
+	auto c = rdb.createAtom(TEXT("c"));
+	auto d = rdb.createAtom(TEXT("d"));
+	auto e = rdb.createAtom(TEXT("e"));
+
+	auto pos = [&](AtomID atom) { return AtomLiteral(atom, true, ValueSet(1, true)); };
+	auto neg = [&](AtomID atom) { return AtomLiteral(atom, false, ValueSet(1, true)); };
+	
+	rdb.addRule(pos(a), vector{neg(b)});
+	rdb.addRule(pos(b), vector{neg(a)});
+	rdb.addRule(pos(c), vector{pos(a)});
+	rdb.addRule(pos(c), vector{pos(b), pos(d)});
+	rdb.addRule(pos(d), vector{pos(b), pos(c)});
+	rdb.addRule(pos(d), vector{pos(e)});
+	rdb.addRule(pos(e), vector{pos(b), neg(a)});
+	rdb.addRule(pos(e), vector{pos(c), pos(d)});
+	
+	rdb.finalize();
+	
+	EATEST_VERIFY(rdb.getAtom(a)->asConcrete()->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(b)->asConcrete()->scc < 0);
+	EATEST_VERIFY(rdb.getAtom(c)->asConcrete()->scc >= 0);
+	EATEST_VERIFY(rdb.getAtom(d)->asConcrete()->scc == rdb.getAtom(c)->asConcrete()->scc);
+	EATEST_VERIFY(rdb.getAtom(e)->asConcrete()->scc == rdb.getAtom(c)->asConcrete()->scc);
+	return nErrorCount;
+}
 
 int TestSolvers::solveCardinalityBasic(int times, int seed, bool printVerbose)
 {
