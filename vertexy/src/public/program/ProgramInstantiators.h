@@ -27,6 +27,7 @@ protected:
     const ITopologyPtr& m_topology;
     int m_index = 0;
     int m_subIndex = 0;
+    int m_numDomainAtoms = 0;
     bool m_forceConcrete = false;
     mutable bool m_hitEnd = false;
     hash_set<ProgramSymbol, call_hash> m_visited;

@@ -70,15 +70,15 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
 
     auto visitBodyHeads = [&](const RuleDatabase::ConcreteBodyInfo* bodyInfo, auto&& callback)
     {
-        for (const auto& atomLit : bodyInfo->heads)
+        for (const auto& headInfo : bodyInfo->heads)
         {
-            auto atomInfo = rdb.getAtom(atomLit.id())->asConcrete();
+            auto atomInfo = rdb.getAtom(headInfo.lit.id())->asConcrete();
             if (!atomInfo->isChoiceAtom() || atomInfo->scc < 0)
             {
                 continue;
             }
             
-            for (auto it = atomLit.getMask().beginSetBits(), itEnd = atomLit.getMask().endSetBits();
+            for (auto it = headInfo.lit.getMask().beginSetBits(), itEnd = headInfo.lit.getMask().endSetBits();
                  it != itEnd; ++it)
             {
                 if (atomInfo->getTruthStatus(*it) == RuleDatabase::ETruthStatus::Undetermined)
@@ -201,10 +201,10 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         }
 
         const bool canSupport = containsPredicate(bodyInfo->heads.begin(), bodyInfo->heads.end(),
-            [&](auto&& headLit)
+            [&](auto&& headInfo)
             {
-                auto concrete = rdb.getAtom(headLit.id())->asConcrete();
-                return concrete->getTruthStatus(headLit.getMask()) == RuleDatabase::ETruthStatus::Undetermined && concrete->scc >= 0;
+                auto concrete = rdb.getAtom(headInfo.lit.id())->asConcrete();
+                return concrete->getTruthStatus(headInfo.lit.getMask()) == RuleDatabase::ETruthStatus::Undetermined && concrete->scc >= 0;
             }
         );
         if (!canSupport)

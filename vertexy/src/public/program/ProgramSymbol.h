@@ -87,6 +87,7 @@ public:
     ProgramSymbol absolute() const;
 
     ProgramSymbol unmasked() const;
+    ProgramSymbol withIncludedMask(const ValueSet& mask) const;
 
     const GraphVertexRelationPtr& getAbstractRelation() const;
     const IExternalFormulaProviderPtr& getExternalFormulaProvider() const;
@@ -171,16 +172,6 @@ struct hash<Vertexy::ProgramSymbol>
     inline size_t operator()(const Vertexy::ProgramSymbol& lit) const
     {
         return lit.hash();
-    }
-};
-
-// Hashing for CompilerAtom
-template<>
-struct hash<Vertexy::CompilerAtom>
-{
-    inline size_t operator()(const Vertexy::CompilerAtom& atom) const
-    {
-        return atom.symbol.hash();
     }
 };
 

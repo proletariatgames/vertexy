@@ -317,6 +317,14 @@ bool FunctionTerm::visit(const function<EVisitResponse(const Term*)>& visitor) c
                 return false;
             }
         }
+
+        for (auto& dterm : domainTerms)
+        {
+            if (!dterm->visit(visitor))
+            {
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -420,6 +428,15 @@ bool FunctionTerm::containsAbstracts() const
             return true;
         }
     }
+
+    for (auto& dterm : domainTerms)
+    {
+        if (dterm->containsAbstracts())
+        {
+            return true;
+        }
+    }
+    
     return false;
 }
 
@@ -518,6 +535,18 @@ bool FunctionTerm::operator==(const LiteralTerm& rhs) const
             }
         }
         return true;
+    }
+    return false;
+}
+
+bool FunctionTerm::domainContainsAbstracts() const
+{
+    for (auto& domainTerm : domainTerms)
+    {
+        if (domainTerm->containsAbstracts())
+        {
+            return true;
+        }
     }
     return false;
 }
@@ -1001,6 +1030,11 @@ void SubscriptDomainTerm::replace(const function<unique_ptr<Term>(Term*)>& visit
     }
 }
 
+bool SubscriptDomainTerm::containsAbstracts() const
+{
+    return subscriptTerm->containsAbstracts();
+}
+
 void SubscriptDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     ProgramSymbol subscriptSym = subscriptTerm->eval(overrideMap, boundVertex);
@@ -1086,6 +1120,11 @@ void UnionDomainTerm::replace(const function<unique_ptr<Term>(Term*)>& visitor)
     {
         right->replace(visitor);
     }
+}
+
+bool UnionDomainTerm::containsAbstracts() const
+{
+    return left->containsAbstracts() || right->containsAbstracts();
 }
 
 void UnionDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
@@ -1197,6 +1236,13 @@ bool FunctionHeadTerm::visit(const function<EVisitResponse(const Term*)>& visito
         for (auto& arg : arguments)
         {
             if (!arg->visit(visitor))
+            {
+                return false;
+            }
+        }
+        for (auto& dterm : domainTerms)
+        {
+            if (!dterm->visit(visitor))
             {
                 return false;
             }

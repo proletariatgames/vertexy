@@ -9,6 +9,7 @@ FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramComp
     , m_topology(topology)
 {
     vxy_assert(m_term.provider == nullptr);
+    m_numDomainAtoms = m_domain.list.size();
 }
 
 void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
@@ -16,7 +17,7 @@ void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol
     m_hitEnd = false;
     m_index = 0;
     m_subIndex = 0;
-    m_forceConcrete = !m_term.containsAbstracts();
+    m_forceConcrete = m_term.domainContainsAbstracts() || !m_term.containsAbstracts();
     m_visited.clear();
     match(overrideMap, boundVertex);
 }
@@ -63,7 +64,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
                    !m_term.eval(overrideMap, boundVertex).containsAbstract();
         };
         
-        for (; m_index < m_domain.list.size(); moveNextDomainAtom())
+        for (; m_index < m_numDomainAtoms; moveNextDomainAtom())
         {
             const CompilerAtom& atom = m_domain.list[m_index];
             vxy_assert(!atom.symbol.isNegated());
@@ -114,6 +115,22 @@ bool FunctionInstantiator::matches(const ProgramSymbol& symbol, AbstractOverride
     {
         return false;
     }
+
+    // if (boundVertex.isAbstract())
+    // {
+    //     // map any binder variable terms by the vertex term's relation.
+    //     m_term.visit([&](const Term* term)
+    //     {
+    //         if (auto varTerm = dynamic_cast<const VariableTerm*>(term))
+    //         {
+    //             if (varTerm->sharedBoundRef->isAbstract())
+    //             {
+    //                 *varTerm->sharedBoundRef = ProgramSymbol(boundVertex.getAbstractRelation()->map(varTerm->sharedBoundRef->getAbstractRelation())); 
+    //             }
+    //         }
+    //         return Term::EVisitResponse::Continue;
+    //     });
+    // }
 
     auto applied = m_term.eval(overrideMap, boundVertex);
     if (m_visited.find(applied) == m_visited.end())

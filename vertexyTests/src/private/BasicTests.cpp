@@ -234,14 +234,14 @@ int TestSolvers::ruleSCCTests()
 	auto pos = [&](AtomID atom) { return AtomLiteral(atom, true, ValueSet(1, true)); };
 	auto neg = [&](AtomID atom) { return AtomLiteral(atom, false, ValueSet(1, true)); };
 	
-	rdb.addRule(pos(a), vector{neg(b)});
-	rdb.addRule(pos(b), vector{neg(a)});
-	rdb.addRule(pos(c), vector{pos(a)});
-	rdb.addRule(pos(c), vector{pos(b), pos(d)});
-	rdb.addRule(pos(d), vector{pos(b), pos(c)});
-	rdb.addRule(pos(d), vector{pos(e)});
-	rdb.addRule(pos(e), vector{pos(b), neg(a)});
-	rdb.addRule(pos(e), vector{pos(c), pos(d)});
+	rdb.addRule(pos(a), false, vector{neg(b)});
+	rdb.addRule(pos(b), false, vector{neg(a)});
+	rdb.addRule(pos(c), false, vector{pos(a)});
+	rdb.addRule(pos(c), false, vector{pos(b), pos(d)});
+	rdb.addRule(pos(d), false, vector{pos(b), pos(c)});
+	rdb.addRule(pos(d), false, vector{pos(e)});
+	rdb.addRule(pos(e), false, vector{pos(b), neg(a)});
+	rdb.addRule(pos(e), false, vector{pos(c), pos(d)});
 	
 	rdb.finalize();
 	

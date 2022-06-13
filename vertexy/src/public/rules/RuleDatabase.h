@@ -53,6 +53,17 @@ public:
         BodyInfo* body;
     };
 
+    struct HeadAtomLinkage : AtomLinkage
+    {
+        HeadAtomLinkage() {}
+        HeadAtomLinkage(const ValueSet& inMask, BodyInfo* inBody, bool inChoice)
+            : AtomLinkage{inMask, inBody}
+            , isChoice(inChoice)
+        {            
+        }
+        bool isChoice = false;
+    };
+    
     struct AtomInfo
     {
         AtomInfo() {}
@@ -88,7 +99,7 @@ public:
         // the strongly connected component ID this belongs to
         int scc = -1;        
         // Bodies this head relies on for support
-        vector<AtomLinkage> supports;
+        vector<HeadAtomLinkage> supports;
         // Bodies referring to this atom positively
         vector<AtomLinkage> positiveDependencies;
         // Bodies referring to this atom negatively
@@ -173,6 +184,12 @@ public:
     struct ConcreteBodyInfo;
     struct AbstractBodyInfo;
 
+    struct HeadInfo
+    {
+        AtomLiteral lit;
+        bool isChoice;
+    };
+
     struct BodyInfo
     {
         BodyInfo() : id(-1) {}
@@ -202,8 +219,8 @@ public:
         int32_t id;
         // The actual body literals
         vector<AtomLiteral> atomLits;
-        // heads that are true if this body is true
-        vector<AtomLiteral> heads;
+        // heads that are true if this body is true.
+        vector<HeadInfo> heads;
         // whether this body must not ever hold true
         bool isNegativeConstraint = false;
         // how many literals within the body that have not yet been assigned True status
@@ -292,7 +309,7 @@ public:
     const ConstraintSolver& getSolver() const { return m_solver; }
     ConstraintSolver& getSolver() { return m_solver; }
 
-    void addRule(const AtomLiteral& head, const vector<AtomLiteral>& body, const ITopologyPtr& topology=nullptr);
+    void addRule(const AtomLiteral& head, bool isChoice, const vector<AtomLiteral>& body, const ITopologyPtr& topology=nullptr);
 
     bool finalize();
     bool isTight() const { return m_isTight; }
@@ -391,10 +408,10 @@ protected:
     void makeConcrete();
     void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
     void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
-    vector<AtomLiteral> groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed);
-    void hookupGroundedDependencies(const vector<AtomLiteral>& newHeads, ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
+    bool groundLiteralToConcrete(int vertex, const AtomLiteral& oldLit, GroundingData& groundingData, AtomLiteral& outLit);
+    void hookupGroundedDependencies(const vector<HeadInfo>& newHeads, ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
-    void linkHeadToBody(const AtomLiteral& headLit, BodyInfo* body);
+    void linkHeadToBody(const AtomLiteral& headLit, bool isChoice, BodyInfo* body);
     void addAtomDependency(const AtomLiteral& bodyLit, BodyInfo* body);
     
     // Solver that owns us

@@ -259,7 +259,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		wstring stepName(wstring::CtorSprintf(), TEXT("Step-%d-TileVars"), step);
 		auto stepData = solver.makeVariableGraph(stepName, ITopology::adapt(grid), stepDomain, {wstring::CtorSprintf(), TEXT("stepCell"), step});
 		wstring stepEdgeName(wstring::CtorSprintf(), TEXT("Step-%d-EdgeVars"), step);
-		auto stepEdgeData = solver.makeVariableGraph(stepEdgeName, ITopology::adapt(edges), edgeDomain, {wstring::CtorSprintf(), TEXT("stepEdge "), step});
+		auto stepEdgeData = solver.makeVariableGraph(stepEdgeName, ITopology::adapt(edges), edgeDomain, {wstring::CtorSprintf(), TEXT("edgeOpen "), step});
 
 		auto stepInst = stepProgram(ITopology::adapt(grid), step);
 		auto& stepResult = stepInst->getResult();

@@ -314,7 +314,6 @@ protected:
     hash_map<FormulaUID, UAtomDomain> m_groundedAtoms;
     hash_map<FormulaUID, UExportMap> m_exportedLits;
     hash_map<FormulaUID, FormulaMapperPtr> m_exportedFormulas;
-    hash_map<FormulaUID, FormulaUID> m_choiceFormulas;
     
     bool m_failure = false;
     bool m_foundRecursion = false;

@@ -115,7 +115,8 @@ struct AtomLiteral
 
     AtomLiteral inverted() const { return AtomLiteral(id(), !sign(), m_mask, m_relationInfo); }
     AtomLiteral unmasked() const { return AtomLiteral(id(), sign(), ValueSet(m_mask.size(), true), m_relationInfo); }
-    
+    AtomLiteral excludingMask(const ValueSet& mask) const { return AtomLiteral(id(), sign(), m_mask.excluding(mask), m_relationInfo); }
+
     bool sign() const { return m_value > 0; }
     AtomID id() const { return AtomID(m_value < 0 ? -m_value : m_value); }
     bool isValid() const { return m_value != 0; }
@@ -125,7 +126,7 @@ struct AtomLiteral
     {
         m_mask.include(mask);
     }
-
+    
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
     void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
 

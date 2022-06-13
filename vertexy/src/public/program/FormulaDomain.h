@@ -13,25 +13,25 @@ class FormulaDomainDescriptor;
 class FormulaDomainValue
 {
 public:
-    FormulaDomainValue(const wchar_t* name, const FormulaDomainDescriptor* descriptor, int valueIndex);
+    FormulaDomainValue(const wchar_t* name, function<const FormulaDomainDescriptor*()>&& descriptorFn, int valueIndex);
     
-    const FormulaDomainDescriptor* getDescriptor() const { return m_descriptor; }
+    const FormulaDomainDescriptor* getDescriptor() const { return m_descriptorFn(); }
     ValueSet toValues() const;
     const wchar_t* getName() const { return m_name; }
     int getValueIndex() const { return m_valueIndex; }
     
 protected:
     const wchar_t* m_name;
-    const FormulaDomainDescriptor* m_descriptor;
+    function<const FormulaDomainDescriptor*()> m_descriptorFn;
     int m_valueIndex;
 };
 
 class FormulaDomainValueArray
 {
 public:
-    FormulaDomainValueArray(const wchar_t* name, const FormulaDomainDescriptor* descriptor, int valueIndex, int arraySize);
+    FormulaDomainValueArray(const wchar_t* name, function<const FormulaDomainDescriptor*()>&& descriptorFn, int valueIndex, int arraySize);
 
-    const FormulaDomainDescriptor* getDescriptor() const { return m_descriptor; }
+    const FormulaDomainDescriptor* getDescriptor() const { return m_descriptorFn(); }
     ValueSet toValues() const;
     ValueSet toValues(int index) const;
 
@@ -44,7 +44,7 @@ public:
     
 protected:
     const wchar_t* m_name;
-    const FormulaDomainDescriptor* m_descriptor;
+    function<const FormulaDomainDescriptor*()> m_descriptorFn;
     int m_firstValueIndex;
     int m_numValues;
 };
@@ -64,15 +64,15 @@ public:
     SolverVariableDomain getSolverDomain() const { return SolverVariableDomain(0, m_domainSize-1); }
     
 protected:
-    FormulaDomainValue addValue(const wchar_t* valueName)
+    FormulaDomainValue addValue(const wchar_t* valueName, function<const FormulaDomainDescriptor*()>&& desc)
     {
-        FormulaDomainValue val(valueName, this, m_domainSize);
+        FormulaDomainValue val(valueName, move(desc), m_domainSize);
         ++m_domainSize;
         return val;
     }
-    FormulaDomainValueArray addArray(const wchar_t* arrayName, int arraySize)
+    FormulaDomainValueArray addArray(const wchar_t* arrayName, int arraySize, function<const FormulaDomainDescriptor*()>&& desc)
     {
-        FormulaDomainValueArray val(arrayName, this, m_domainSize, arraySize);
+        FormulaDomainValueArray val(arrayName, move(desc), m_domainSize, arraySize);
         m_domainSize += arraySize;
         return val;
     }

@@ -11,11 +11,12 @@
 #define VXY_DOMAIN_FORMULA(name, domain, arity) Formula<arity, domain> name(L#name)
 
 #define VXY_DOMAIN_BEGIN(name) struct name : public FormulaDomainDescriptor { \
+    using _thisType = name; \
     name() : FormulaDomainDescriptor(L#name) {} \
     static const name* get() { static name inst; return &inst; }
 
-#define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name)
-#define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size)
+#define VXY_DOMAIN_VALUE(name) const FormulaDomainValue name = addValue(L#name, [](){ return _thisType::get(); })
+#define VXY_DOMAIN_VALUE_ARRAY(name, size) const FormulaDomainValueArray name = addArray(L#name, size, [](){ return _thisType::get(); })
 
 #define VXY_DOMAIN_END() };
 

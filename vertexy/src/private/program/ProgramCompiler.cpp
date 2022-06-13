@@ -904,7 +904,7 @@ void ProgramCompiler::exportRules()
 
     for (auto& rule : m_groundedRules)
     {
-        vxy_assert(rule.headType == ERuleHeadType::Normal);
+        vxy_assert(rule.headType != ERuleHeadType::Disjunction);
         vxy_assert(rule.heads.size() <= 1);
         
         bool containsAbstracts;
@@ -940,7 +940,7 @@ void ProgramCompiler::exportRules()
             {
                 VERTEXY_LOG("Exporting %s", toString(rule).c_str());
             }
-            m_rdb.addRule(headLiteral, exportedBody, rule.topology);
+            m_rdb.addRule(headLiteral, rule.headType == ERuleHeadType::Choice, exportedBody, rule.topology);
         }
         else
         {
@@ -952,7 +952,7 @@ void ProgramCompiler::exportRules()
 bool ProgramCompiler::shouldExportAsAbstract(const GroundedRule& rule, bool& outContainsAbstracts) const
 {
     outContainsAbstracts = false;
-    vxy_assert(rule.headType == ERuleHeadType::Normal);
+    vxy_assert(rule.headType != ERuleHeadType::Disjunction);
     vxy_assert(rule.heads.size() <= 1);
 
     if (!rule.heads.empty())
@@ -1183,6 +1183,7 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
     else
     {
         CompilerAtom& existing = domain.list[atomIt->second];
+        existing.symbol = existing.symbol.withIncludedMask(atom.symbol.getFormula()->mask);
         existing.facts.include(atom.facts);
     }
 
@@ -1223,41 +1224,18 @@ void ProgramCompiler::transformChoice(GroundedRule&& rule)
     vxy_assert(rule.headType == ERuleHeadType::Choice);
 
     // head choice "H1 .. \/ Hn" becomes
-    // H1 <- <body> /\ not Choice1
-    // Choice1 <- not H1
+    // H1.choice() <- <body>
     // ...
-    // Hn <- <body> /\ not ChoiceN
-    // ChoiceN <- not Hn
+    // Hn.choice() <- <body>
     
     for (const auto& headSym : rule.heads)
     {
         vxy_assert(headSym.isNormalFormula());
-
-        auto foundChoice = m_choiceFormulas.find(headSym.getFormula()->uid);
-        if (foundChoice == m_choiceFormulas.end())
-        {
-            auto choiceUID = Program::allocateFormulaUID();
-            foundChoice = m_choiceFormulas.insert({headSym.getFormula()->uid, choiceUID}).first;
-        }
         
-        wstring choiceName;
-        choiceName.sprintf(TEXT("not-chosen::%s"), headSym.getFormula()->name.c_str());
-        ProgramSymbol choiceSym(foundChoice->second, choiceName.c_str(), headSym.getFormula()->args, headSym.getFormula()->mask, false);
-
-        vector<ProgramSymbol> extBody = rule.bodyLits; 
-        extBody.push_back(choiceSym.negatedFormula());
-
         addTransformedRule(GroundedRule{
-            ERuleHeadType::Normal,
+            ERuleHeadType::Choice,
             vector{headSym},
-            extBody,
-            rule.topology
-        });
-
-        addTransformedRule(GroundedRule{
-            ERuleHeadType::Normal,
-            vector{choiceSym},
-            vector{headSym.negatedFormula()}, 
+            rule.bodyLits,
             rule.topology
         });
     }
@@ -1289,7 +1267,7 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
 
 bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
 {
-    vxy_assert(rule.headType == ERuleHeadType::Normal);
+    vxy_assert(rule.headType != ERuleHeadType::Disjunction);
     vxy_assert(rule.heads.size() <= 1);
 
     if (!rule.heads.empty())
@@ -1329,7 +1307,7 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
     }
 
     m_groundedRules.push_back(GroundedRule{
-        ERuleHeadType::Normal,
+        rule.headType,
         move(rule.heads),
         move(newBody),
         rule.topology

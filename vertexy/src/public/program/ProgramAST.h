@@ -238,6 +238,7 @@ public:
 
     virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const = 0;
+    virtual bool containsAbstracts() const = 0;
     virtual size_t hash() const = 0;
 };
 
@@ -252,7 +253,8 @@ public:
     virtual wstring toString() const override;
     virtual unique_ptr<Term> clone() const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override {}
-
+    virtual bool containsAbstracts() const override { return false; }
+    
     virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
     virtual size_t hash() const override;
@@ -269,6 +271,7 @@ public:
     virtual wstring toString() const override;
     virtual unique_ptr<Term> clone() const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
+    virtual bool containsAbstracts() const override;
 
     virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
@@ -287,6 +290,7 @@ public:
     virtual wstring toString() const override;
     virtual unique_ptr<Term> clone() const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
+    virtual bool containsAbstracts() const override;
 
     virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
@@ -313,6 +317,8 @@ public:
     virtual wstring toString() const override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
+
+    bool domainContainsAbstracts() const;
 
     ValueSet getDomain(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const;
     

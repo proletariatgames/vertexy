@@ -253,6 +253,20 @@ ProgramSymbol ProgramSymbol::unmasked() const
     }
 }
 
+ProgramSymbol ProgramSymbol::withIncludedMask(const ValueSet& mask) const
+{
+    vxy_assert(isFormula());
+    auto cformula = getFormula();
+    return ProgramSymbol(
+        cformula->uid,
+        cformula->name.c_str(),
+        cformula->args,
+        cformula->mask.including(mask),
+        isNegated(),
+        isExternalFormula() ? getExternalFormulaProvider() : nullptr
+    );
+}
+
 bool ProgramSymbol::isNegated() const
 {
     return isFormula() ? ((m_packed & 1) == 0) : false;
