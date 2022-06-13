@@ -7,12 +7,16 @@
 #include "variable/SolverVariableDomain.h"
 #include "prefab/Tile.h"
 
+#include <codecvt>
 #include <fstream>
 #include <sstream>
 #include <nlohmann/json.hpp>
 
 using namespace Vertexy;
 using json = nlohmann::json;
+using convert_type = std::codecvt_utf8<wchar_t>;
+// Used to convert between std::string and std::wstring
+std::wstring_convert<convert_type, wchar_t> strConverter;
 
 /*static*/ shared_ptr<PrefabManager> PrefabManager::create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid)
 {
@@ -30,7 +34,7 @@ PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<Planar
 	m_grid = inGrid;
 }
 
-void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, string name /* "" */, bool allowRotation /* false */, bool allowReflection /* false */)
+void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name /* "" */, bool allowRotation /* false */, bool allowReflection /* false */)
 {
 	// Create the prefab with its unique ID
 	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, inTiles);
@@ -45,7 +49,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, string nam
 	m_prefabs.push_back(prefab);
 
 	// Add to the prefabStateMap
-	if (name != "")
+	if (!name.empty())
 	{
 		m_prefabStateMap.insert(name);
 		m_prefabStateMap[name].push_back(prefab->id());
@@ -87,7 +91,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, string nam
 	m_prefabs.insert(m_prefabs.end(), temp.begin(), temp.end());
 
 	// Add to the prefabStateMap
-	if (name != "")
+	if (!name.empty())
 	{
 		for (int x = 1; x <= temp.size(); x++)
 		{
@@ -96,7 +100,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, string nam
 	}
 }
 
-void PrefabManager::createPrefabFromJson(string filePath)
+void PrefabManager::createPrefabFromJson(const wstring& filePath)
 {
 	// Ensure the file exists
 	if (!std::filesystem::exists(filePath.c_str()))
@@ -109,15 +113,17 @@ void PrefabManager::createPrefabFromJson(string filePath)
 	file.open(filePath.c_str());
 	std::stringstream strStream;
 	strStream << file.rdbuf();
+	std::wstring jsonString = strConverter.from_bytes(strStream.str());
 
 	// Pass the string along to be parsed and converted to a prefab
-	createPrefabFromJsonString(strStream.str().c_str());
+	createPrefabFromJsonString(jsonString.c_str());
 }
 
-void PrefabManager::createPrefabFromJsonString(string jsonString)
+void PrefabManager::createPrefabFromJsonString(const wstring& jsonString)
 {
 	// Parse the json string and extract the tiles
-	auto j = json::parse(jsonString.c_str());
+	std::string stdJsonString = strConverter.to_bytes(jsonString.c_str());
+	auto j = json::parse(stdJsonString);
 	vector<vector<Tile>> tiles;
 
 	for (const auto& elem : j["tiles"])
@@ -138,13 +144,13 @@ void PrefabManager::createPrefabFromJsonString(string jsonString)
 	}
 
 	// Parse additional variables
-	string name = "";
+	wstring name = TEXT("");
 	bool allowRotation = false;
 	bool allowReflection = false;
 
 	if (j.contains("name"))
 	{
-		std::string jsonName = j["name"];
+		std::wstring jsonName = strConverter.from_bytes(j["name"]);
 		name = jsonName.c_str();
 	}
 
@@ -273,9 +279,9 @@ const vector<shared_ptr<Prefab>>& PrefabManager::getPrefabs()
 	return m_prefabs;
 }
 
-const vector<int>& PrefabManager::getPrefabIdsByName(string name)
+const vector<int>& PrefabManager::getPrefabIdsByName(const wstring& name)
 {
-	if (name == "" || m_prefabStateMap.find(name) == m_prefabStateMap.end())
+	if (name.empty() || m_prefabStateMap.find(name) == m_prefabStateMap.end())
 	{
 		vxy_assert_msg(false, "Error! Invalid prefab name passed to getPrefabIdsByName");
 	}
@@ -288,7 +294,7 @@ int PrefabManager::getMaxPrefabSize()
 	return m_maxPrefabSize;
 }
 
-void PrefabManager::createDefaultTestPrefab(int index, string name, bool rot, bool refl)
+void PrefabManager::createDefaultTestPrefab(int index, const wstring& name, bool rot, bool refl)
 {
 	Tile tx(-1);
 	Tile t0(0);
