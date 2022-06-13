@@ -1,0 +1,11 @@
+{
+    "name":"test2",
+    "allowRotation": true,
+    "allowReflection": true,
+    "tiles":
+    [
+        [1, -1, 1],
+        [-1, -1, -1],
+        [1, -1, -1]
+    ]
+}
