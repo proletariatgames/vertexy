@@ -375,7 +375,7 @@ int TestSolvers::solveRules_basicChoice(int seed, bool printVerbose)
 	// a=0 b=0 c=1
 	// a=1 b=1 c=1
 	EATEST_VERIFY(numResults == 4);
-	EATEST_VERIFY(solver.getRuleDB().isTight());
+	EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -419,7 +419,7 @@ int TestSolvers::solveRules_basicDisjunction(int seed, bool printVerbose)
 	// a=1 b=0 c=1
 	// a=0 b=1 c=1
 	EATEST_VERIFY(numResults == 3);
-	EATEST_VERIFY(solver.getRuleDB().isTight());
+	EATEST_VERIFY(!solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -462,7 +462,7 @@ int TestSolvers::solveRules_basicCycle(int seed, bool printVerbose)
 	// a=1 b=1 c=1
 	// a=0 b=0 c=0
 	EATEST_VERIFY(numResults == 2);
-	EATEST_VERIFY(!solver.getRuleDB().isTight());
+	EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }
@@ -508,7 +508,7 @@ int TestSolvers::solveRules_incompleteCycle(int seed, bool printVerbose)
 	// a!=0 b!=0 c!=0
 	// a=0 b=0 c=0
 	EATEST_VERIFY(numResults == 28);
-	EATEST_VERIFY(!solver.getRuleDB().isTight());
+	EATEST_VERIFY(solver.getStats().nonTightRules);
 
 	return nErrorCount;
 }

@@ -92,7 +92,6 @@ ConstraintSolver::ConstraintSolver(const wstring& name, int seed, const shared_p
 	, m_decisionLogFrequency(DECISION_LOG_FREQUENCY)
 	, m_initialSeed(seed == 0 ? TimeUtils::getCycles() : seed)
 	, m_random(m_initialSeed)
-	, m_ruleDB(*this)
 	, m_analyzer(*this)
 	, m_stats(*this)
 	, m_name(name)
@@ -388,6 +387,16 @@ VarID ConstraintSolver::getOrCreateOffsetVariable(VarID varID, int minDomain, in
 		found = m_offsetVariableMap.insert({key, newVar}).first;
 	}
 	return found->second;
+}
+
+RuleDatabase& ConstraintSolver::getRuleDB()
+{
+	if (m_ruleDB == nullptr)
+	{
+		vxy_assert_msg(!m_initialArcConsistencyEstablished, "Cannot access rule database after solving has started!");
+		m_ruleDB = make_unique<RuleDatabase>(*this);
+	}
+	return *m_ruleDB.get();
 }
 
 bool ConstraintSolver::simplify()
@@ -731,7 +740,10 @@ bool ConstraintSolver::simplify()
 		}
 	}
 
-	VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+	if (numConstraintsRemoved > 0 || numLiteralsRemoved > 0)
+	{
+		VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+	}
 	return true;
 }
 
@@ -761,15 +773,18 @@ int ConstraintSolver::getSolvedValue(VarID varID) const
 
 bool ConstraintSolver::isAtomTrue(AtomID atomID) const
 {
-	auto atomInfo = m_ruleDB.getAtom(atomID);
-	auto& lit = atomInfo->equivalence;
-	if (!lit.variable.isValid())
+	return visit([&](auto&& typedAtom)
 	{
-		vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
-		return atomInfo->status == RuleDatabase::ETruthStatus::True;
-	}
-	auto& cur = m_variableDB.getPotentialValues(lit.variable);
-	return cur.isSubsetOf(lit.values);
+		using T = decay_t<decltype(typedAtom)>;
+		if constexpr (is_same_v<T, Literal>)
+		{
+			return m_variableDB.getPotentialValues(typedAtom.variable).isSubsetOf(typedAtom.values);
+		}
+		else
+		{
+			return typedAtom;
+		}
+	}, m_atomValues[atomID.value]);
 }
 
 vector<int> ConstraintSolver::getPotentialValues(VarID varID) const
@@ -816,11 +831,33 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 		vxy_assert(m_currentStatus == EConstraintSolverResult::Uninitialized);
 
 		// create constraints for rules
-		if (!m_ruleDB.finalize())
+		if (m_ruleDB != nullptr)
 		{
-			m_stats.endTime = TimeUtils::getSeconds();
-			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
-			return m_currentStatus;
+			if (!m_ruleDB->finalize())
+			{
+				m_stats.endTime = TimeUtils::getSeconds();
+				m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+				return m_currentStatus;
+			}
+
+			// do we have any strongly-connected components in the rule dependency graph?
+			m_stats.nonTightRules = !m_ruleDB->isTight();
+
+			// store away atom lookups
+			m_atomValues.resize(m_ruleDB->getNumAtoms());
+			for (int i = 1; i < m_ruleDB->getNumAtoms(); ++i)
+			{
+				auto atomInfo = m_ruleDB->getAtom(AtomID(i));
+				if (atomInfo->isVariable())
+				{
+					m_atomValues[i] = atomInfo->equivalence;
+				}
+				else
+				{
+					vxy_assert(atomInfo->status != RuleDatabase::ETruthStatus::Undetermined);
+					m_atomValues[i] = atomInfo->status == RuleDatabase::ETruthStatus::True;
+				}
+			}
 		}
 
 		m_stats.numInitialConstraints = m_constraints.size();
@@ -857,7 +894,7 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 		}
 
 		// if the rules aren't tight, we need to watch for and analyze unfounded sets (cyclical supports)
-		if (!m_ruleDB.isTight())
+		if (m_ruleDB != nullptr && !m_ruleDB->isTight())
 		{
 			m_unfoundedSetAnalyzer = make_unique<UnfoundedSetAnalyzer>(*this);
 			if (!m_unfoundedSetAnalyzer->initialize())
@@ -867,6 +904,9 @@ EConstraintSolverResult ConstraintSolver::startSolving()
 				return m_currentStatus;
 			}
 		}
+
+		// rule database no longer needed after this.
+		m_ruleDB.reset();
 
 		if (!propagate())
 		{

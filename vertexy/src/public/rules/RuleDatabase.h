@@ -204,13 +204,13 @@ protected:
     {
         GraphAtomInfo() {}
         GraphAtomInfo(const wchar_t* name, const GraphLiteralRelationPtr& relation)
-            : name(name)
-            , relation(relation)
+            : relation(relation)
+            , name(name)
         {
         }
 
-        wstring name;
         GraphLiteralRelationPtr relation;
+        wstring name;
     };
 
     struct BodyHasher

@@ -47,6 +47,8 @@ public:
 	uint64_t numLockedConstraintsToPurge = 0;
 	// Number of duplicate learned constraints found. (Only valid after solver finishes with solution)
 	uint64_t numDuplicateLearnedConstraints = 0;
+	// Whether the program's rules are non-tight
+	bool nonTightRules = false;
 
 protected:
 	ConstraintSolver& m_solver;

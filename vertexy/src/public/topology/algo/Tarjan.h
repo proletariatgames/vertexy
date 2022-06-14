@@ -12,22 +12,97 @@ namespace Vertexy
 //
 class TarjanAlgorithm
 {
+public:
+	using AdjacentCallback = const function<void(int /*NodeIndex*/, const function<void(int)>&) /*Recurse*/>&;
+
+	TarjanAlgorithm()
+	{
+	}
+
+	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
+	// The output is a list where each element corresponds to the input node at the same index,
+	// and the value identifies which strongly-connected component (SCC) the node belongs to.
+	template <typename T>
+	inline void findStronglyConnectedComponents(int numNodes, T&& adjCallback, vector<int>& output) const
+	{
+		output.clear();
+		output.resize(numNodes);
+
+		auto writeSCCs = [&](int level, auto& it)
+		{
+			for (; it; ++it)
+			{
+				int sccMember = *it;
+				output[sccMember] = it.representative();
+			}
+		};
+		findStronglyConnectedComponents(numNodes, adjCallback, writeSCCs);
+	}
+
+	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
+	// Takes a function that takes an iterator for each SCC found.
+	template <typename T, typename S>
+	inline void findStronglyConnectedComponents(int numNodes, T&& adjCallback, S&& callback) const
+	{
+		auto noop = [&](int level, int node) {};
+		findStronglyConnectedComponents(numNodes, adjCallback, noop, callback);
+	}
+
+	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
+	// Takes two functions: one is called each time a node is visited, and the other takes an iterator for each SCC found.
+	template <typename T, typename R, typename S>
+	void findStronglyConnectedComponents(int numNodes, T&& adjCallback, R&& visitFunction, S&& callback) const
+	{
+		m_nodeInfos.clear();
+		m_nodeInfos.resize(numNodes);
+
+		m_visitCount = 0;
+		m_trail.clear();
+		m_trail.reserve(numNodes);
+
+		for (int i = 0; i < numNodes; ++i)
+		{
+			if (m_nodeInfos[i].visitOrder < 0)
+			{
+				tarjan(i, adjCallback, visitFunction, callback);
+			}
+		}
+	}
+
+	// Version that takes a set of changed nodes
+	template <typename T, typename R, typename S>
+	void findStronglyConnectedComponents(int numNodes, const vector<int>& changedIndices, T&& adjCallback, R&& visitFunction, S&& onSCC) const
+	{
+		m_nodeInfos.clear();
+		m_nodeInfos.resize(numNodes);
+
+		m_visitCount = 0;
+		m_trail.clear();
+		m_trail.reserve(numNodes);
+
+		for (int i : changedIndices)
+		{
+			if (m_nodeInfos[i].visitOrder < 0)
+			{
+				tarjan(i, adjCallback, visitFunction, onSCC);
+			}
+		}
+	}
+
+private:
 	struct TarjanNodeInfo
 	{
 		TarjanNodeInfo()
 			: visitOrder(-1)
 			, lowLink(-1)
-			, onStack(false)
+			, inTrail(false)
 		{
 		}
 
 		int visitOrder;
 		int lowLink;
-		bool onStack;
+		bool inTrail;
 	};
-
-	mutable vector<TarjanNodeInfo> m_nodeInfos;
-	mutable vector<int> m_stack;
 
 	struct SCCIterator
 	{
@@ -36,9 +111,9 @@ class TarjanAlgorithm
 			, m_nodeIndex(nodeIndex)
 			, m_hitEnd(false)
 		{
-			m_last = algo.m_stack.back();
-			algo.m_stack.pop_back();
-			algo.m_nodeInfos[m_last].onStack = false;
+			m_last = algo.m_trail.back();
+			algo.m_nodeInfos[m_last].inTrail = false;
+			algo.m_trail.pop_back();
 		}
 
 		inline int operator*() const
@@ -57,10 +132,9 @@ class TarjanAlgorithm
 			}
 			else
 			{
-				m_last = m_algo.m_stack.back();
-				m_algo.m_stack.pop_back();
-
-				m_algo.m_nodeInfos[m_last].onStack = false;
+				m_last = m_algo.m_trail.back();
+				m_algo.m_nodeInfos[m_last].inTrail = false;
+				m_algo.m_trail.pop_back();
 			}
 			return *this;
 		}
@@ -74,123 +148,99 @@ class TarjanAlgorithm
 		int m_last;
 	};
 
-public:
-	TarjanAlgorithm()
+	mutable vector<TarjanNodeInfo> m_nodeInfos;
+	mutable vector<int> m_trail;
+	mutable vector<int> m_fifo;
+	mutable vector<int> m_hist;
+	mutable vector<int> m_cursor;
+	mutable vector<int> m_heads;
+	mutable int m_visitCount;
+
+	inline void popStack() const
 	{
+		vxy_assert(!m_fifo.empty());
+		m_fifo.pop_back();
+		m_cursor.pop_back();
+
+		// trim stack
+		m_hist.resize(m_heads.back());
+		m_heads.pop_back();
 	}
 
-	using AdjacentCallback = const function<void(int /*NodeIndex*/, const function<void(int)>&) /*Recurse*/>&;
-	using SCCFoundCallback = const function<void(int /*Level*/, SCCIterator&)>;
-	using ReachedCallback = const function<void(int /*Level*/, int /*Node*/)>;
-
-	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
-	// The output is a list where each element corresponds to the input node at the same index,
-	// and the value identifies which strongly-connected component (SCC) the node belongs to.
-	template <typename T>
-	inline void findStronglyConnectedComponents(int numNodes, T&& adjCallback, vector<int>& output) const
+	template<typename T>
+	inline void pushStack(int node, T&& adjCallback) const
 	{
-		output.clear();
-		output.resize(numNodes);
+		m_trail.push_back(node);
+		m_nodeInfos[node].inTrail = true;
 
-		auto writeSCCs = [&](int level, SCCIterator& it)
-		{
-			for (; it; ++it)
-			{
-				int sccMember = *it;
-				output[sccMember] = it.representative();
-			}
-		};
-		findStronglyConnectedComponents(numNodes, adjCallback, writeSCCs);
-	}
-
-	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
-	// Takes a function that takes an iterator for each SCC found.
-	template <typename T, typename S>
-	inline void findStronglyConnectedComponents(int numNodes, T&& adjCallback, S&& callback) const
-	{
-		auto noop = [&](int level, int node)
-		{
-		};
-		findStronglyConnectedComponents(numNodes, adjCallback, noop, callback);
-	}
-
-	// Input is a set of nodes, where each node has a list of indices of nodes it connects to.
-	// Takes two functions: one is called each time a node is visited, and the other takes an iterator for each SCC found.
-	template <typename T, typename R, typename S>
-	void findStronglyConnectedComponents(int numNodes, T&& adjCallback, R&& visitFunction, S&& callback) const
-	{
-		m_nodeInfos.clear();
-		m_nodeInfos.resize(numNodes);
-
-		int visitCount = 0;
-		m_stack.clear();
-		m_stack.reserve(numNodes);
-
-		for (int i = 0; i < numNodes; ++i)
-		{
-			if (m_nodeInfos[i].visitOrder < 0)
-			{
-				tarjan(0, adjCallback, i, visitCount, visitFunction, callback);
-			}
-		}
-	}
-
-	// Version that takes a set of changed nodes
-	template <typename T, typename R, typename S>
-	void findStronglyConnectedComponents(int numNodes, const vector<int>& changedIndices, T&& adjCallback, R&& visitFunction, S&& onSCC) const
-	{
-		m_nodeInfos.clear();
-		m_nodeInfos.resize(numNodes);
-
-		int visitCount = 0;
-		m_stack.clear();
-		m_stack.reserve(numNodes);
-
-		for (int i : changedIndices)
-		{
-			if (m_nodeInfos[i].visitOrder < 0)
-			{
-				tarjan(0, adjCallback, i, visitCount, visitFunction, onSCC);
-			}
-		}
-	}
-
-private:
-	template <typename T, typename R, typename S>
-	void tarjan(int level, T&& adjCallback, int nodeIndex, int& visitCount, R&& visitFunction, S&& onSCC) const
-	{
-		TarjanNodeInfo& nodeInfo = m_nodeInfos[nodeIndex];
-		vxy_assert(nodeInfo.visitOrder < 0);
-
-		nodeInfo.visitOrder = visitCount;
-		nodeInfo.lowLink = visitCount;
-		++visitCount;
-
-		nodeInfo.onStack = true;
-		m_stack.push_back(nodeIndex);
-
-		visitFunction(level, nodeIndex);
-
-		adjCallback(nodeIndex, [&](int destinationNode)
+		m_fifo.push_back(node);
+		// backup start offset for this level
+		m_heads.push_back(m_hist.size());
+		// cursor for this level
+		m_cursor.push_back(m_hist.size());
+		// gather all direct children
+		adjCallback(node, [&](int destinationNode)
 		{
 			TarjanNodeInfo& destNodeInfo = m_nodeInfos[destinationNode];
-			if (destNodeInfo.visitOrder < 0)
-			{
-				tarjan(level + 1, adjCallback, destinationNode, visitCount, visitFunction, onSCC);
-				nodeInfo.lowLink = min(nodeInfo.lowLink, destNodeInfo.lowLink);
-			}
-			else if (destNodeInfo.onStack)
-			{
-				vxy_assert(destNodeInfo.visitOrder >= 0);
-				nodeInfo.lowLink = min(nodeInfo.lowLink, destNodeInfo.visitOrder);
-			}
+			m_hist.push_back(destinationNode);
 		});
 
-		if (nodeInfo.visitOrder == nodeInfo.lowLink)
+		auto& nodeInfo = m_nodeInfos[node];
+		nodeInfo.visitOrder = m_visitCount;
+		nodeInfo.lowLink = m_visitCount;
+		++m_visitCount;
+	}
+
+	template <typename T, typename R, typename S>
+	void tarjan(int startNode, T&& adjCallback, R&& visitFunction, S&& onSCC) const
+	{
+		m_fifo.clear();
+		m_cursor.clear();
+		m_heads.clear();
+		m_hist.clear();
+
+		visitFunction(0, startNode);
+		pushStack(startNode, adjCallback);
+
+		while (!m_fifo.empty())
 		{
-			// Strongly-connected component found
-			SCCIterator it(*this, nodeIndex);
-			onSCC(level, it);
+			// DFS through siblings
+			while (m_cursor.back() < m_hist.size())
+			{
+				int node = m_hist[m_cursor.back()++];
+				auto& parent = m_nodeInfos[m_fifo.back()];
+
+				TarjanNodeInfo& nodeInfo = m_nodeInfos[node];
+				if (nodeInfo.visitOrder >= 0)
+				{
+					if (nodeInfo.inTrail)
+					{
+						parent.lowLink = min(nodeInfo.lowLink, parent.lowLink);
+					}
+					continue;
+				}
+
+				visitFunction(m_fifo.size(), node);
+				pushStack(node, adjCallback);
+			}
+
+			// finished this level
+			auto& nodeInfo = m_nodeInfos[m_fifo.back()];
+			if (nodeInfo.visitOrder == nodeInfo.lowLink)
+			{
+				// Strongly-connected component found.
+				// SCCIterator will unwind the trail.
+				SCCIterator it(*this, m_fifo.back());
+				onSCC(m_fifo.size()-1, it);
+			}
+
+			popStack();
+
+			if (!m_fifo.empty())
+			{
+				auto& parentNodeInfo = m_nodeInfos[m_fifo.back()];
+				parentNodeInfo.lowLink = min(parentNodeInfo.lowLink, nodeInfo.lowLink);
+			}
 		}
 	}
 };

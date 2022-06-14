@@ -189,6 +189,9 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
 
         if (solver.getCurrentStatus() == EConstraintSolverResult::Solved)
         {
+            vector<bool> hit;
+            hit.resize(boardSize*boardSize, false);
+
             int cx = 0, cy = 0;
             do
             {
@@ -201,6 +204,7 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
                         {
                             dx = x1;
                             dy = y1;
+                            EATEST_VERIFY(solver.isAtomTrue(valid[cx][cy][dx][dy]));
                             goto next;
                         }
                     }
@@ -212,9 +216,16 @@ int KnightTourSolver::solveAtomic(int times, int boardSize, int seed, bool print
                 {
                     VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
                 }
+                if (dx >= 0 && dy >= 0)
+                {
+                    hit[dx + boardSize*dy] = true;
+                }
+
                 cx = dx;
                 cy = dy;
             } while (cx > 0 || cy > 0);
+
+            EATEST_VERIFY(!contains(hit.begin(), hit.end(), false));
         }
     }
 
@@ -319,6 +330,8 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
         }
     }
 
+    vector<bool> hit;
+    hit.resize(boardSize*boardSize, false);
     for (int time = 0; time < times; ++time)
     {
         solver.solve();
@@ -333,6 +346,7 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
                 int solved = solver.getSolvedValue(moves[cx][cy]);
                 int dx = solved%boardSize;
                 int dy = solved/boardSize;
+                EATEST_VERIFY(solver.isAtomTrue(valid[cx][cy][solved]));
 
                 next:
                 EATEST_VERIFY(dx >= 0 && dy >= 0);
@@ -340,10 +354,17 @@ int KnightTourSolver::solvePacked(int times, int boardSize, int seed, bool print
                 {
                     VERTEXY_LOG("(%d, %d) -> (%d, %d)", cx, cy, dx, dy);
                 }
+                if (dx >= 0 && dy >= 0)
+                {
+                    hit[dx + dy*boardSize] = true;
+                }
+
                 cx = dx;
                 cy = dy;
             } while (cx > 0 || cy > 0);
         }
+
+        EATEST_VERIFY(!contains(hit.begin(), hit.end(), false));
     }
 
     return nErrorCount;

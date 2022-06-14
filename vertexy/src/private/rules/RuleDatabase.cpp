@@ -10,6 +10,8 @@ static const SolverVariableDomain booleanVariableDomain(0, 1);
 static const ValueSet FALSE_VALUE = booleanVariableDomain.getBitsetForValue(0);
 static const ValueSet TRUE_VALUE = booleanVariableDomain.getBitsetForValue(1);
 
+#define VERTEXY_RULE_NAME_ATOMS 0
+
 RuleDatabase::RuleDatabase(ConstraintSolver& solver)
     : m_solver(solver)
 {
@@ -43,7 +45,9 @@ bool RuleDatabase::finalize()
 
         // Create a new boolean variable representing the body and constrain it.
         wstring bodyName;
-        bodyName.append_sprintf(TEXT("body-%d["), bodyInfo->id);
+        #if VERTEXY_RULE_NAME_ATOMS
+            bodyName.append_sprintf(TEXT("body-%d["), bodyInfo->id);
+        #endif
 
         m_nogoodBuilder.reserve(bodyInfo->body.values.size()+1);
         bool first = true;
@@ -59,14 +63,18 @@ bool RuleDatabase::finalize()
             vxy_sanity(bodyInfo->lit.variable != atomLit.variable);
             m_nogoodBuilder.add(atomLit);
 
-            if (!first) bodyName.append(TEXT(","));
+            #if VERTEXY_RULE_NAME_ATOMS
+                if (!first) bodyName.append(TEXT(","));
+                bodyName.append_sprintf(TEXT("(%s=%s)"), m_solver.getVariableName(atomLit.variable).c_str(), atomLit.values.toString().c_str());
+            #endif
             first = false;
-            bodyName.append_sprintf(TEXT("(%s=%s)"), m_solver.getVariableName(atomLit.variable).c_str(), atomLit.values.toString().c_str());
         }
 
         vxy_assert(!m_nogoodBuilder.empty());
 
-        bodyName += TEXT("]");
+        #if VERTEXY_RULE_NAME_ATOMS
+            bodyName += TEXT("]");
+        #endif
 
         // create the solver variable for the body
         VarID boolVar = m_solver.makeVariable(bodyName, booleanVariableDomain);
@@ -399,7 +407,10 @@ void RuleDatabase::transformChoice(const RuleHead& head, const RuleBody& body)
 
     for (int i = 0; i < head.heads.size(); ++i)
     {
-        wstring choiceAtomName; choiceAtomName.append_sprintf(TEXT("off-%s"), getAtom(head.heads[i])->name.c_str());
+        wstring choiceAtomName;
+        #if VERTEXY_RULE_NAME_ATOMS
+        choiceAtomName.append_sprintf(TEXT("off-%s"), getAtom(head.heads[i])->name.c_str());
+        #endif
         AtomID choiceAtom = createAtom(choiceAtomName.c_str());
         TRuleBodyElement<AtomLiteral> extBody = body;
         extBody.values.push_back(choiceAtom.neg());
@@ -680,7 +691,10 @@ AtomID RuleDatabase::createHeadAtom(const Literal& equivalence)
         return foundID;
     }
 
-    wstring name(wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
+    wstring name;
+    #if VERTEXY_RULE_NAME_ATOMS
+        name.append_sprintf(TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(equivalence.variable).c_str(), equivalence.values.toString().c_str());
+    #endif
     AtomID newAtom = createAtom(name.c_str());
 
     m_atomMap[equivalence] = newAtom;
@@ -704,12 +718,14 @@ AtomLiteral RuleDatabase::createAtom(const Literal& lit, const wchar_t* name)
         return AtomLiteral(found->second, false);
     }
 
-    wstring sname;
-    if (name == nullptr)
-    {
-        sname = {wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(lit.variable).c_str(), lit.values.toString().c_str()};
-        name = sname.c_str();
-    }
+    #if VERTEXY_RULE_NAME_ATOMS
+        wstring sname;
+        if (name == nullptr)
+        {
+            sname = {wstring::CtorSprintf(), TEXT("atom%d(%s=%s)"), m_atoms.size(), m_solver.getVariableName(lit.variable).c_str(), lit.values.toString().c_str()};
+            name = sname.c_str();
+        }
+    #endif
 
     AtomID newAtom = createAtom(name);
 
@@ -724,14 +740,16 @@ AtomID RuleDatabase::createAtom(const wchar_t* name)
     AtomID newAtom(m_atoms.size());
 
     m_atoms.push_back(make_unique<AtomInfo>(newAtom));
-    if (name == nullptr)
-    {
-        m_atoms.back()->name.sprintf(TEXT("atom%d"), newAtom.value);
-    }
-    else
-    {
-        m_atoms.back()->name = name;
-    }
+    #if VERTEXY_RULE_NAME_ATOMS
+        if (name == nullptr)
+        {
+            m_atoms.back()->name.sprintf(TEXT("atom%d"), newAtom.value);
+        }
+        else
+        {
+            m_atoms.back()->name = name;
+        }
+    #endif
 
     return newAtom;
 }
@@ -739,6 +757,8 @@ AtomID RuleDatabase::createAtom(const wchar_t* name)
 vector<TRuleBodyElement<AtomLiteral>> RuleDatabase::normalizeBody(const vector<AnyBodyElement>& elements)
 {
     vector<TRuleBodyElement<AtomLiteral>> out;
+    out.reserve(elements.size());
+
     for (auto it = elements.begin(), itEnd = elements.end(); it != itEnd; ++it)
     {
         out.push_back(normalizeBodyElement(*it));
@@ -1103,12 +1123,15 @@ GraphAtomLiteral RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topo
         return existing;
     }
 
-    wstring sname;
-    if (name == nullptr)
-    {
-        sname = {wstring::CtorSprintf(), TEXT("graphAtom%d(%s)"), m_nextGraphAtomID, relation->toString().c_str()};
-        name = sname.c_str();
-    }
+
+    #if VERTEXY_RULE_NAME_ATOMS
+        wstring sname;
+        if (name == nullptr)
+        {
+            sname = {wstring::CtorSprintf(), TEXT("graphAtom%d(%s)"), m_nextGraphAtomID, relation->toString().c_str()};
+            name = sname.c_str();
+        }
+    #endif
 
     auto newAtom = createGraphAtom(topology, name);
     relationList.push_back(make_tuple(relation, newAtom));
@@ -1127,12 +1150,14 @@ GraphAtomID RuleDatabase::createGraphAtom(const shared_ptr<ITopology>& topology,
     GraphAtomSet& atomSet = *it->second.get();
     GraphAtomID newAtom(m_nextGraphAtomID++);
 
-    wstring sname;
-    if (name == nullptr)
-    {
-        sname = {wstring::CtorSprintf(), TEXT("graphAtom%d"), newAtom.value};
-        name = sname.c_str();
-    }
+    #if VERTEXY_RULE_NAME_ATOMS
+        wstring sname;
+        if (name == nullptr)
+        {
+            sname = {wstring::CtorSprintf(), TEXT("graphAtom%d"), newAtom.value};
+            name = sname.c_str();
+        }
+    #endif
 
     atomSet[newAtom.value] = make_unique<GraphAtomInfo>(name, nullptr);
     return newAtom;
