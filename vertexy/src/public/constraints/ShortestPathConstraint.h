@@ -63,11 +63,13 @@ protected:
 
 	bool isValidDistance(const IVariableDatabase* db, int dist) const;
 
-	virtual bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const override;
-	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const override;
+	virtual bool isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) override;
+	virtual EValidityDetermination determineValidityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) override;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const override;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) override;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) override;
+	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params) override;
+	void onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 
 	EConstraintOperator m_op;
 	VarID m_distance;

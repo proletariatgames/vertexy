@@ -88,7 +88,7 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 }
 
 //is possibly reachable
-bool ShortestPathConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+bool ShortestPathConstraint::isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) 
 {
 	if (!src.maxReachability->isReachable(vertex))
 	{
@@ -105,57 +105,39 @@ bool ShortestPathConstraint::isPossiblyReachable(const IVariableDatabase* db, co
 	}
 }
 
-ITopologySearchConstraint::EReachabilityDetermination ShortestPathConstraint::determineReachabilityHelper(
+ITopologySearchConstraint::EValidityDetermination ShortestPathConstraint::determineValidityHelper(
 	const IVariableDatabase* db,
 	const ReachabilitySourceData& src,
 	int vertex,
-	VarID srcVertex) const
+	VarID srcVertex) 
 {
-	//if (src.minReachability->isReachable(vertex))
-	//{
-	//	if (definitelyIsSource(db, srcVertex))
-	//	{
-	//		return EReachabilityDetermination::DefinitelyReachable;
-	//	}
-	//	else
-	//	{
-	//		return EReachabilityDetermination::PossiblyReachable;
-	//	}
-	//}
-	//else if (src.maxReachability->isReachable(vertex))
-	//{
-	//	return EReachabilityDetermination::PossiblyReachable;
-	//}
-
-	//return EReachabilityDetermination::DefinitelyUnreachable;
-
 	if (src.minReachability->isReachable(vertex))
 	{
 		if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq) && !isValidDistance(db, src.minReachability->getDistance(vertex)))
 		{
-			return EReachabilityDetermination::DefinitelyUnreachable;
+			return EValidityDetermination::DefinitelyUnreachable;
 		}
 
 		if (definitelyIsSource(db, srcVertex))
 		{
-			return EReachabilityDetermination::DefinitelyReachable;
+			return EValidityDetermination::DefinitelyValid;
 		}
 		else
 		{
-			return EReachabilityDetermination::PossiblyReachable;
+			return EValidityDetermination::PossiblyValid;
 		}
 	}
 	else if (src.maxReachability->isReachable(vertex))
 	{
 		if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq) && !isValidDistance(db, src.maxReachability->getDistance(vertex)))
 		{
-			return EReachabilityDetermination::DefinitelyUnreachable;
+			return EValidityDetermination::DefinitelyUnreachable;
 		}
 
-		return EReachabilityDetermination::PossiblyReachable;
+		return EValidityDetermination::PossiblyValid;
 	}
 
-	return EReachabilityDetermination::DefinitelyUnreachable;
+	return EValidityDetermination::DefinitelyUnreachable;
 }
 
 shared_ptr<RamalReps<BacktrackingDigraphTopology>> ShortestPathConstraint::makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const
@@ -169,21 +151,7 @@ EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minRea
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			onReachabilityChanged(changedVertex, source, true);
-			//if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq))
-			//{
-			//	if (isValidDistance(m_edgeChangeDb, distance))
-			//	{
-			//		onReachabilityChanged(changedVertex, source, true);
-			//	}
-			//}
-			//else
-			//{
-			//	if (minReachable.isReachable(changedVertex)) //TODO: could be an assert
-			//	{
-			//		onReachabilityChanged(changedVertex, source, true);
-			//	}
-			//}
+			onVertexChanged(changedVertex, source, true);
 		}
 	});
 }
@@ -194,49 +162,68 @@ EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxRea
 	{
 		if (!m_backtracking && !m_explainingSourceRequirement)
 		{
-			onReachabilityChanged(changedVertex, source, false);
-			//if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq))
-			//{
-			//	if (!isValidDistance(m_edgeChangeDb, distance))
-			//	{
-			//		onReachabilityChanged(changedVertex, source, false);
-			//	}
-			//}
-			//else
-			//{
-			//	if (!maxReachable.isReachable(changedVertex))
-			//	{
-			//		onReachabilityChanged(changedVertex, source, false);
-			//	}
-			//}
+			onVertexChanged(changedVertex, source, false);
 		}
 	});
 }
 
-//EventListenerHandle ShortestPathConstraint::addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source)
-//{
-//	return minReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
-//	{
-//		if (!m_backtracking && !m_explainingSourceRequirement)
-//		{
-//			vxy_assert(isReachable);
-//			onReachabilityChanged(changedVertex, source, true);
-//		}
-//	});
-//}
-//
-//EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source)
-//{
-//	return maxReachable.onReachabilityChanged.add([this, source](int changedVertex, bool isReachable)
-//	{
-//		if (!m_backtracking && !m_explainingSourceRequirement)
-//		{
-//			vxy_assert(!isReachable);
-//			onReachabilityChanged(changedVertex, source, false);
-//		}
-//	});
-//}
+vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingExplanationParams& params)
+{
+	return IVariableDatabase::defaultExplainer(params);
+}
 
+void ShortestPathConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)
+{
+	vxy_assert(!m_backtracking);
+	vxy_assert(!m_explainingSourceRequirement);
+
+	vxy_assert(m_edgeChangeDb != nullptr);
+	vxy_assert(m_inEdgeChange);
+
+	if (m_edgeChangeFailure)
+	{
+		// We already failed - avoid further failures that could confuse the conflict analyzer
+		return;
+	}
+
+	auto reachability = determineValidity(m_edgeChangeDb, vertexIndex);
+
+	// See if this vertex is definitely reachable by any source now
+	//if (reachability == EReachabilityDetermination::DefinitelyValid)
+	//{
+	//	VarID var = m_sourceGraphData->get(vertexIndex);
+	//	if (var.isValid())
+	//	{
+	//		if (m_edgeChangeDb->getPotentialValues(var).allPossible(m_requireValidityMask))
+	//		{
+	//			// only constrain if it's possible
+	//			m_edgeChangeDb->constrainToValues(var, m_requireValidityMask, this);
+	//		}
+	//	}
+	//}
+	if (reachability == EValidityDetermination::DefinitelyUnreachable)
+	{
+		// vertexIndex became unreachable in the max graph
+		VarID var = m_sourceGraphData->get(vertexIndex);
+		//sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
+
+		if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
+		{
+			m_edgeChangeFailure = true;
+		}
+	}
+	else if (reachability == EValidityDetermination::DefinitelyInvalid)
+	{
+		// vertexIndex became unreachable in the max graph
+		VarID var = m_sourceGraphData->get(vertexIndex);
+		//sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
+
+		if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
+		{
+			m_edgeChangeFailure = true;
+		}
+	}
+}
 
 
 #undef SANITY_CHECKS

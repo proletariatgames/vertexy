@@ -29,11 +29,11 @@ ITopologySearchConstraint::ITopologySearchConstraint(
 	, m_maxGraph(make_shared<BacktrackingDigraphTopology>())
 	, m_explanationGraph(make_shared<BacktrackingDigraphTopology>())
 	, m_sourceMask(sourceMask)
-	, m_requireReachableMask(requireReachableMask)
+	, m_requireValidMask(requireReachableMask)
 	, m_edgeBlockedMask(edgeBlockedMask)
 {
 	m_notSourceMask = sourceMask.inverted();
-	m_notReachableMask = requireReachableMask.inverted();
+	m_invalidMask = requireReachableMask.inverted();
 	m_edgeOpenMask = edgeBlockedMask.inverted();
 
 	for (int i = 0; i < m_sourceGraph->getNumVertices(); ++i)
@@ -338,18 +338,18 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 		VarID vertexVar = m_sourceGraphData->get(vertex);
 		if (vertexVar.isValid())
 		{
-			EReachabilityDetermination determination = determineReachability(db, vertex);
+			EValidityDetermination determination = determineValidity(db, vertex);
 
-			if (determination == EReachabilityDetermination::DefinitelyUnreachable)
+			if (determination == EValidityDetermination::DefinitelyUnreachable)
 			{
-				if (!db->constrainToValues(vertexVar, m_notReachableMask, this))
+				if (!db->constrainToValues(vertexVar, m_invalidMask, this))
 				{
 					return false;
 				}
 			}
-			else if (determination == EReachabilityDetermination::DefinitelyReachable)
+			else if (determination == EValidityDetermination::DefinitelyValid)
 			{
-				if (!db->constrainToValues(vertexVar, m_requireReachableMask, this))
+				if (!db->constrainToValues(vertexVar, m_requireValidMask, this))
 				{
 					return false;
 				}
@@ -380,7 +380,7 @@ bool ITopologySearchConstraint::onVariableNarrowed(IVariableDatabase* db, VarID 
 	const ValueSet& newValue = db->getPotentialValues(variable);
 
 	if ((prevValue.anyPossible(m_sourceMask) && !newValue.anyPossible(m_sourceMask)) ||
-		(prevValue.anyPossible(m_notReachableMask) && !newValue.anyPossible(m_notReachableMask)))
+		(prevValue.anyPossible(m_invalidMask) && !newValue.anyPossible(m_invalidMask)))
 	{
 		if (!contains(m_vertexProcessList.begin(), m_vertexProcessList.end(), variable))
 		{
@@ -420,7 +420,7 @@ bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
 	m_edgeProcessList.clear();
 
 	#if REACHABILITY_USE_RAMAL_REPS
-	// Batch-update reachability for all edge changes. This will trigger OnReachabilityChanged callbacks.
+	// Batch-update reachability for all edge changes. This will trigger onVertexChanged callbacks.
 	{
 		vxy_assert(!m_edgeChangeFailure);
 		ValueGuard<bool> guardEdgeChange(m_inEdgeChange, true);
@@ -469,20 +469,22 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 	}
 
 	// If this now requires reachability... 
-	if (!db->anyPossible(variable, m_notReachableMask))
+	if (!db->anyPossible(variable, m_invalidMask))
 	{
 		int vertex = m_variableToSourceVertexIndex[variable];
 
-		int numReachableSources = 0;
-		VarID lastReachableSource = VarID::INVALID;
+		int numValidSources = 0;
+		VarID lastValidSource = VarID::INVALID;
+		bool hadAnyReachable = false;
 		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 		{
-			if (isPossiblyReachable(db, it->second, vertex) )
-			//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
+			bool isReachable = isPossiblyReachable(db, it->second, vertex);
+			hadAnyReachable |= isReachable;
+			if (isReachable && isPossiblyValid(db, it->second, vertex) )
 			{
-				++numReachableSources; 
-				lastReachableSource = it->first;
-				if (numReachableSources > 1)
+				++numValidSources; 
+				lastValidSource = it->first;
+				if (numValidSources > 1)
 				{
 					break;
 				}
@@ -490,16 +492,16 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		}
 
 		// If not reachable by any source, then fail
-		if (numReachableSources == 0)
+		if (numValidSources == 0)
 		{
-			bool success = db->constrainToValues(variable, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); });
+			bool success = db->constrainToValues(variable, m_invalidMask, this, [&](auto params) { return hadAnyReachable ? explainInvalid(params) : explainNoReachability(params); });
 			vxy_assert(!success);
 			return false;
 		}
 		// If reachable by a single potential source, that single source must be definite
-		else if (numReachableSources == 1)
+		else if (numValidSources == 1)
 		{
-			if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&](auto params) { return explainRequiredSource(params); }))
+			if (!db->constrainToValues(lastValidSource, m_sourceMask, this, [&](auto params) { return explainRequiredSource(params); }))
 			{
 				return false;
 			}
@@ -561,48 +563,56 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	bool failure = false;
 	auto checkReachability = [&](int vertex, int parent)
 	{
-		if (isPossiblyReachable(db, sourceData, vertex))
+		if (isPossiblyReachable(db, sourceData, vertex) && isPossiblyValid(db, sourceData, vertex))
 		//if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
 		{
 			// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
 			VarID vertexVar = m_sourceGraphData->get(vertex);
-			if (vertexVar.isValid() && db->anyPossible(vertexVar, m_requireReachableMask))
+			if (vertexVar.isValid() && db->anyPossible(vertexVar, m_requireValidMask))
 			{
-				EReachabilityDetermination determination = determineReachability(db, vertex);
+				EValidityDetermination determination = determineValidity(db, vertex);
 
-				if (determination == EReachabilityDetermination::DefinitelyUnreachable)
+				if (determination == EValidityDetermination::DefinitelyUnreachable)
 				{
 					//sanityCheckUnreachable(db, vertex);
-					if (!db->constrainToValues(vertexVar, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
+					if (!db->constrainToValues(vertexVar, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
 					{
 						failure = true;
 						return ETopologySearchResponse::Abort;
 					}
 				}
-				else if (determination == EReachabilityDetermination::PossiblyReachable && !db->anyPossible(vertexVar, m_notReachableMask))
+				else if (determination == EValidityDetermination::DefinitelyInvalid)
+				{
+					//sanityCheckUnreachable(db, vertex);
+					if (!db->constrainToValues(vertexVar, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
+					{
+						failure = true;
+						return ETopologySearchResponse::Abort;
+					}
+				}
+				else if (determination == EValidityDetermination::PossiblyValid && !db->anyPossible(vertexVar, m_invalidMask))
 				{
 					// The vertex is marked definitely reachable, but only possibly reachable in the graph.
 					// If there is only a single potential source that reaches this vertex, then it must now definitely be a source.
-					VarID lastReachableSource = VarID::INVALID;
-					int numReachableSources = 0;
+					VarID lastValidSource = VarID::INVALID;
+					int numValidSources = 0;
 					for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 					{
-						if (isPossiblyReachable(db, it->second, vertex))
-						//if (it->second.maxReachability->isReachable(vertex) && isValidDistance(db, it->second.maxReachability->getDistance(vertex)))
+						if (isPossiblyReachable(db, it->second, vertex) && isPossiblyValid(db, it->second, vertex))
 						{
-							++numReachableSources;
-							lastReachableSource = it->first;
-							if (numReachableSources > 1)
+							++numValidSources;
+							lastValidSource = it->first;
+							if (numValidSources > 1)
 							{
 								break;
 							}
 						}
 					}
 
-					vxy_assert(numReachableSources >= 1);
-					if (numReachableSources == 1)
+					vxy_assert(numValidSources >= 1);
+					if (numValidSources == 1)
 					{
-						if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); }))
+						if (!db->constrainToValues(lastValidSource, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); }))
 						{
 							failure = true;
 							return ETopologySearchResponse::Abort;
@@ -621,6 +631,37 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	m_dfs.search(*m_sourceGraph.get(), sourceVertex, checkReachability);
 
 	return !failure;
+}
+
+bool Vertexy::ITopologySearchConstraint::isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex)
+{
+	// in the default implementation, it is always valid. implementors can override this for their invalid implementation
+	return true;
+}
+
+ITopologySearchConstraint::EValidityDetermination Vertexy::ITopologySearchConstraint::determineValidityHelper(
+	const IVariableDatabase* db,
+	const ReachabilitySourceData& src,
+	int vertex,
+	VarID srcVertex)
+{
+	if (src.minReachability->isReachable(vertex))
+	{
+		if (definitelyIsSource(db, srcVertex))
+		{
+			return EValidityDetermination::DefinitelyValid;
+		}
+		else
+		{
+			return EValidityDetermination::PossiblyValid;
+		}
+	}
+	else if (src.maxReachability->isReachable(vertex))
+	{
+		return EValidityDetermination::PossiblyValid;
+	}
+
+	return EValidityDetermination::DefinitelyUnreachable;
 }
 
 void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable)
@@ -681,49 +722,6 @@ void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db,
 	}
 }
 
-//determine if it's still within the required range
-void ITopologySearchConstraint::onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)
-{
-	vxy_assert(!m_backtracking);
-	vxy_assert(!m_explainingSourceRequirement);
-
-	vxy_assert(m_edgeChangeDb != nullptr);
-	vxy_assert(m_inEdgeChange);
-
-	if (m_edgeChangeFailure)
-	{
-		// We already failed - avoid further failures that could confuse the conflict analyzer
-		return;
-	}
-
-	if (inMinGraph)
-	{
-		// See if this vertex is definitely reachable by any source now
-		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyReachable)
-		{
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_requireReachableMask, this))
-			{
-				m_edgeChangeFailure = true;
-			}
-		}
-	}
-	else
-	{
-		// vertexIndex became unreachable in the max graph
-		if (determineReachability(m_edgeChangeDb, vertexIndex) == EReachabilityDetermination::DefinitelyUnreachable)
-		{
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			//sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
-
-			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
-			{
-				m_edgeChangeFailure = true;
-			}
-		}
-	}
-}
-
 void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDecisionLevel level)
 {
 	vxy_assert(!m_edgeChangeFailure);
@@ -759,9 +757,10 @@ void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDec
 	#endif
 }
 
-ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint::determineReachability(const IVariableDatabase* db, int vertexIndex)
+ITopologySearchConstraint::EValidityDetermination ITopologySearchConstraint::determineValidity(const IVariableDatabase* db, int vertexIndex)
 {
 	VarID vertexVar = m_sourceGraphData->get(vertexIndex);
+	bool hadAnyInvalid = false;
 	for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 	{
 		if (it->first == vertexVar)
@@ -771,10 +770,20 @@ ITopologySearchConstraint::EReachabilityDetermination ITopologySearchConstraint:
 			continue;
 		}
 
-		return determineReachabilityHelper(db, it->second, vertexIndex, it->first);
+		auto validity = determineValidityHelper(db, it->second, vertexIndex, it->first);
+		switch (validity)
+		{
+		case EValidityDetermination::DefinitelyInvalid:
+			hadAnyInvalid = true;
+			break;
+		case EValidityDetermination::DefinitelyUnreachable:
+			break;
+		default:
+			return validity;
+		}
 	}
 
-	return EReachabilityDetermination::DefinitelyUnreachable;
+	return hadAnyInvalid ? EValidityDetermination::DefinitelyInvalid : EValidityDetermination::DefinitelyUnreachable;
 }
 
 // Called whenever an edge is added or removed from the explanation graph, including during backtracking
@@ -794,14 +803,241 @@ void ITopologySearchConstraint::onExplanationGraphEdgeChange(bool edgeWasAdded, 
 
 vector<Literal> ITopologySearchConstraint::explainNoReachability(const NarrowingExplanationParams& params) const
 {
-	 return IVariableDatabase::defaultExplainer(params);
+	vxy_assert_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
+
+	auto db = params.database;
+	int conflictVertex = m_variableToSourceVertexIndex.find(params.propagatedVariable)->second;
+
+	vector<Literal> lits;
+	lits.push_back(Literal(params.propagatedVariable, m_invalidMask));
+
+	static hash_set<VarID> edgeVarsRecorded;
+	edgeVarsRecorded.clear();
+
+	ValueSet visited;
+	visited.init(m_initialPotentialSources.size(), false);
+
+	// For each source that could possibly exist...
+	for (int potentialSrcIndex = 0; potentialSrcIndex < m_initialPotentialSources.size(); ++potentialSrcIndex)
+	{
+		if (visited[potentialSrcIndex])
+		{
+			continue;
+		}
+		visited[potentialSrcIndex] = true;
+
+		VarID potentialSource = m_initialPotentialSources[potentialSrcIndex];
+
+		int sourceVertex = m_variableToSourceVertexIndex.find(potentialSource)->second;
+		if (sourceVertex == conflictVertex)
+		{
+			// Reachability sources cannot provide reachability to themselves
+			continue;
+		}
+
+		// If this is currently a potential source...
+		if (db->getPotentialValues(potentialSource).anyPossible(m_sourceMask))
+		{
+			//
+			// Find the minimum cut of edges that would make this reachable
+			//
+
+			// Temporarily rewind the explanation graph to this time.
+			// This will trigger OnExplanationGraphEdgeChange() for any edges re-added, so that FlowGraphEdges
+			// will be the same state as when we processed the input variable.
+
+			m_explanationGraph->rewindUntil(params.timestamp);
+
+			vxy_sanity(!TopologySearchAlgorithm::canReach(m_explanationGraph, sourceVertex, conflictVertex));
+
+			// Find the minimum cut in the maximum flow graph. This will correspond to edges that are disabled, because
+			// A) we know that sourceVertex can't reach conflictVertex without going through a disabled edge
+			// B) blocked edges are set to a flow capacity of 1, and blocked edges have infinite flow
+			vector<tuple<int, int>> cutEdges;
+			m_maxFlowAlgo.getMaxFlow(*m_sourceGraph.get(), sourceVertex, conflictVertex, m_flowGraphEdges, m_flowGraphLookup, &cutEdges);
+			vxy_assert(!cutEdges.empty());
+
+			// Now that we've found the cut, bring the explanation graph back to current state.
+			m_explanationGraph->fastForward();
+
+			for (tuple<int, int>& edge : cutEdges)
+			{
+				int edgeNode = m_edgeGraph->getVertexForSourceEdge(get<0>(edge), get<1>(edge));
+				VarID edgeVar = m_edgeGraphData->get(edgeNode);
+				if (edgeVarsRecorded.find(edgeVar) == edgeVarsRecorded.end())
+				{
+					edgeVarsRecorded.insert(edgeVar);
+
+					vxy_assert(!db->anyPossible(edgeVar, m_edgeOpenMask)); //hits this with distance = 100, 200
+					lits.push_back(Literal(edgeVar, m_edgeOpenMask));
+				}
+			}
+
+			// For every other potential source, see if this graph also holds. It holds if the other source is on the
+			// same side as this source, hence would have to cross the same edge boundary.
+			for (int j = potentialSrcIndex + 1; j < m_initialPotentialSources.size(); ++j)
+			{
+				if (visited[j])
+				{
+					continue;
+				}
+
+				int vertex = m_variableToSourceVertexIndex.find(potentialSource)->second;
+				if (vertex == conflictVertex)
+				{
+					continue;
+				}
+
+				if (db->getPotentialValues(m_initialPotentialSources[j]).anyPossible(m_sourceMask))
+				{
+					if (!m_maxFlowAlgo.onSinkSide(vertex, m_flowGraphEdges, m_flowGraphLookup))
+					{
+						visited[j] = true;
+					}
+				}
+			}
+		}
+		// Not currently a potential source. For now, the conservative explanation is that we'd be able to reach if it
+		// was.
+		else
+		{
+			lits.push_back(Literal(potentialSource, m_sourceMask));
+		}
+	}
+
+	return lits;
 }
 
 vector<Literal> ITopologySearchConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
 {
-	return IVariableDatabase::defaultExplainer(params);
+	//return IVariableDatabase::defaultExplainer(params);
+
+	vxy_assert(!m_explainingSourceRequirement);
+	ValueGuard<bool> guard(m_explainingSourceRequirement, true);
+
+	VarID sourceVar = params.propagatedVariable;
+	int sourceVertex = m_variableToSourceVertexIndex[sourceVar];
+
+	auto db = params.database;
+
+	vector<Literal> lits;
+	lits.push_back(Literal(sourceVar, m_sourceMask));
+
+	m_maxGraph->rewindUntil(params.timestamp);
+
+#if REACHABILITY_USE_RAMAL_REPS
+	{
+		// Batch-update to rewound graph state
+		for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
+		{
+			it->second.maxReachability->refresh();
+		}
+	}
+#endif
+
+	// Create any sources that might've gotten removed since this happened.
+	// (We'll clean them up after)
+	vector<VarID> tempSources;
+	for (VarID potentialSource : m_initialPotentialSources)
+	{
+		if (db->anyPossible(potentialSource, m_sourceMask))
+		{
+			if (m_reachabilitySources.find(potentialSource) == m_reachabilitySources.end())
+			{
+				tempSources.push_back(potentialSource);
+
+				int vertexIndex = m_variableToSourceVertexIndex[potentialSource];
+
+				ReachabilitySourceData data;
+#if REACHABILITY_USE_RAMAL_REPS
+				data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
+#else
+				Data.maxReachability = make_shared<ESTreeType>(MaxGraph);
+#endif
+				data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
+
+				m_reachabilitySources[potentialSource] = data;
+			}
+		}
+		else if (potentialSource != sourceVar)
+		{
+			lits.push_back(Literal(potentialSource, m_sourceMask));
+		}
+	}
+
+	int removedSourceLitIdx = -1;
+	if (removedSource.isValid())
+	{
+		// This became a required source because RemovedSource was removed, and some definitely-reachable vertices were
+		// only reachable by this source.
+		vxy_assert(!db->anyPossible(removedSource, m_sourceMask));
+		removedSourceLitIdx = indexOfPredicate(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == removedSource; });
+		vxy_assert(removedSourceLitIdx >= 0);
+	}
+
+	//
+	// This became a required source because some variable(s) were marked as required, and we are the only
+	// source that can reach them. Find those variables.
+	//
+	bool foundSupports = false;
+	auto& ourReachability = m_reachabilitySources[sourceVar].maxReachability;
+	auto searchCallback = [&](int vertex, int parent, int edgeIndex)
+	{
+		if (ourReachability->isReachable(vertex))
+		{
+			VarID vertexVar = m_sourceGraphData->get(vertex);
+			if (!db->anyPossible(vertexVar, m_invalidMask))
+			{
+				bool reachableFromAnotherSource = false;
+				for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
+				{
+					if (it->first != sourceVar && it->first != vertexVar && it->second.maxReachability->isReachable(vertex))
+					{
+						reachableFromAnotherSource = true;
+						break;
+					}
+				}
+
+				if (!reachableFromAnotherSource)
+				{
+					vxy_assert(m_reachabilitySources[sourceVar].maxReachability->isReachable(vertex));
+					// make sure we don't add the same literal twice!
+					auto found = find_if(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == vertexVar; });
+					if (found != lits.end())
+					{
+						vxy_assert(found->variable == vertexVar);
+						found->values.include(m_invalidMask);
+					}
+					else
+					{
+						lits.push_back(Literal(vertexVar, m_invalidMask));
+					}
+					foundSupports = true;
+				}
+			}
+			return ETopologySearchResponse::Continue;
+		}
+		else
+		{
+			return ETopologySearchResponse::Skip;
+		}
+	};
+	m_dfs.search(*m_sourceGraph.get(), m_variableToSourceVertexIndex[sourceVar], searchCallback);
+	vxy_assert(foundSupports);
+
+	for (VarID tempSource : tempSources)
+	{
+		m_reachabilitySources.erase(tempSource);
+	}
+
+	m_maxGraph->fastForward();
+	return lits;
 }
 
+bool ITopologySearchConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+{
+	return src.maxReachability->isReachable(vertex);
+}
 
 void ITopologySearchConstraint::sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex)
 {

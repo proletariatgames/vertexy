@@ -56,15 +56,11 @@ public:
 
 protected:
 
-	virtual bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const override;
-	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const override;
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const override;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) override;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) override;
 
-	virtual vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const override;
-	virtual vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID) override;
-	
+	void onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 };
 
 } // namespace Vertexy

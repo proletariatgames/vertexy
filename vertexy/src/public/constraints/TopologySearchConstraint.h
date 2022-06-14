@@ -40,26 +40,31 @@ public:
 	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outRelations) const override;
 
 protected:
-	//for now don't worry about explainers
-	virtual vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
-	virtual vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
-
-	enum class EReachabilityDetermination : uint8_t
+	vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
+	vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
+	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params)
 	{
-		DefinitelyReachable,
+		vxy_fail(); // override this if using DefinitelyInvalid
+		return vector<Literal>();
+	}
+
+	enum class EValidityDetermination : uint8_t
+	{
+		DefinitelyValid,
 		// Reachable from a definite source
-		PossiblyReachable,
+		PossiblyValid,
 		// Reachable from a possible source
 		DefinitelyUnreachable,
 		// Unreachable from any possible source
+		DefinitelyInvalid,
+		// Invalid from any possible source
 	};
 
-	EReachabilityDetermination determineReachability(const IVariableDatabase* db, int vertex);
+	EValidityDetermination determineValidity(const IVariableDatabase* db, int vertex);
 	//used by propagate, NEEDS TO CHANGE
 	bool processVertexVariableChange(IVariableDatabase* db, VarID variable);
 	//used by propagate
 	void updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable);
-	void onReachabilityChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 	void sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex);
 
 	void onExplanationGraphEdgeChange(bool edgeWasAdded, int from, int to);
@@ -73,15 +78,16 @@ protected:
 
 	struct ReachabilitySourceData;
 	//virtual
-	virtual bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const = 0;
-	virtual EReachabilityDetermination determineReachabilityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex) const = 0;
+	bool isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const;
+	virtual bool isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex);
+	virtual EValidityDetermination determineValidityHelper(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex, VarID srcVertex);
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) = 0;
 
 	inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 	{
-		return !db->getPotentialValues(var).anyPossible(m_notReachableMask);
+		return !db->getPotentialValues(var).anyPossible(m_invalidMask);
 	}
 
 	inline bool definitelyIsSource(const IVariableDatabase* db, VarID var) const
@@ -147,8 +153,8 @@ protected:
 	ValueSet m_sourceMask;
 	ValueSet m_notSourceMask;
 
-	ValueSet m_requireReachableMask;
-	ValueSet m_notReachableMask;
+	ValueSet m_requireValidMask;
+	ValueSet m_invalidMask;
 
 	ValueSet m_edgeBlockedMask;
 	ValueSet m_edgeOpenMask;
