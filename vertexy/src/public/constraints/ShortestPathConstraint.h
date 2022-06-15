@@ -10,8 +10,10 @@
 #include "topology/DigraphEdgeTopology.h"
 #include "topology/TopologyVertexData.h"
 #include "topology/algo/MaxFlowMinCut.h"
+#include "topology/algo/ShortestPath.h"
 #include "variable/IVariableDatabase.h"
-#include "constraints\ConstraintOperator.h"
+#include "constraints/ConstraintOperator.h"
+#include "ds/BacktrackableValue.h"
 
 #define REACHABILITY_USE_RAMAL_REPS 1
 
@@ -58,6 +60,7 @@ public:
 	using Factory = ShortestPathFactory;
 
 	virtual EConstraintType getConstraintType() const override { return EConstraintType::ShortestPath; }
+	virtual void onInitialArcConsistency(IVariableDatabase* db) override;
 
 protected:
 
@@ -71,9 +74,28 @@ protected:
 	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params) override;
 	virtual void createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const override;
 	void onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
+	void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 
 	EConstraintOperator m_op;
 	VarID m_distance;
+
+	// used to determine the path that is either too long or too short when explaning
+	ShortestPathAlgorithm m_shortestPathAlgo;
+
+	// used when m_op is LessThan/LessThanEq and records the last timestamp in which a vertex was deemed valid
+	hash_map<int, hash_map<int, TBacktrackableValue<SolverTimestamp>>> m_lastValidTimestamp;
+	hash_map<int, hash_map<int, SolverTimestamp>> m_validTimestampsToCommit;
+	hash_set<tuple<int, int>> m_alwaysForbiddenPaths;
+
+	hash_set<int> m_queuedVertexChanges;
+	bool m_processingVertices = false;
+
+	void commitValidTimestamps(const IVariableDatabase* db);
+	void onEdgeChangeFailure(const IVariableDatabase* db) override;
+	void onEdgeChangeSuccess(const IVariableDatabase* db) override;
+	void addTimestampToCommit(const IVariableDatabase* db, int sourceVertex, int destVertex);
+	void removeTimestampToCommit(const IVariableDatabase* db, int sourceVertex, int destVertex);
+	void processQueuedVertexChanges(IVariableDatabase* db) override;
 };
 
 } // namespace Vertexy

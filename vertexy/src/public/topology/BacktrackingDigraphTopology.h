@@ -99,7 +99,7 @@ public:
 		}
 	}
 
-	inline bool isPartiallyRewound() const { return m_lastHistoryIdx < m_history.size() - 1; }
+	inline bool isPartiallyRewound() const { return (m_lastHistoryIdx < 0 && m_history.size() > 0) || m_lastHistoryIdx < m_history.size() - 1; }
 
 protected:
 	struct HistoryRecord

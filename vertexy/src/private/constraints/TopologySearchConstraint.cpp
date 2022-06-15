@@ -27,7 +27,8 @@ ITopologySearchConstraint::ITopologySearchConstraint(
 	, m_edgeGraph(edgeGraphData->getSource()->getImplementation<EdgeTopology>())
 	, m_minGraph(make_shared<BacktrackingDigraphTopology>())
 	, m_maxGraph(make_shared<BacktrackingDigraphTopology>())
-	, m_explanationGraph(make_shared<BacktrackingDigraphTopology>())
+	, m_explanationMaxGraph(make_shared<BacktrackingDigraphTopology>())
+	, m_explanationMinGraph(nullptr)
 	, m_sourceMask(sourceMask)
 	, m_requireValidMask(requireReachableMask)
 	, m_edgeBlockedMask(edgeBlockedMask)
@@ -192,9 +193,14 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 		addedIdx = m_minGraph->addVertex();
 		vxy_assert(addedIdx == vertexIndex);
 
-		addedIdx = m_explanationGraph->addVertex();
+		addedIdx = m_explanationMaxGraph->addVertex();
 		vxy_assert(addedIdx == vertexIndex);
 
+		if (m_explanationMinGraph)
+		{
+			addedIdx = m_explanationMinGraph->addVertex();
+			vxy_assert(addedIdx == vertexIndex);
+		}
 		if (vertexVar.isValid())
 		{
 			m_vertexWatchHandles[vertexVar] = db->addVariableWatch(vertexVar, EVariableWatchType::WatchModification, this);
@@ -237,7 +243,11 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 
 						m_minGraph->initEdge(sourceVertex, destVertex);
 						m_maxGraph->initEdge(sourceVertex, destVertex);
-						m_explanationGraph->initEdge(sourceVertex, destVertex);
+						m_explanationMaxGraph->initEdge(sourceVertex, destVertex);
+						if (m_explanationMinGraph)
+						{
+							m_explanationMinGraph->initEdge(sourceVertex, destVertex);
+						}
 					}
 					else if (possiblyOpenEdge(db, edgeVar))
 					{
@@ -248,7 +258,7 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 							m_edgeWatchHandles[edgeVar] = db->addVariableWatch(edgeVar, EVariableWatchType::WatchModification, &m_edgeWatcher);
 						}
 						m_maxGraph->initEdge(sourceVertex, destVertex);
-						m_explanationGraph->initEdge(sourceVertex, destVertex);
+						m_explanationMaxGraph->initEdge(sourceVertex, destVertex);
 					}
 				}
 				else
@@ -258,7 +268,11 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 					// No variable for this edge, so should always exist
 					m_minGraph->initEdge(sourceVertex, destVertex);
 					m_maxGraph->initEdge(sourceVertex, destVertex);
-					m_explanationGraph->initEdge(sourceVertex, destVertex);
+					m_explanationMaxGraph->initEdge(sourceVertex, destVertex);
+					if (m_explanationMinGraph)
+					{
+						m_explanationMinGraph->initEdge(sourceVertex, destVertex);
+					}
 				}
 
 				foundVertexEdges->second[destVertex] = edgeIsClosed ? CLOSED_EDGE_FLOW : OPEN_EDGE_FLOW;
@@ -315,9 +329,9 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 	}
 
 	// Register for callback when edges are added/removed from ExplanationGraph, in order to update capacities
-	m_explanationGraph->getEdgeChangeListener().add([&](bool edgeWasAdded, int from, int to)
+	m_explanationMaxGraph->getEdgeChangeListener().add([&](bool edgeWasAdded, int from, int to)
 	{
-		onExplanationGraphEdgeChange(edgeWasAdded, from, to);
+		onExplanationMaxGraphEdgeChange(edgeWasAdded, from, to);
 	});
 
 	// Create reachability structures for all variables that are possibly reachability sources
@@ -344,6 +358,7 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 			{
 				if (!db->constrainToValues(vertexVar, m_invalidMask, this))
 				{
+					onEdgeChangeFailure(db);
 					return false;
 				}
 			}
@@ -351,11 +366,13 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 			{
 				if (!db->constrainToValues(vertexVar, m_requireValidMask, this))
 				{
+					onEdgeChangeFailure(db);
 					return false;
 				}
 			}
 		}
 	}
+	onEdgeChangeSuccess(db);
 
 	return true;
 }
@@ -414,6 +431,7 @@ bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
 		updateGraphsForEdgeChange(db, edgeVar);
 		if (m_edgeChangeFailure)
 		{
+			onEdgeChangeFailure(db);
 			return false;
 		}
 	}
@@ -431,12 +449,14 @@ bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
 			it->second.maxReachability->refresh();
 			if (m_edgeChangeFailure)
 			{
+				onEdgeChangeFailure(db);
 				return false;
 			}
 
 			it->second.minReachability->refresh();
 			if (m_edgeChangeFailure)
 			{
+				onEdgeChangeFailure(db);
 				return false;
 			}
 		}
@@ -445,15 +465,24 @@ bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
 
 	vxy_assert(!m_edgeChangeFailure);
 
+	processQueuedVertexChanges(db);
+	if (m_edgeChangeFailure)
+	{
+		onEdgeChangeFailure(db);
+		return false;
+	}
+
 	// Now that reachability info is up to date, process vertices
 	for (VarID vertexVar : m_vertexProcessList)
 	{
 		if (!processVertexVariableChange(db, vertexVar))
 		{
+			onEdgeChangeFailure(db);
 			return false;
 		}
 	}
 	m_vertexProcessList.clear();
+	onEdgeChangeSuccess(db);
 
 	return true;
 }
@@ -494,7 +523,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 		// If not reachable by any source, then fail
 		if (numValidSources == 0)
 		{
-			bool success = db->constrainToValues(variable, m_invalidMask, this, [&](auto params) { return hadAnyReachable ? explainInvalid(params) : explainNoReachability(params); });
+			bool success = db->constrainToValues(variable, m_invalidMask, this, [&,hadAnyReachable](auto params) { return hadAnyReachable ? explainInvalid(params) : explainNoReachability(params); });
 			vxy_assert(!success);
 			return false;
 		}
@@ -529,8 +558,7 @@ void ITopologySearchConstraint::addSource(const IVariableDatabase* db, VarID sou
 	EventListenerHandle minHandle = addMinCallback(*minReachable, db, source);
 	EventListenerHandle maxHandle = addMaxCallback(*maxReachable, db, source);
 
-	m_reachabilitySources[source] = { minReachable, maxReachable, minHandle, maxHandle };
-	
+	m_reachabilitySources[source] = { minReachable, maxReachable, minHandle, maxHandle, vertex };
 }
 
 bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source)
@@ -564,7 +592,6 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	auto checkReachability = [&](int vertex, int parent)
 	{
 		if (isPossiblyReachable(db, sourceData, vertex) && isPossiblyValid(db, sourceData, vertex))
-		//if (sourceData.maxReachability->isReachable(vertex) && isValidDistance(db, sourceData.maxReachability->getDistance(vertex)))
 		{
 			// This vertex is no longer reachable from the removed source, so might be definitely unreachable now
 			VarID vertexVar = m_sourceGraphData->get(vertex);
@@ -706,6 +733,15 @@ void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db,
 			{
 				m_minGraph->addEdge(to, from, db->getTimestamp());
 			}
+
+			if (m_explanationMinGraph)
+			{
+				m_explanationMinGraph->addEdge(from, to, db->getTimestamp());
+				if (bidirectional)
+				{
+					m_explanationMinGraph->addEdge(to, from, db->getTimestamp());
+				}
+			}
 		}
 	}
 	else if (db->anyPossible(variable, m_edgeBlockedMask) && !db->anyPossible(variable, m_edgeOpenMask))
@@ -717,10 +753,10 @@ void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db,
 		if (m_maxGraph->hasEdge(from, to))
 		{
 			// Remove from the explanation graph first, so that we can sync to correct time.
-			m_explanationGraph->removeEdge(from, to, db->getTimestamp());
+			m_explanationMaxGraph->removeEdge(from, to, db->getTimestamp());
 			if (bidirectional)
 			{
-				m_explanationGraph->removeEdge(to, from, db->getTimestamp());
+				m_explanationMaxGraph->removeEdge(to, from, db->getTimestamp());
 			}
 
 			m_maxGraph->removeEdge(from, to, db->getTimestamp());
@@ -752,7 +788,11 @@ void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDec
 	// Backtrack any edges added/removed after this point
 	m_minGraph->backtrackUntil(db->getTimestamp());
 	m_maxGraph->backtrackUntil(db->getTimestamp());
-	m_explanationGraph->backtrackUntil(db->getTimestamp());
+	m_explanationMaxGraph->backtrackUntil(db->getTimestamp());
+	if (m_explanationMinGraph)
+	{
+		m_explanationMinGraph->backtrackUntil(db->getTimestamp());
+	}
 
 	#if REACHABILITY_USE_RAMAL_REPS
 	// Batch-update reachability for all edge changes
@@ -797,7 +837,7 @@ ITopologySearchConstraint::EValidityDetermination ITopologySearchConstraint::det
 }
 
 // Called whenever an edge is added or removed from the explanation graph, including during backtracking
-void ITopologySearchConstraint::onExplanationGraphEdgeChange(bool edgeWasAdded, int from, int to)
+void ITopologySearchConstraint::onExplanationMaxGraphEdgeChange(bool edgeWasAdded, int from, int to)
 {
 	// Keep the edge capacities in sync.
 	for (int i = get<0>(m_flowGraphLookup[from]); i < get<1>(m_flowGraphLookup[from]); ++i)
@@ -811,7 +851,7 @@ void ITopologySearchConstraint::onExplanationGraphEdgeChange(bool edgeWasAdded, 
 	vxy_fail();
 }
 
-vector<Literal> ITopologySearchConstraint::explainNoReachability(const NarrowingExplanationParams& params) const
+vector<Literal> ITopologySearchConstraint::explainNoReachability(const NarrowingExplanationParams& params, ValueSet* alreadyVisitedSources) const
 {
 	vxy_assert_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
 
@@ -824,8 +864,9 @@ vector<Literal> ITopologySearchConstraint::explainNoReachability(const Narrowing
 	static hash_set<VarID> edgeVarsRecorded;
 	edgeVarsRecorded.clear();
 
-	ValueSet visited;
-	visited.init(m_initialPotentialSources.size(), false);
+	ValueSet curVisited;
+	curVisited.init(m_initialPotentialSources.size(), false);
+	ValueSet& visited = (alreadyVisitedSources != nullptr ? *alreadyVisitedSources : curVisited);
 
 	// For each source that could possibly exist...
 	for (int potentialSrcIndex = 0; potentialSrcIndex < m_initialPotentialSources.size(); ++potentialSrcIndex)
@@ -853,12 +894,12 @@ vector<Literal> ITopologySearchConstraint::explainNoReachability(const Narrowing
 			//
 
 			// Temporarily rewind the explanation graph to this time.
-			// This will trigger OnExplanationGraphEdgeChange() for any edges re-added, so that FlowGraphEdges
+			// This will trigger onExplanationMaxGraphEdgeChange() for any edges re-added, so that FlowGraphEdges
 			// will be the same state as when we processed the input variable.
 
-			m_explanationGraph->rewindUntil(params.timestamp);
+			m_explanationMaxGraph->rewindUntil(params.timestamp);
 
-			vxy_sanity(!TopologySearchAlgorithm::canReach(m_explanationGraph, sourceVertex, conflictVertex));
+			vxy_sanity(!TopologySearchAlgorithm::canReach(m_explanationMaxGraph, sourceVertex, conflictVertex));
 
 			// Find the minimum cut in the maximum flow graph. This will correspond to edges that are disabled, because
 			// A) we know that sourceVertex can't reach conflictVertex without going through a disabled edge
@@ -876,7 +917,7 @@ vector<Literal> ITopologySearchConstraint::explainNoReachability(const Narrowing
 			vxy_assert(!cutEdges.empty());
 
 			// Now that we've found the cut, bring the explanation graph back to current state.
-			m_explanationGraph->fastForward();
+			m_explanationMaxGraph->fastForward();
 
 			for (tuple<int, int>& edge : cutEdges)
 			{

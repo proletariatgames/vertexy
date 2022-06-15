@@ -40,7 +40,7 @@ public:
 	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outRelations) const override;
 
 protected:
-	vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
+	vector<Literal> explainNoReachability(const NarrowingExplanationParams& params, ValueSet* alreadyVisitedSources = nullptr) const;
 	vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
 	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params)
 	{
@@ -67,7 +67,7 @@ protected:
 	void updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable);
 	void sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex);
 
-	void onExplanationGraphEdgeChange(bool edgeWasAdded, int from, int to);
+	void onExplanationMaxGraphEdgeChange(bool edgeWasAdded, int from, int to);
 
 	void addSource(const IVariableDatabase* db, VarID source);
 	//used by processVertexVariableChange
@@ -85,6 +85,17 @@ protected:
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) = 0;
 	virtual void createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const;
+	virtual void onEdgeChangeFailure(const IVariableDatabase* db)
+	{
+	}
+
+	virtual void onEdgeChangeSuccess(const IVariableDatabase* db)
+	{
+	}
+
+	virtual void processQueuedVertexChanges(IVariableDatabase* db)
+	{
+	}
 
 	inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 	{
@@ -149,7 +160,10 @@ protected:
 	shared_ptr<BacktrackingDigraphTopology> m_maxGraph;
 	// Synchronized with MaxGraph. Used during explanations where we need to temporarily rewind graph state, but we don't
 	// want to propagate to the source reachability trees.
-	shared_ptr<BacktrackingDigraphTopology> m_explanationGraph;
+	shared_ptr<BacktrackingDigraphTopology> m_explanationMaxGraph;
+	// Synchronized with MinGraph. Used during explanations where we need to temporarily rewind graph state, but we don't
+	// want to propagate to the source reachability trees.
+	shared_ptr<BacktrackingDigraphTopology> m_explanationMinGraph;
 
 	ValueSet m_sourceMask;
 	ValueSet m_notSourceMask;
@@ -182,6 +196,7 @@ protected:
 		#endif
 		EventListenerHandle minRamalHandle = INVALID_EVENT_LISTENER_HANDLE;
 		EventListenerHandle maxRamalHandle = INVALID_EVENT_LISTENER_HANDLE;
+		int vertex;
 	};
 
 	vector<VarID> m_vertexProcessList;

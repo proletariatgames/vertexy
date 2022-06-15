@@ -18,7 +18,7 @@ public:
 	inline bool find(const TTopology<T>& topology, int startVertex, int endVertex, vector<int>& outPath)
 	{
 		vector<int> parentLinks;
-		parentLinks.resize(topology->getNumVertices(), -1);
+		parentLinks.resize(topology.getNumVertices(), -1);
 
 		m_bfs.search(topology, startVertex, [&](int vertex, int parent)
 		{
