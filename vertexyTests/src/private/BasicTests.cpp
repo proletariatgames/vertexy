@@ -1042,7 +1042,8 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 
 		VXY_FORMULA(path, 2);
 
-		path(X, Y).choice() <<= Program::graphEdge(X, Y);
+		path(vertex, X).choice() <<= Program::graphEdge(vertex, X);
+		path(X, vertex).choice() <<= Program::graphEdge(X, vertex);
 
 		Program::disallow(path(X, vertex) && path(Y, vertex) && X != Y);
 		Program::disallow(path(vertex, X) && path(vertex, Y) && X != Y);

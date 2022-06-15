@@ -121,7 +121,7 @@ public:
 		return eastl::hash<T>()(m_val);
 	}
 
-	virtual wstring toString() const override { return TEXT("constant"); }
+	virtual wstring toString() const override { return to_wstring(m_val); }
 
 	const T& getConstant() const { return m_val; }
 	

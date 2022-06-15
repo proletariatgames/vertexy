@@ -43,7 +43,7 @@ private:
 class Instantiator
 {
 public:
-    using AbstractOverrideMap = hash_map<ProgramSymbol*, ProgramSymbol>;
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, int>;
     
     virtual ~Instantiator() {}
     // Find the first match/reset to first match

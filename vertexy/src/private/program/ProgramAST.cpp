@@ -35,7 +35,7 @@ void Term::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEsta
     });
 }
 
-UInstantiator LiteralTerm::instantiate(ProgramCompiler&, const ITopologyPtr&)
+UInstantiator LiteralTerm::instantiate(ProgramCompiler&, bool canBeAbstract, const ITopologyPtr&)
 {
     vxy_fail_msg("instantiate called on unexpected term");
     return nullptr;
@@ -138,6 +138,23 @@ bool VariableTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     {
         return true;
     }
+    else if (sharedBoundRef->isInteger() && sym.isAbstract())
+    {
+        if (boundVertex.isInteger())
+        {
+            int resolved;
+            if (sym.getAbstractRelation()->getRelation(boundVertex.getInt(), resolved) && resolved == sharedBoundRef->getInt())
+            {
+                return true;
+            }
+        }
+        else
+        {
+            auto rel = TManyToOneGraphRelation<int>::combine(boundVertex.getAbstractRelation(), make_shared<ConstantGraphRelation<int>>(sharedBoundRef->getInt()));
+            *sharedBoundRef = ProgramSymbol(rel);
+            return true;
+        }
+    }
     else if (sharedBoundRef->isAbstract())
     {
         // We can unify an abstract with a concrete symbol, by creating a relation that will only
@@ -147,26 +164,16 @@ bool VariableTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
             auto found = overrideMap.find(sharedBoundRef.get());
             if (found != overrideMap.end())
             {
-                return found->second == sym;
+                return found->second == sym.getInt();
             }
             else
             {
-                overrideMap.insert({sharedBoundRef.get(), sym});
+                overrideMap.insert({sharedBoundRef.get(), sym.getInt()});
             }
             return true;
         }
         else if (sym.isAbstract())
         {
-            // if (sharedBoundRef->isAbstract())
-            // {
-            //     auto rel = TManyToOneGraphRelation<int>::combine(sharedBoundRef->getAbstractRelation(), sym.getAbstractRelation());
-            //     overrideMap.insert({sharedBoundRef.get(), ProgramSymbol(rel)});
-            // }
-            // else
-            // {
-            //     vxy_assert(sharedBoundRef->isVertex());
-            //     overrideMap.insert({sharedBoundRef.get(), sym});
-            // }
             return true;
         }
     }
@@ -186,7 +193,32 @@ ProgramSymbol VariableTerm::eval(const AbstractOverrideMap& overrideMap, const P
     }
     
     auto found = overrideMap.find(sharedBoundRef.get());
-    return found != overrideMap.end() ? found->second : *sharedBoundRef;
+    if (found != overrideMap.end())
+    {
+        return ProgramSymbol(found->second);
+    }
+
+    if (sharedBoundRef->isAbstract())
+    {
+        if (boundVertex.isInteger())
+        {
+            int concrete;
+            if (sharedBoundRef->getAbstractRelation()->getRelation(boundVertex.getInt(), concrete))
+            {
+                return ProgramSymbol(concrete);
+            }
+            else
+            {
+                return {};
+            }
+        }
+        else if (boundVertex.isAbstract())
+        {
+            return ProgramSymbol(boundVertex.getAbstractRelation()->map(sharedBoundRef->getAbstractRelation()));
+        }
+    }
+    
+    return *sharedBoundRef;
 }
 
 SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
@@ -194,7 +226,7 @@ SymbolTerm::SymbolTerm(const ProgramSymbol& sym)
 {
 }
 
-UInstantiator SymbolTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
+UInstantiator SymbolTerm::instantiate(ProgramCompiler&, bool, const ITopologyPtr&)
 {
     return make_unique<ConstInstantiator>(sym.getInt() > 0);
 }
@@ -239,14 +271,25 @@ UTerm VertexTerm::clone() const
 
 bool VertexTerm::match(const ProgramSymbol& sym, AbstractOverrideMap&, ProgramSymbol& boundVertex)
 {
-    if (sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get()))
-    {
-        return true;
-    }
-    
     if (boundVertex.isValid())
     {
-        return sym == boundVertex;
+        if (sym == boundVertex)
+        {
+            return true;
+        }
+        else if (sym.isAbstract())
+        {
+            int resolved;
+            if (sym.getAbstractRelation()->getRelation(boundVertex.getInt(), resolved) && boundVertex.getInt())
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+    else if (sym.isAbstract() && sym.getAbstractRelation()->equals(*IdentityGraphRelation::get())) 
+    {
+        return true;
     }
     else if (sym.isInteger())
     {
@@ -259,12 +302,6 @@ bool VertexTerm::match(const ProgramSymbol& sym, AbstractOverrideMap&, ProgramSy
 
 ProgramSymbol VertexTerm::eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const
 {
-    if (boundVertex.isValid())
-    {
-        int constant = boundVertex.getInt();
-        return ProgramSymbol(IdentityGraphRelation::get()->filter([constant](int v) { return v == constant; }));
-    }
-    
     return boundVertex.isValid() ? boundVertex : ProgramSymbol(IdentityGraphRelation::get());
 }
 
@@ -370,15 +407,22 @@ ProgramSymbol FunctionTerm::eval(const AbstractOverrideMap& overrideMap, const P
     return ProgramSymbol(functionUID, functionName, resolvedArgs, boundMask, negated, provider);
 }
 
-UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology)
+UInstantiator FunctionTerm::instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology)
 {
     if (provider != nullptr)
     {
-        return make_unique<ExternalFunctionInstantiator>(*this);
+        if (canBeAbstract)
+        {
+            return make_unique<ExternalFunctionInstantiator>(*this);
+        }
+        else
+        {
+            return make_unique<ExternalConcreteFunctionInstantiator>(*this, topology);
+        }
     }
     else
     {
-        return make_unique<FunctionInstantiator>(*this, compiler.getDomain(functionUID), topology);
+        return make_unique<FunctionInstantiator>(*this, compiler.getDomain(functionUID), canBeAbstract, topology);
     }
 }
 
@@ -393,20 +437,6 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
 
     const ConstantFormula* cformula = sym.getFormula();
     
-    boundMask = cformula->mask;
-    for (auto& domainTerm : domainTerms)
-    {
-        if (!domainTerm->match(boundMask, overrideMap, boundVertex))
-        {
-            return false;
-        }
-        domainTerm->eval(boundMask, overrideMap, boundVertex);
-        if (boundMask.isZero())
-        {
-            return false;
-        }
-    }
-    
     vxy_assert(cformula->args.size() == arguments.size());
     for (int i = 0; i < arguments.size(); ++i)
     {
@@ -416,6 +446,19 @@ bool FunctionTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
         }
     }
 
+    boundMask = cformula->mask;
+    for (auto& domainTerm : domainTerms)
+    {
+        if (!domainTerm->match(boundMask, overrideMap, boundVertex))
+        {
+            return false;
+        }        
+        if (!domainTerm->eval(boundMask, overrideMap, boundVertex) || boundMask.isZero())
+        {
+            return false;
+        }
+    }
+        
     return true;
 }
 
@@ -556,7 +599,10 @@ ValueSet FunctionTerm::getDomain(const AbstractOverrideMap& overrideMap, const P
     ValueSet mask(domainSize, true);
     for (auto& domainTerm : domainTerms)
     {
-        domainTerm->eval(mask, overrideMap, boundVertex);
+        if (!domainTerm->eval(mask, overrideMap, boundVertex))
+        {
+            return {};
+        }
     }
     return mask;
 }
@@ -827,15 +873,15 @@ wstring BinaryOpTerm::toString() const
     }
 }
 
-UInstantiator BinaryOpTerm::instantiate(ProgramCompiler& compiler, const ITopologyPtr&)
+UInstantiator BinaryOpTerm::instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology)
 {
     if (op == EBinaryOperatorType::Equality)
     {
-        return make_unique<EqualityInstantiator>(*this, compiler);
+        return make_unique<EqualityInstantiator>(*this, canBeAbstract, compiler, topology);
     }
     else
     {
-        return make_unique<RelationInstantiator>(*this, compiler);
+        return make_unique<RelationInstantiator>(*this, canBeAbstract, compiler, topology);
     }
 }
 
@@ -909,6 +955,11 @@ bool LinearTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMa
 ProgramSymbol LinearTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     ProgramSymbol v = childTerm->eval(overrideMap, boundVertex);
+    if (!v.isValid())
+    {
+        return {};
+    }
+    
     vxy_assert_msg(v.isInteger(), "Math operations on abstracts NYI");
     return v.getInt()*multiplier + offset;
 }
@@ -971,9 +1022,10 @@ unique_ptr<Term> ExplicitDomainTerm::clone() const
     return make_unique<ExplicitDomainTerm>(ValueSet(mask));
 }
 
-void ExplicitDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap&, const ProgramSymbol&) const
+bool ExplicitDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap&, const ProgramSymbol&) const
 {
     inOutMask.intersect(mask);
+    return true;
 }
 
 bool ExplicitDomainTerm::match(const ValueSet& matchMask, AbstractOverrideMap&, ProgramSymbol&) const
@@ -1035,17 +1087,25 @@ bool SubscriptDomainTerm::containsAbstracts() const
     return subscriptTerm->containsAbstracts();
 }
 
-void SubscriptDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+bool SubscriptDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     ProgramSymbol subscriptSym = subscriptTerm->eval(overrideMap, boundVertex);
-    vxy_assert_msg(subscriptSym.isValid(), "Failed to evaluate subscript term");
+    if (!subscriptSym.isValid())
+    {
+        return false;
+    }
+    
     vxy_assert_msg(subscriptSym.isInteger(), "Subscript term did not evaluate to an integer");
-    vxy_assert_msg(subscriptSym.getInt() >= 0 && subscriptSym.getInt() < array.getNumValues(), "Evaluated subscript out of range");
+    if (subscriptSym.getInt() < 0 || subscriptSym.getInt() >= array.getNumValues())
+    {
+        return false;
+    }
 
     ValueSet evaluatedMask(array.getDescriptor()->getDomainSize(), false);
     evaluatedMask[array.getFirstValueIndex() + subscriptSym.getInt()] = true;
 
     inOutMask.intersect(evaluatedMask);
+    return true;
 }
 
 bool SubscriptDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const
@@ -1127,12 +1187,19 @@ bool UnionDomainTerm::containsAbstracts() const
     return left->containsAbstracts() || right->containsAbstracts();
 }
 
-void UnionDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+bool UnionDomainTerm::eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     ValueSet leftIntersection = inOutMask;
-    left->eval(leftIntersection, overrideMap, boundVertex);    
-    right->eval(inOutMask, overrideMap, boundVertex);
-    inOutMask.include(leftIntersection); 
+    if (!left->eval(leftIntersection, overrideMap, boundVertex))
+    {
+        return false;
+    }
+    if (!right->eval(inOutMask, overrideMap, boundVertex))
+    {
+        return false;
+    }
+    inOutMask.include(leftIntersection);
+    return true;
 }
 
 bool UnionDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const
@@ -1142,9 +1209,8 @@ bool UnionDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideM
 
     if (leftMatched)
     {
-        ValueSet leftMask = mask;    
-        left->eval(leftMask, overrideMap, boundVertex);
-        if (!leftMask.isZero())
+        ValueSet leftMask = mask;
+        if (!left->eval(leftMask, overrideMap, boundVertex) || !leftMask.isZero())
         {
             return true;
         }
@@ -1153,8 +1219,7 @@ bool UnionDomainTerm::match(const ValueSet& mask, AbstractOverrideMap& overrideM
     if (rightMatched)
     {
         ValueSet rightMask = mask;
-        right->eval(rightMask, overrideMap, boundVertex);
-        if (!rightMask.isZero())
+        if (!right->eval(rightMask, overrideMap, boundVertex) || !rightMask.isZero())
         {
             return true;
         }
@@ -1180,13 +1245,20 @@ FunctionHeadTerm::FunctionHeadTerm(FormulaUID inUID, const wchar_t* inName, int 
 
 ProgramSymbol FunctionHeadTerm::evalSingle(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
+    ProgramSymbol abstractVertex;
+    if (boundVertex.isValid())
+    {
+        // Convert the literal vertex into an abstract relation, so other rules will match it as an abstract.
+        auto constRel = make_shared<ConstantGraphRelation<int>>(boundVertex.getInt());
+        abstractVertex = ProgramSymbol(constRel);
+    }
+    
     vector<ProgramSymbol> resolvedArgs;
     for (auto& arg : arguments)
     {
-        ProgramSymbol argSym = arg->eval(overrideMap, boundVertex);
+        ProgramSymbol argSym = arg->eval(overrideMap, abstractVertex);
         if (argSym.isInvalid())
         {
-            vxy_fail_msg("Expected a valid argument for head term");
             return {};
         }
         resolvedArgs.push_back(argSym);
@@ -1195,7 +1267,6 @@ ProgramSymbol FunctionHeadTerm::evalSingle(const AbstractOverrideMap& overrideMa
     ValueSet mask = getDomain(overrideMap, boundVertex);
     if (mask.isZero())
     {
-        vxy_fail_msg("Unexpected empty mask");
         return {};
     }
     return ProgramSymbol(functionUID, functionName, resolvedArgs, mask, false);  
@@ -1206,7 +1277,10 @@ ValueSet FunctionHeadTerm::getDomain(const AbstractOverrideMap& overrideMap, con
     ValueSet mask(domainSize, true);
     for (auto& domainTerm : domainTerms)
     {
-        domainTerm->eval(mask, overrideMap, boundVertex);
+        if (!domainTerm->eval(mask, overrideMap, boundVertex))
+        {
+            return {};
+        }
     }
     return mask;
 }
@@ -1214,7 +1288,8 @@ ValueSet FunctionHeadTerm::getDomain(const AbstractOverrideMap& overrideMap, con
 vector<ProgramSymbol> FunctionHeadTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule)
 {
     isNormalRule = true;
-    return {evalSingle(overrideMap, boundVertex)};
+    auto sym = evalSingle(overrideMap, boundVertex);
+    return sym.isValid() ? vector{sym} : vector<ProgramSymbol>{};
 }
 
 void FunctionHeadTerm::bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology)
@@ -1282,6 +1357,31 @@ UTerm FunctionHeadTerm::clone() const
     return make_unique<FunctionHeadTerm>(functionUID, functionName, domainSize, move(clonedArgs), move(clonedDomain));
 }
 
+bool FunctionHeadTerm::mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    bool hasAbstractDomain = false;
+    for (auto& domainTerm : domainTerms)
+    {
+        domainTerm->visit([&](const Term* term)
+        {
+            if (auto litTerm = dynamic_cast<const LiteralTerm*>(term);
+                litTerm != nullptr && litTerm->eval(overrideMap, boundVertex).isAbstract())
+            {                
+                hasAbstractDomain = true;
+                return Term::EVisitResponse::Abort;
+            }
+            return Term::EVisitResponse::Continue;
+        });
+
+        if (hasAbstractDomain)
+        {
+            vxy_assert(!boundVertex.isValid());
+            return true;
+        }
+    }
+    return false;
+}
+
 wstring FunctionHeadTerm::toString() const
 {
     wstring out = functionName;
@@ -1347,6 +1447,18 @@ UTerm DisjunctionTerm::clone() const
         clonedChildren.push_back(UFunctionHeadTerm(move(cloned)));
     }
     return make_unique<DisjunctionTerm>(move(clonedChildren));
+}
+
+bool DisjunctionTerm::mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    for (auto& child : children)
+    {
+        if (child->mustBeConcrete(overrideMap, boundVertex))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 vector<ProgramSymbol> DisjunctionTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule)
@@ -1433,10 +1545,16 @@ UTerm ChoiceTerm::clone() const
     return make_unique<ChoiceTerm>(UFunctionHeadTerm(move(cloned)));
 }
 
+bool ChoiceTerm::mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+{
+    return subTerm->mustBeConcrete(overrideMap, boundVertex);
+}
+
 vector<ProgramSymbol> ChoiceTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule)
 {
     isNormalRule = false;
-    return {subTerm->evalSingle(overrideMap, boundVertex)};
+    ProgramSymbol sym = subTerm->evalSingle(overrideMap, boundVertex);
+    return sym.isValid() ? vector{sym} : vector<ProgramSymbol>{};
 }
 
 wstring ChoiceTerm::toString() const

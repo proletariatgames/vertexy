@@ -625,6 +625,12 @@ inline wstring to_wstring(const Vertexy::Literal& lit)
 	return {wstring::CtorSprintf(), TEXT("%d=%s"), lit.variable.raw(), lit.values.toString().c_str()};
 }
 
+// to_wstring for VarID
+inline wstring to_wstring(Vertexy::VarID var)
+{
+	return to_wstring(var.raw());
+}
+
 // to_wstring for vectors
 template<typename T>
 inline wstring to_wstring(const vector<T>& vec)

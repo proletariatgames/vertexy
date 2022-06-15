@@ -210,6 +210,11 @@ public:
         auto found = m_groundedAtoms.find(sym.getFormula()->uid);
         if (found != m_groundedAtoms.end())
         {
+            if (!sym.containsAbstract() && found->second->containsAbstract)
+            {
+                return true;
+            }
+
             return found->second->map.find(sym) != found->second->map.end();
         }
         return false;
@@ -294,6 +299,8 @@ protected:
     void transformChoice(GroundedRule&& rule);
     void transformDisjunction(GroundedRule&& rule);
     bool addTransformedRule(GroundedRule&& rule);
+
+    bool isAtomFact(const ProgramSymbol& atom) const;
     
     void exportRules();
     AtomLiteral exportAtom(const ProgramSymbol& sym, const ITopologyPtr& topology, bool forHead);

@@ -185,7 +185,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		stepPassable(vertex,step) <<= cellType(vertex).is(cellType.doors[X]) && prevStep(X);
 
 		VXY_FORMULA(edgeOpen, 3);
-		edgeOpen(X,Y,step) <<= Program::graphEdge(X, Y) && stepPassable(X,step) && stepPassable(Y,step);
+		edgeOpen(vertex,X,step) <<= Program::graphEdge(vertex, X) && stepPassable(vertex,step) && stepPassable(X,step);
 		
 		VXY_DOMAIN_FORMULA(stepCell, CellStepDomain, 2);
 		auto M_STEP_REACHABLE = stepCell.reachable|stepCell.origin;

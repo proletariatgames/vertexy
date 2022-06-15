@@ -19,7 +19,6 @@ public:
         , m_topology(topology)
         , m_link(link)
     {
-        m_name.sprintf(TEXT("graphLink(%s)"), link.toString(topology).c_str());
     }
 
     GraphLinkProvider(FormulaUID uid, const ITopologyPtr& topology, TopologyLink&& link)
@@ -27,7 +26,6 @@ public:
         , m_topology(topology)
         , m_link(move(link))
     {
-        m_name.sprintf(TEXT("graphLink(%s)"), link.toString(topology).c_str());
     }
 
     virtual bool canInstantiate(int argIndex) const override
@@ -114,13 +112,12 @@ public:
         return combineHashes(eastl::hash<FormulaUID>()(m_uid), m_link.hash());
     }
 
-    const wchar_t* getName() const { return m_name.c_str(); }
+    const wchar_t* getName() const { return TEXT("graphLink"); }
 
 protected:
     FormulaUID m_uid;
     ITopologyPtr m_topology;
     TopologyLink m_link;
-    wstring m_name;
     vector<ExternalFormulaMatchArg> m_matchResult;
     bool m_matched = false;
 };

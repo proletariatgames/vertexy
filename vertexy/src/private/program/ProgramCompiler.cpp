@@ -521,6 +521,8 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
 
         return false;
     };
+
+    bool canBeAbstract = stmt->statement->head == nullptr || stmt->statement->headContains<VertexTerm>();
     
     // go through each literal in dependency order.
     while (!openLits.empty())
@@ -542,7 +544,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
         // of this variable within this body will point to.
         litNode->lit->createVariableReps(bound);
 
-        instantiators.push_back(litNode->lit->instantiate(*this, statementNode->stmt->topology));
+        instantiators.push_back(litNode->lit->instantiate(*this, canBeAbstract, statementNode->stmt->topology));
 
         // reduce the dependency count of literals waiting on variables to be provided.
         // if there are no more dependencies, add them to the open list.
@@ -615,11 +617,25 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
 
 void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings)
 {
+    if (stmt->head != nullptr && stmt->head->mustBeConcrete(overrideMap, boundVertex))
+    {
+        vxy_assert(!boundVertex.isValid());
+        for (int vertex = 0, numVerts = stmtNode->stmt->topology->getNumVertices(); vertex < numVerts; ++vertex)
+        {
+            addGroundedRule(stmtNode, stmt, overrideMap, ProgramSymbol(vertex), varBindings);
+        }
+        return;
+    }
+    
     vector<ProgramSymbol> bodyTerms;
     for (auto& bodyTerm : stmt->body)
     {
         ProgramSymbol bodySym = bodyTerm->eval(overrideMap, boundVertex);
-        vxy_assert(bodySym.isValid());
+        if (!bodySym.isValid())
+        {
+            return;
+        }
+        
         if (bodySym.isFormula())
         {
             auto fnTerm = dynamic_cast<FunctionTerm*>(bodyTerm.get());
@@ -694,26 +710,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     {
         headSymbols = stmt->head->eval(overrideMap, boundVertex, isNormalRule);
         vxy_assert(!isNormalRule || headSymbols.size() == 1);
-
-        auto isAtomFact = [&](const ProgramSymbol& sym)
-        {
-            auto foundDomain = m_groundedAtoms.find(sym.getFormula()->uid);
-            if (foundDomain == m_groundedAtoms.end())
-            {
-                return false;
-            }
-            UAtomDomain& domain = foundDomain->second;
-            auto found = domain->map.find(sym);
-            if (found != domain->map.end())
-            {
-                auto& facts = domain->list[found->second].facts;
-                if (!facts.isZero() && facts.isSubsetOf(sym.getFormula()->mask))
-                {
-                    return true;
-                }
-            }
-            return false;
-        };
 
         int j = 0;
         for (int i = 0; i < headSymbols.size(); ++i)
@@ -815,6 +811,26 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     {
         stmt->head->bindAsFacts(*this, overrideMap, boundVertex, stmtNode->stmt->topology);
     }
+}
+
+bool ProgramCompiler::isAtomFact(const ProgramSymbol& sym) const
+{
+    auto foundDomain = m_groundedAtoms.find(sym.getFormula()->uid);
+    if (foundDomain == m_groundedAtoms.end())
+    {
+        return false;
+    }
+    auto& domain = foundDomain->second;
+    auto found = domain->map.find(sym);
+    if (found != domain->map.end())
+    {
+        auto& facts = domain->list[found->second].facts;
+        if (!facts.isZero() && facts.isSubsetOf(sym.getFormula()->mask))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ProgramCompiler::exportRules()

@@ -61,6 +61,10 @@ bool RuleDatabase::finalize()
         for (auto& head : bodyInfo->heads)
         {
             auto headAtomInfo = getAtom(head.lit.id())->asConcrete();
+            if (headAtomInfo == nullptr)
+            {
+                continue;
+            }
             
             if (headAtomInfo->abstractParent && !headAtomInfo->abstractParent->containsUnknowns(head.lit.getMask()))
             {
@@ -1349,7 +1353,10 @@ void RuleDatabase::makeConcrete()
         
         for (auto& headInfo : bodyInfo->heads)
         {
-            groundAtomToConcrete(headInfo.lit, groundingData);
+            // Need to copy because groundAtomToConcrete can potentially modify array we're iterating over:
+            AtomLiteral lit = headInfo.lit;
+            
+            groundAtomToConcrete(lit, groundingData, bodyInfo->asConcrete(), headInfo.isChoice);
         }
     }
 
@@ -1576,7 +1583,7 @@ void RuleDatabase::hookupGroundedDependencies(const vector<HeadInfo>& newHeads, 
     newBodyInfo->numUndeterminedTails = newBodyInfo->atomLits.size();
 }
 
-void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData)
+void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData, ConcreteBodyInfo* concreteBodyInfo, bool isChoiceAtom)
 {
     vxy_assert(oldAtom.sign());
     
@@ -1618,6 +1625,12 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
                 record.seenMasks.insert(oldAtom.getMask());
                 needsConstraint = true;
             }
+
+            if (concreteBodyInfo != nullptr)
+            {
+                linkHeadToBody(AtomLiteral(record.atom->id, true, oldAtom.getMask()), isChoiceAtom, concreteBodyInfo);
+            }
+            
             continue;
         }
 
@@ -1647,6 +1660,11 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
         if (truthStatus == ETruthStatus::Undetermined)
         {
             needsConstraint = true;
+        }
+
+        if (concreteBodyInfo != nullptr)
+        {
+            linkHeadToBody(AtomLiteral(newAtomID, true, oldAtom.getMask()), isChoiceAtom, concreteBodyInfo);
         }
     }
 
@@ -1696,7 +1714,6 @@ RuleDatabase::AtomInfo::AtomInfo(AtomID id, int domainSize)
 
 RuleDatabase::AClause RuleDatabase::ConcreteAtomInfo::getClauseForAtomLiteral(const AtomLiteral& atomLit) const
 {
-    vxy_assert_msg(abstractParent == nullptr, "Should not call getLiteral on a concrete atom created from an abstract!");
     vxy_assert(boundClause.isValid());
 
     static vector<int> domainValues;

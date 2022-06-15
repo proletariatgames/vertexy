@@ -92,10 +92,10 @@ using UTerm = unique_ptr<Term>;
 class LiteralTerm : public Term
 {
 public:
-    using AbstractOverrideMap = hash_map<ProgramSymbol*, ProgramSymbol>;
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, int>;
 
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
-    virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology);
+    virtual UInstantiator instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology);
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex);
     virtual bool containsAbstracts() const { return false; }
     virtual size_t hash() const = 0;
@@ -144,7 +144,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override {}
     virtual UTerm clone() const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const override  { return sym; }
-    virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
+    virtual UInstantiator instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology) override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
     virtual size_t hash() const override
     {
@@ -199,7 +199,7 @@ public:
     virtual bool containsAbstracts() const override;
     virtual UTerm clone() const override;
     virtual wstring toString() const override;
-    virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
+    virtual UInstantiator instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology) override;
     virtual size_t hash() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
 
@@ -234,9 +234,9 @@ using UBinaryOpTerm = unique_ptr<BinaryOpTerm>;
 class DomainTerm : public Term
 {
 public:
-    using AbstractOverrideMap = hash_map<ProgramSymbol*, ProgramSymbol>;
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, int>;
 
-    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
+    virtual bool eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const = 0;
     virtual bool containsAbstracts() const = 0;
     virtual size_t hash() const = 0;
@@ -255,7 +255,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override {}
     virtual bool containsAbstracts() const override { return false; }
     
-    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
     virtual size_t hash() const override;
     
@@ -273,7 +273,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual bool containsAbstracts() const override;
 
-    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
     virtual size_t hash() const override;
 
@@ -292,7 +292,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual bool containsAbstracts() const override;
 
-    virtual void eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
+    virtual bool eval(ValueSet& inOutMask, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool match(const ValueSet& mask, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) const override;
     virtual size_t hash() const override;
 
@@ -311,7 +311,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual UTerm clone() const override;
-    virtual UInstantiator instantiate(ProgramCompiler& compiler, const ITopologyPtr& topology) override;
+    virtual UInstantiator instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology) override;
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool containsAbstracts() const override;
     virtual wstring toString() const override;
@@ -340,7 +340,8 @@ class HeadTerm : public Term
 {
 public:
     using AbstractOverrideMap = LiteralTerm::AbstractOverrideMap;
-    
+
+    virtual bool mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const = 0;
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) = 0;
     virtual vector<ProgramSymbol> eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule) = 0;
     virtual ERuleHeadType getHeadType() const = 0;
@@ -357,6 +358,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual UTerm clone() const override;
 
+    virtual bool mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
     virtual vector<ProgramSymbol> eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule) override;
     virtual wstring toString() const override;
@@ -383,6 +385,7 @@ public:
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual UTerm clone() const override;
 
+    virtual bool mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
     virtual vector<ProgramSymbol> eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule) override;
     virtual wstring toString() const override;
@@ -399,6 +402,8 @@ public:
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual UTerm clone() const override;
+
+    virtual bool mustBeConcrete(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual void bindAsFacts(ProgramCompiler& compiler, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const ITopologyPtr& topology) override;
     virtual vector<ProgramSymbol> eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, bool& isNormalRule) override;
     virtual wstring toString() const override;

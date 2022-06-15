@@ -22,6 +22,11 @@ using namespace VertexyTests;
 int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbose)
 {
     int nErrorCount = 0;
+    constexpr int BOARD_SIZE = 6;
+
+    VXY_DOMAIN_BEGIN(BoardDomain)
+        VXY_DOMAIN_VALUE_ARRAY(dest, BOARD_SIZE*BOARD_SIZE);
+    VXY_DOMAIN_END()
 
     auto prg = Program::define([&](ProgramVertex vertex)
     {
@@ -30,52 +35,29 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
         // All valid Knight moves on a chessboard:
         vector validMoves = {
             Program::graphLink(PlanarGridTopology::moveLeft(1).combine(PlanarGridTopology::moveUp(2))),
-            Program::graphLink(PlanarGridTopology::moveLeft(1).combine(PlanarGridTopology::moveDown(2))),
-            Program::graphLink(PlanarGridTopology::moveRight(1).combine(PlanarGridTopology::moveUp(2))),
             Program::graphLink(PlanarGridTopology::moveRight(1).combine(PlanarGridTopology::moveDown(2))),
-            Program::graphLink(PlanarGridTopology::moveRight(2).combine(PlanarGridTopology::moveUp(1))),
+            Program::graphLink(PlanarGridTopology::moveRight(1).combine(PlanarGridTopology::moveUp(2))),            
+            Program::graphLink(PlanarGridTopology::moveLeft(1).combine(PlanarGridTopology::moveDown(2))),
             Program::graphLink(PlanarGridTopology::moveRight(2).combine(PlanarGridTopology::moveDown(1))),
             Program::graphLink(PlanarGridTopology::moveLeft(2).combine(PlanarGridTopology::moveUp(1))),
-            Program::graphLink(PlanarGridTopology::moveLeft(2).combine(PlanarGridTopology::moveDown(1))),
-        };
-        vector reverseMoves = {
-            Program::graphLink(PlanarGridTopology::moveRight(1).combine(PlanarGridTopology::moveDown(2))),
-            Program::graphLink(PlanarGridTopology::moveRight(1).combine(PlanarGridTopology::moveUp(2))),
-            Program::graphLink(PlanarGridTopology::moveLeft(1).combine(PlanarGridTopology::moveDown(2))),
-            Program::graphLink(PlanarGridTopology::moveLeft(1).combine(PlanarGridTopology::moveUp(2))),
-            Program::graphLink(PlanarGridTopology::moveLeft(2).combine(PlanarGridTopology::moveDown(1))),
-            Program::graphLink(PlanarGridTopology::moveLeft(2).combine(PlanarGridTopology::moveUp(1))),
-            Program::graphLink(PlanarGridTopology::moveRight(2).combine(PlanarGridTopology::moveDown(1))),
             Program::graphLink(PlanarGridTopology::moveRight(2).combine(PlanarGridTopology::moveUp(1))),
+            Program::graphLink(PlanarGridTopology::moveLeft(2).combine(PlanarGridTopology::moveDown(1))),
         };
+        vector reverseMoves = {1, 0, 3, 2, 5, 4, 7, 6};
         VXY_FORMULA(validMove, 2);
         for (int i = 0; i < validMoves.size(); ++i)
         {
             validMove(vertex,X) <<= validMoves[i](vertex, X);
-            validMove(X,vertex) <<= reverseMoves[i](vertex, X);
+            validMove(X,vertex) <<= validMoves[reverseMoves[i]](vertex, X);
         }
 
-        VXY_FORMULA(knightMove, 2);
-        knightMove(vertex, X).choice() <<= validMove(vertex,X);
-        knightMove(X, vertex).choice() <<= validMove(X,vertex);
-
-        // ensure each tile is entered/exited once.
-        VXY_FORMULA(twoMovesEntering, 1);
-        twoMovesEntering(vertex) <<= knightMove(X,vertex) && knightMove(Y,vertex) && X != Y;
-        VXY_FORMULA(twoMovesLeaving, 1);
-        twoMovesLeaving(vertex) <<= knightMove(vertex,X) && knightMove(vertex,Y) && X != Y;
-        VXY_FORMULA(singleMoveEntering, 1);
-        singleMoveEntering(vertex) <<= knightMove(X,vertex) && ~twoMovesEntering(vertex);
-        VXY_FORMULA(singleMoveLeaving, 1);
-        singleMoveLeaving(vertex) <<= knightMove(vertex,X) && ~twoMovesLeaving(vertex);
-
-        Program::disallow(~singleMoveEntering(vertex));
-        Program::disallow(~singleMoveLeaving(vertex));
+        VXY_DOMAIN_FORMULA(knightMove, BoardDomain, 1);
+        knightMove(vertex).is(knightMove.dest[Y]).choice() <<= validMove(vertex,Y);
         
         // ensure every cell is reached
         VXY_FORMULA(reached, 1);
-        reached(0) <<= knightMove(0, X);
-        reached(vertex) <<= reached(X) && knightMove(X, vertex);
+        reached(vertex) <<= knightMove(0).is(knightMove.dest[vertex]);
+        reached(vertex) <<= reached(X) && validMove(X, vertex) && knightMove(X).is(knightMove.dest[vertex]);
         Program::disallow(~reached(vertex));
 
         return knightMove;
@@ -83,32 +65,16 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
 
     ConstraintSolver solver(TEXT("KnightsTour"), seed);
     
-    auto grid = make_shared<PlanarGridTopology>(boardSize, boardSize);
-    vector<vector<VarID>> possibleMoves;
-    possibleMoves.resize(boardSize*boardSize);
-    
-    for (int y1 = 0; y1 < boardSize; ++y1) for (int x1 = 0; x1 < boardSize; ++x1) 
-    {
-        possibleMoves[x1+y1*boardSize].resize(boardSize*boardSize);
-    }
+    auto grid = make_shared<PlanarGridTopology>(BOARD_SIZE, BOARD_SIZE);
+    auto tileMoves = solver.makeVariableGraph(TEXT("moves"), ITopology::adapt(grid), SolverVariableDomain(0, BOARD_SIZE*BOARD_SIZE-1), TEXT("move"));
     
     auto inst = prg(ITopology::adapt(grid));
-    inst->getResult().bind(solver, [&](const ProgramSymbol& _src, const ProgramSymbol& _dest)
+    inst->getResult().bind(solver, [&](const ProgramSymbol& _src)
     {
-        int src = _src.getInt(), dest = _dest.getInt();
-        auto& var = possibleMoves[src][dest];
-        vxy_assert(!var.isValid());
-
-        int x1, y1, x2, y2;
-        grid->indexToCoordinate(src, x1, y1);
-        grid->indexToCoordinate(dest, x2, y2);
-
-        wstring name;
-        name.sprintf(TEXT("knightMove(%dx%d, %dx%d)"), x1, y1, x2, y2);
-
-        var = solver.makeBoolean(name);
-        return var;
+        return tileMoves->get(_src.getInt());
     });
+
+    solver.allDifferent(tileMoves->getData());
     
     solver.addProgram(inst);
     
@@ -128,27 +94,17 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
         if (solver.getCurrentStatus() == EConstraintSolverResult::Solved)
         {
             vector<bool> hit;
-            hit.resize(boardSize*boardSize, false);
-            
+            hit.resize(BOARD_SIZE*BOARD_SIZE, false);
+
             int cx = 0, cy = 0;
             do
             {
-                auto& movesForTile = possibleMoves[cx+cy*boardSize];
-                int dx = -1, dy = -1;
-                for (int x1 = 0; x1 < boardSize; ++x1)
-                {
-                    for (int y1 = 0; y1 < boardSize; ++y1)
-                    {
-                        if (movesForTile[x1+y1*boardSize].isValid() && solver.getSolvedValue(movesForTile[x1+y1*boardSize]) != 0)
-                        {
-                            dx = x1;
-                            dy = y1;
-                            EATEST_VERIFY(isValid(cx, cy, dx, dy));
-                            goto next;
-                        }
-                    }
-                }
-                
+                int vertex = grid->coordinateToIndex(cx, cy);
+                int solved = solver.getSolvedValue(tileMoves->get(vertex));
+                int dx = solved%BOARD_SIZE;
+                int dy = solved/BOARD_SIZE;
+                EATEST_VERIFY(isValid(cx, cy, dx, dy));
+            
                 next:
                 EATEST_VERIFY(dx >= 0 && dy >= 0);
                 if (printVerbose)
@@ -157,12 +113,12 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
                 }
                 if (dx >= 0 && dy >= 0)
                 {
-                    hit[dx + boardSize*dy] = true;
+                    hit[dx + dy*BOARD_SIZE] = true;
                 }
-                
+            
                 cx = dx;
-                cy = dy;                
-            } while (cx > 0 || cy > 0);        
+                cy = dy;
+            } while (cx > 0 || cy > 0);
     
             EATEST_VERIFY(!contains(hit.begin(), hit.end(), false));
         }

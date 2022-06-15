@@ -73,7 +73,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
         for (const auto& headInfo : bodyInfo->heads)
         {
             auto atomInfo = rdb.getAtom(headInfo.lit.id())->asConcrete();
-            if (!atomInfo->isChoiceAtom() || atomInfo->scc < 0)
+            if (!atomInfo || !atomInfo->isChoiceAtom() || atomInfo->scc < 0)
             {
                 continue;
             }
@@ -204,7 +204,7 @@ void UnfoundedSetAnalyzer::initializeData(vector<int32_t>& outAtomOffsets, vecto
             [&](auto&& headInfo)
             {
                 auto concrete = rdb.getAtom(headInfo.lit.id())->asConcrete();
-                return concrete->getTruthStatus(headInfo.lit.getMask()) == RuleDatabase::ETruthStatus::Undetermined && concrete->scc >= 0;
+                return concrete && concrete->getTruthStatus(headInfo.lit.getMask()) == RuleDatabase::ETruthStatus::Undetermined && concrete->scc >= 0;
             }
         );
         if (!canSupport)

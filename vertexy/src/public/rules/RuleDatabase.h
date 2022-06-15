@@ -407,7 +407,7 @@ protected:
 
     void makeConcrete();
     void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
-    void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
+    void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData, ConcreteBodyInfo* concreteBody, bool isChoiceAtom);
     bool groundLiteralToConcrete(int vertex, const AtomLiteral& oldLit, GroundingData& groundingData, AtomLiteral& outLit);
     void hookupGroundedDependencies(const vector<HeadInfo>& newHeads, ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
