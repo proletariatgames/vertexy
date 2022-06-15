@@ -69,6 +69,7 @@ protected:
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) override;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) override;
 	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params) override;
+	virtual void createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const override;
 	void onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 
 	EConstraintOperator m_op;

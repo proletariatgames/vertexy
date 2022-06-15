@@ -664,6 +664,16 @@ ITopologySearchConstraint::EValidityDetermination Vertexy::ITopologySearchConstr
 	return EValidityDetermination::DefinitelyUnreachable;
 }
 
+void Vertexy::ITopologySearchConstraint::createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const
+{
+#if REACHABILITY_USE_RAMAL_REPS
+	data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
+#else
+	Data.maxReachability = make_shared<ESTreeType>(MaxGraph);
+#endif
+	data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
+}
+
 void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable)
 {
 	vxy_assert(!m_inEdgeChange);
@@ -854,7 +864,15 @@ vector<Literal> ITopologySearchConstraint::explainNoReachability(const Narrowing
 			// A) we know that sourceVertex can't reach conflictVertex without going through a disabled edge
 			// B) blocked edges are set to a flow capacity of 1, and blocked edges have infinite flow
 			vector<tuple<int, int>> cutEdges;
-			m_maxFlowAlgo.getMaxFlow(*m_sourceGraph.get(), sourceVertex, conflictVertex, m_flowGraphEdges, m_flowGraphLookup, &cutEdges);
+			// first check if the source and conflict have a common edge, since getMaxFlow doesn't work in this case
+			if (m_edgeGraph->getVertexForSourceEdge(sourceVertex, conflictVertex) == -1)
+			{
+				m_maxFlowAlgo.getMaxFlow(*m_sourceGraph.get(), sourceVertex, conflictVertex, m_flowGraphEdges, m_flowGraphLookup, &cutEdges);
+			}
+			else
+			{
+				cutEdges.push_back(make_tuple(sourceVertex, conflictVertex));
+			}
 			vxy_assert(!cutEdges.empty());
 
 			// Now that we've found the cut, bring the explanation graph back to current state.
@@ -949,12 +967,7 @@ vector<Literal> ITopologySearchConstraint::explainRequiredSource(const Narrowing
 				int vertexIndex = m_variableToSourceVertexIndex[potentialSource];
 
 				ReachabilitySourceData data;
-#if REACHABILITY_USE_RAMAL_REPS
-				data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
-#else
-				Data.maxReachability = make_shared<ESTreeType>(MaxGraph);
-#endif
-				data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
+				createTempSourceData(data, vertexIndex);
 
 				m_reachabilitySources[potentialSource] = data;
 			}
@@ -991,7 +1004,7 @@ vector<Literal> ITopologySearchConstraint::explainRequiredSource(const Narrowing
 				bool reachableFromAnotherSource = false;
 				for (auto it = m_reachabilitySources.begin(), itEnd = m_reachabilitySources.end(); it != itEnd; ++it)
 				{
-					if (it->first != sourceVar && it->first != vertexVar && it->second.maxReachability->isReachable(vertex))
+					if (it->first != sourceVar && it->first != vertexVar && isPossiblyReachable(db, it->second, vertex) && isPossiblyValid(db, it->second, vertex))
 					{
 						reachableFromAnotherSource = true;
 						break;

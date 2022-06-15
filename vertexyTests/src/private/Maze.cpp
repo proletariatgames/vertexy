@@ -20,7 +20,7 @@ static constexpr int MAZE_REFRESH_RATE = 0;
 // The number of keys/doors that should exist in the maze.
 static constexpr int NUM_KEYS = 1;
 // Test Shortest Path constraint (slow), recommend 1 key.
-static constexpr bool TEST_SHORTEST_PATH = false;
+static constexpr bool TEST_SHORTEST_PATH = true;
 // True to print edge variables in FMaze::Print
 static constexpr bool PRINT_EDGES = false;
 // Whether to write a decision log as DecisionLog.txt
@@ -91,7 +91,7 @@ int MazeSolver::solveSimple(int times, int numCols, int seed, bool printVerbose)
 		solver.setInitialValues(tileData->get(node), vector<int>{0, 1, 2});
 	}
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5/*numRows * numCols*/ });
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5 });
 
 	//
 //
@@ -256,7 +256,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
 	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 0/*numRows * numCols*/});
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 10 });
 	//
 	// DECLARE CONSTRAINTS
 	//
@@ -464,6 +464,14 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 			GraphRelationClause(selfTile, cell_Wall)
 		);
 
+		if (TEST_SHORTEST_PATH)
+		{
+			solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
+				GraphRelationClause(selfStepDoorTile, step_ReachableOrOrigin),
+				GraphRelationClause(selfTile, cell_Wall)
+			);
+		}
+
 		// If we don't have all the keys at this step...
 		if (step < NUM_KEYS)
 		{
@@ -563,7 +571,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
 		if (TEST_SHORTEST_PATH)
 		{
-			solver.makeConstraint<ShortestPathConstraint>(stepDoorData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, shortestPathDistance);
+			solver.makeConstraint<ShortestPathConstraint>(stepDoorData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::LessThan, shortestPathDistance);
 			solver.makeConstraint<ReachabilityConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid);
 		}
 		else

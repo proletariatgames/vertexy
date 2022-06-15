@@ -90,19 +90,43 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 //is possibly reachable
 bool ShortestPathConstraint::isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) 
 {
-	if (!src.maxReachability->isReachable(vertex))
+	// we do not need to check for reachability here because we always call isPossiblyReachable before calling this
+	if (m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq)
 	{
-		return false;
-	}
-
-	if (m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq)
-	{
-		return isValidDistance(db, src.maxReachability->getDistance(vertex));
+		if (src.minReachability->isReachable(vertex))
+		{
+			if (!isValidDistance(db, src.minReachability->getDistance(vertex)))
+			{
+				// the shortest path is too short, so our vertex is definitely unreachable (ie it cannot be a target)
+				return false;
+			}
+			else
+			{
+				return true;
+			}
+		}
+		else if (src.maxReachability->isReachable(vertex))
+		{
+			return true;
+		}
 	}
 	else
 	{
-		return isValidDistance(db, src.minReachability->getDistance(vertex));
+		if (src.minReachability->isReachable(vertex) && isValidDistance(db, src.minReachability->getDistance(vertex)))
+		{
+			return true;
+		}
+		else if (src.maxReachability->isReachable(vertex))
+		{
+			if (!isValidDistance(db, src.maxReachability->getDistance(vertex)))
+			{
+				return false;
+			}
+
+			return true;
+		}
 	}
+	return false;
 }
 
 ITopologySearchConstraint::EValidityDetermination ShortestPathConstraint::determineValidityHelper(
@@ -111,30 +135,53 @@ ITopologySearchConstraint::EValidityDetermination ShortestPathConstraint::determ
 	int vertex,
 	VarID srcVertex) 
 {
-	if (src.minReachability->isReachable(vertex))
+	if (m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq)
 	{
-		if ((m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq) && !isValidDistance(db, src.minReachability->getDistance(vertex)))
+		if (src.minReachability->isReachable(vertex))
 		{
-			return EValidityDetermination::DefinitelyUnreachable;
-		}
+			if (!isValidDistance(db, src.minReachability->getDistance(vertex)))
+			{
+				// the shortest path is too short, so our vertex is definitely unreachable (ie it cannot be a target)
+				return EValidityDetermination::DefinitelyInvalid;
+			}
 
-		if (definitelyIsSource(db, srcVertex))
-		{
-			return EValidityDetermination::DefinitelyValid;
+			if (definitelyIsSource(db, srcVertex))
+			{
+				return EValidityDetermination::DefinitelyValid;
+			}
+			else
+			{
+				return EValidityDetermination::PossiblyValid;
+			}
 		}
-		else
+		else if (src.maxReachability->isReachable(vertex))
 		{
 			return EValidityDetermination::PossiblyValid;
 		}
 	}
-	else if (src.maxReachability->isReachable(vertex))
+	else
 	{
-		if ((m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq) && !isValidDistance(db, src.maxReachability->getDistance(vertex)))
+		if (src.minReachability->isReachable(vertex) && isValidDistance(db, src.minReachability->getDistance(vertex)))
 		{
-			return EValidityDetermination::DefinitelyUnreachable;
+			if (definitelyIsSource(db, srcVertex))
+			{
+				return EValidityDetermination::DefinitelyValid;
+			}
+			else
+			{
+				return EValidityDetermination::PossiblyValid;
+			}
 		}
+		else if (src.maxReachability->isReachable(vertex))
+		{
+			if (!isValidDistance(db, src.maxReachability->getDistance(vertex)))
+			{
+				// undo any changes we have made during the current timestamp while processing all changes
+				return EValidityDetermination::DefinitelyInvalid;
+			}
 
-		return EValidityDetermination::PossiblyValid;
+			return EValidityDetermination::PossiblyValid;
+		}
 	}
 
 	return EValidityDetermination::DefinitelyUnreachable;
@@ -170,6 +217,17 @@ EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxRea
 vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingExplanationParams& params)
 {
 	return IVariableDatabase::defaultExplainer(params);
+}
+
+void Vertexy::ShortestPathConstraint::createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const
+{
+	ITopologySearchConstraint::createTempSourceData(data, vertexIndex);
+#if REACHABILITY_USE_RAMAL_REPS
+	data.minReachability = make_shared<RamalRepsType>(m_minGraph, false, false, false);
+#else
+	Data.minReachability = make_shared<ESTreeType>(MinGraph);
+#endif
+	data.minReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 }
 
 void ShortestPathConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph)

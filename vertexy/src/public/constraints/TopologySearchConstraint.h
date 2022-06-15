@@ -84,6 +84,7 @@ protected:
 	virtual shared_ptr<RamalRepsType> makeTopology(const shared_ptr<BacktrackingDigraphTopology>& graph) const = 0;
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) = 0;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) = 0;
+	virtual void createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const;
 
 	inline bool definitelyNeedsToReach(const IVariableDatabase* db, VarID var) const
 	{
