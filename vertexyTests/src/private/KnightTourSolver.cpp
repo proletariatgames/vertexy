@@ -30,7 +30,7 @@ int KnightTourSolver::solve(int times, int boardSize, int seed, bool printVerbos
 
     auto prg = Program::define([&](ProgramVertex vertex)
     {
-        VXY_VARIABLE(X); VXY_VARIABLE(Y);
+        VXY_WILDCARD(X); VXY_WILDCARD(Y);
 
         // All valid Knight moves on a chessboard:
         vector validMoves = {

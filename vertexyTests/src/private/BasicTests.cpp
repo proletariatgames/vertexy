@@ -780,8 +780,8 @@ int TestSolvers::solveProgram_graphTests(int seed, bool printVerbose)
 	
 	auto prog = Program::define([](ProgramVertex vertex)
 	{
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
+		VXY_WILDCARD(X);
+		VXY_WILDCARD(Y);
 		
 		VXY_FORMULA(graphEdgeTest, 2);
 		graphEdgeTest(vertex, Y) <<= Program::graphEdge(vertex, Y);
@@ -905,9 +905,9 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 
 		// Declare variables that will be used in rule definitions.
 		// These will be expanded during compilation into all possible values.
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
-		VXY_VARIABLE(Z);
+		VXY_WILDCARD(X);
+		VXY_WILDCARD(Y);
+		VXY_WILDCARD(Z);
 
 		// Define path(X,Y) and omit(X,Y).
 		VXY_FORMULA(path, 2);
@@ -927,8 +927,8 @@ int TestSolvers::solveProgram_hamiltonian(int seed, bool printVerbose)
 		path(X,Y) <<= ~omit(X,Y) && edge(X,Y);
 		omit(X,Y) <<= ~path(X,Y) && edge(X,Y);
 
-		VXY_VARIABLE(X1);
-		VXY_VARIABLE(Y1);
+		VXY_WILDCARD(X1);
+		VXY_WILDCARD(Y1);
 		// Program::disallow prevents any solution where the statement is true.
 		// Specify that there can't be two paths ending at the same node.
 		Program::disallow(path(X,Y) && path(X1, Y) && X < X1);
@@ -1036,9 +1036,9 @@ int TestSolvers::solveProgram_hamiltonianGraph(int seed, bool printVerbose)
 
 	auto hamiltonian = Program::define([](ProgramVertex vertex)
 	{
-		VXY_VARIABLE(X);
-		VXY_VARIABLE(Y);
-		VXY_VARIABLE(Z);
+		VXY_WILDCARD(X);
+		VXY_WILDCARD(Y);
+		VXY_WILDCARD(Z);
 
 		VXY_FORMULA(path, 2);
 

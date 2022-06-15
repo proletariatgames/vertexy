@@ -6,7 +6,7 @@
 #include "program/Program.h"
 #include "program/ProgramAST.h"
 
-#define VXY_VARIABLE(name) ProgramVariable name(L#name)
+#define VXY_WILDCARD(name) ProgramWildcard name(L#name)
 #define VXY_FORMULA(name, arity) Formula<arity> name(L#name)
 #define VXY_DOMAIN_FORMULA(name, domain, arity) Formula<arity, domain> name(L#name)
 
@@ -55,9 +55,9 @@ namespace detail
         {
             term = make_unique<SymbolTerm>(sym);
         }
-        ProgramOpArgument(ProgramVariable param)
+        ProgramOpArgument(ProgramWildcard param)
         {
-            term = make_unique<VariableTerm>(param);
+            term = make_unique<WildcardTerm>(param);
         }
 
         explicit ProgramOpArgument(ULiteralTerm&& term) : term(move(term))
@@ -213,9 +213,9 @@ namespace detail
         {
             term = make_unique<SymbolTerm>(s);
         }
-        ProgramBodyTerm(const ProgramVariable& p)
+        ProgramBodyTerm(const ProgramWildcard& p)
         {
-            term = make_unique<VariableTerm>(p);
+            term = make_unique<WildcardTerm>(p);
         }
         ProgramBodyTerm(ProgramVertex vert)
         {
@@ -326,7 +326,7 @@ class Program
 protected:
     static shared_ptr<ProgramInstance> s_currentInstance;
     static int s_nextFormulaUID;
-    static int s_nextVarUID;
+    static int s_nextWildcardUID;
 public:
     Program() = delete;
     ~Program() = delete;
@@ -411,10 +411,10 @@ public:
         s_nextFormulaUID++;
         return out;
     }
-    static VariableUID allocateVariableUID()
+    static WildcardUID allocateWildcardUID()
     {
-        VariableUID out = static_cast<VariableUID>(s_nextVarUID);
-        s_nextVarUID++;
+        WildcardUID out = static_cast<WildcardUID>(s_nextWildcardUID);
+        s_nextWildcardUID++;
         return out;
     }
 };

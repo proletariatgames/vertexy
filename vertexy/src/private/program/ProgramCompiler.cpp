@@ -89,8 +89,8 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
 
     for (auto& stmt : statements)
     {
-        hash_map<const BinaryOpTerm*, ProgramVariable, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
-        hash_map<ProgramVariable, UBinaryOpTerm> assignments;
+        hash_map<const BinaryOpTerm*, ProgramWildcard, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
+        hash_map<ProgramWildcard, UBinaryOpTerm> assignments;
 
         stmt.statement->replace<BinaryOpTerm>([&](BinaryOpTerm* opTerm) -> UTerm
         {
@@ -142,7 +142,7 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
                     if (insertionPoint == replacements.end())
                     {
                         wstring name{wstring::CtorSprintf(), TEXT("__M%d"), synthVariableCount++};
-                        ProgramVariable newVar(name.c_str());
+                        ProgramWildcard newVar(name.c_str());
 
                         auto clone = UBinaryOpTerm(move(static_cast<BinaryOpTerm*>(binOpTerm->clone().detach())));
 
@@ -162,14 +162,14 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
                 auto found = replacements.find(term);
                 if (found != replacements.end())
                 {
-                    return make_unique<VariableTerm>(found->second);
+                    return make_unique<WildcardTerm>(found->second);
                 }
                 return nullptr;
             });
 
             for (auto& assignment : assignments)
             {
-                auto lhs = make_unique<VariableTerm>(assignment.first);
+                auto lhs = make_unique<WildcardTerm>(assignment.first);
                 auto assignmentTerm = make_unique<BinaryOpTerm>(
                     EBinaryOperatorType::Equality,
                     move(lhs),
@@ -397,7 +397,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
 {
     vector<LitNode> litNodes;
     vector<VarNode> varNodes;
-    vector<pair<VariableUID, vector<int>>> boundBy;
+    vector<pair<WildcardUID, vector<int>>> boundBy;
 
     const RelationalRuleStatement* stmt = statementNode->stmt;
 
@@ -405,19 +405,19 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     // Build dependency graph of variables found in the body.
     // Literals that are non-negative FunctionTerms provide support; everything else relies on support.
     //
-    hash_map<VariableUID, size_t> seen;
+    hash_map<WildcardUID, size_t> seen;
     for (auto& bodyLit : stmt->statement->body)
     {
         litNodes.emplace_back();
         litNodes.back().lit = bodyLit.get();
         litNodes.back().numDeps = 0;
 
-        vector<tuple<VariableTerm*, bool/*canEstablish*/>> varTerms;
+        vector<tuple<WildcardTerm*, bool/*canEstablish*/>> varTerms;
 
-        bodyLit->collectVars(varTerms);
+        bodyLit->collectWildcards(varTerms);
         for (auto varTerm : varTerms)
         {
-            ProgramVariable var = get<0>(varTerm)->var;
+            ProgramWildcard var = get<0>(varTerm)->wildcard;
 
             // create a VarNode if we haven't made one already.
             auto found = seen.find(var.getID());
@@ -425,7 +425,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             {
                 found = seen.insert({var.getID(), varNodes.size()}).first;
                 varNodes.emplace_back();
-                varNodes.back().variable = var;
+                varNodes.back().wildcard = var;
 
                 boundBy.emplace_back(var.getID(), vector<int>{});
             }
@@ -444,7 +444,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
                 litNodes.back().numDeps++;
             }
             // add index of varNode to list of all variables in this lit.
-            litNodes.back().vars.push_back(found->second);
+            litNodes.back().wildcards.push_back(found->second);
         }
     }
 
@@ -458,7 +458,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
         }
     }
 
-    VariableMap bound;
+    WildcardMap bound;
     vector<UInstantiator> instantiators;
 
     //
@@ -507,9 +507,9 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             return false;
         }
 
-        auto isBound = [&](auto&& varTerm) { return bound.find(varTerm->var) != bound.end(); };
-        bool testAllUnbound = !testLit->lit->contains<VariableTerm>(isBound);
-        bool checkAllUnbound = !checkLit->lit->contains<VariableTerm>(isBound);
+        auto isBound = [&](auto&& varTerm) { return bound.find(varTerm->wildcard) != bound.end(); };
+        bool testAllUnbound = !testLit->lit->contains<WildcardTerm>(isBound);
+        bool checkAllUnbound = !checkLit->lit->contains<WildcardTerm>(isBound);
         if (!testAllUnbound && checkAllUnbound)
         {
             return true;
@@ -542,7 +542,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
         // for each variable in this literal that hasn't been bound yet, mark the first VariableTerm it appears in
         // as being the variable provider. This will create the shared ProgramSymbol that all occurrences
         // of this variable within this body will point to.
-        litNode->lit->createVariableReps(bound);
+        litNode->lit->createWildcardReps(bound);
 
         instantiators.push_back(litNode->lit->instantiate(*this, canBeAbstract, statementNode->stmt->topology));
 
@@ -570,13 +570,13 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     // Assign all variables/vertices appearing in head symbols to their shared binders. 
     if (stmt->statement->head != nullptr)
     {
-        vector<tuple<VariableTerm*, bool>> vars;
-        stmt->statement->head->collectVars(vars, false);
+        vector<tuple<WildcardTerm*, bool>> vars;
+        stmt->statement->head->collectWildcards(vars, false);
 
-        for (const tuple<VariableTerm*, bool>& tuple : vars)
+        for (const tuple<WildcardTerm*, bool>& tuple : vars)
         {
-            auto varTerm = get<VariableTerm*>(tuple);
-            auto found = bound.find(varTerm->var);
+            auto varTerm = get<WildcardTerm*>(tuple);
+            auto found = bound.find(varTerm->wildcard);
             vxy_assert_msg(found != bound.end(), "variable appears in head but not body?");
             varTerm->sharedBoundRef = found->second;
         }
@@ -595,7 +595,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     instantiateRule(statementNode, bound, instantiators, overrideMap, boundVertex);
 }
 
-void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur)
+void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const WildcardMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur)
 {
     if (cur == nodes.size())
     {
@@ -615,7 +615,7 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
     }
 }
 
-void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings)
+void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const WildcardMap& varBindings)
 {
     if (stmt->head != nullptr && stmt->head->mustBeConcrete(overrideMap, boundVertex))
     {
@@ -901,13 +901,13 @@ void ProgramCompiler::exportRules()
             out.append(rule.heads[0].toString());
         }
         
-        if (!rule.bodyLits.empty())
+        if (!rule.body.empty())
         {
             out.append(TEXT(" <- "));
         
-            for (int i = 0; i < rule.bodyLits.size(); ++i)
+            for (int i = 0; i < rule.body.size(); ++i)
             {
-                auto& bodyTerm = rule.bodyLits[i];
+                auto& bodyTerm = rule.body[i];
                 if (i > 0)
                 {
                     out.append(TEXT(", "));
@@ -942,8 +942,8 @@ void ProgramCompiler::exportRules()
             }
             
             vector<AtomLiteral> exportedBody;
-            exportedBody.reserve(rule.bodyLits.size());
-            for (auto& bodySym : rule.bodyLits)
+            exportedBody.reserve(rule.body.size());
+            for (auto& bodySym : rule.body)
             {
                 if (bodySym.isExternalFormula() && !bodySym.containsAbstract())
                 {
@@ -989,7 +989,7 @@ bool ProgramCompiler::shouldExportAsAbstract(const GroundedRule& rule, bool& out
     }
 
     // Head is empty or contains no abstracts
-    for (auto& bodyLit : rule.bodyLits)
+    for (auto& bodyLit : rule.body)
     {
         if (bodyLit.containsAbstract())
         {
@@ -1251,7 +1251,7 @@ void ProgramCompiler::transformChoice(GroundedRule&& rule)
         addTransformedRule(GroundedRule{
             ERuleHeadType::Choice,
             vector{headSym},
-            rule.bodyLits,
+            rule.body,
             rule.topology
         });
     }
@@ -1262,7 +1262,7 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
     vxy_assert(rule.headType == ERuleHeadType::Disjunction);
     if (rule.heads.size() <= 1)
     {
-        addTransformedRule(GroundedRule{ERuleHeadType::Normal, rule.heads, rule.bodyLits, rule.topology});
+        addTransformedRule(GroundedRule{ERuleHeadType::Normal, rule.heads, rule.body, rule.topology});
     }
     else
     {
@@ -1270,7 +1270,7 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
         // Hi <- <body> /\ {not Hn | n != i}
         for (int i = 0; i < rule.heads.size(); ++i)
         {
-            vector<ProgramSymbol> extBody = rule.bodyLits;
+            vector<ProgramSymbol> extBody = rule.body;
             for (int j = 0; j < rule.heads.size(); ++j)
             {
                 if (i == j) continue;
@@ -1294,7 +1294,7 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
 
     // remove duplicates
     // silently discard rule if it is self-contradicting (p and -p)
-    vector<ProgramSymbol> newBody = rule.bodyLits;
+    vector<ProgramSymbol> newBody = rule.body;
     for (auto it = newBody.begin(); it != newBody.end(); ++it)
     {
         const ProgramSymbol& cur = *it;

@@ -96,7 +96,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		// Define a floating variable. VXY variables don't mean anything outside the context of a rule statement.
 		// Within a rule statement, they encode equality. E.g. if "X" shows up in two places in a rule,
 		// it means that those Xs are the same. See below.
-		VXY_VARIABLE(X);
+		VXY_WILDCARD(X);
 		
 		// define the entrance/exit positions, based on the program inputs.
 		cellType(entranceVertex).is(cellType.entrance);
@@ -115,9 +115,9 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 		// border is a wall as long as it's not the entrance or exit.
 		cellType(vertex).is(cellType.wall) <<= border(vertex) && ~cellType(vertex).is(cellType.entrance|cellType.exit);
 		
-		VXY_VARIABLE(RIGHT); VXY_VARIABLE(DOWN);
-		VXY_VARIABLE(LEFT); VXY_VARIABLE(UP);
-		VXY_VARIABLE(DOWN_RIGHT);
+		VXY_WILDCARD(RIGHT); VXY_WILDCARD(DOWN);
+		VXY_WILDCARD(LEFT); VXY_WILDCARD(UP);
+		VXY_WILDCARD(DOWN_RIGHT);
 		
 		VXY_FORMULA(deadEnd, 1);
 		deadEnd(vertex) <<= left(vertex, LEFT) && right(vertex, RIGHT) && up(vertex, UP) &&
@@ -172,7 +172,7 @@ int MazeSolver::solveUsingGraphProgram(int times, int numRows, int numCols, int 
 	// Defines each "step" of the maze: retrieving a key and unlocking a door. The final step is reaching the exit.
 	auto stepProgram = Program::define([&](ProgramVertex vertex, int step)
 	{
-		VXY_VARIABLE(X); VXY_VARIABLE(Y);
+		VXY_WILDCARD(X); VXY_WILDCARD(Y);
 				
 		VXY_FORMULA(prevStep, 1);
 		prevStep = Program::range(0, step-1);
@@ -323,7 +323,7 @@ int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed,
 	
 	auto baseProgram = Program::define([&](int width, int height, int entranceX, int entranceY, int exitX, int exitY)
 	{
-		VXY_VARIABLE(X); VXY_VARIABLE(Y);
+		VXY_WILDCARD(X); VXY_WILDCARD(Y);
 		
 		VXY_FORMULA(col, 1);
 		col = Program::range(0, width-1);
@@ -368,7 +368,7 @@ int MazeSolver::solveUsingProgram(int times, int numRows, int numCols, int seed,
 
 	auto stepProgram = Program::define([&](int step)
 	{
-		VXY_VARIABLE(X); VXY_VARIABLE(Y); VXY_VARIABLE(Z);
+		VXY_WILDCARD(X); VXY_WILDCARD(Y); VXY_WILDCARD(Z);
 				
 		VXY_FORMULA(prevStep, 1);
 		prevStep = Program::range(0, step-1);

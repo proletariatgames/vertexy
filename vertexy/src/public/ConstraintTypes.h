@@ -228,7 +228,7 @@ struct Literal
 };
 
 // unique ID to identify a ProgramVariable
-enum VariableUID : int32_t { };
+enum WildcardUID : int32_t { };
 
 // unique ID to identify a named Formula
 enum FormulaUID : int32_t { };

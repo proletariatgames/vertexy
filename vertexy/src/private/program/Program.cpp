@@ -8,7 +8,7 @@ using namespace Vertexy;
 
 shared_ptr<ProgramInstance> Program::s_currentInstance = nullptr;
 int Program::s_nextFormulaUID = 1;
-int Program::s_nextVarUID = 1;
+int Program::s_nextWildcardUID = 1;
 
 // Provider for Program::graphLink()
 class GraphLinkProvider : public IExternalFormulaProvider
@@ -415,10 +415,10 @@ protected:
     int m_nextEdge = 0;
 };
 
-ProgramVariable::ProgramVariable(const wchar_t* name)
+ProgramWildcard::ProgramWildcard(const wchar_t* name)
     : m_name(name ? name : TEXT(""))
 {
-    m_uid = Program::allocateVariableUID();
+    m_uid = Program::allocateWildcardUID();
 }
 
 void Program::disallow(detail::ProgramBodyTerm&& body)

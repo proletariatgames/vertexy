@@ -33,7 +33,7 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 
     if (m_term.negated)
     {
-        // all variables should be fully bound at this point, because positive literals are always earlier in
+        // all wildcards should be fully bound at this point, because positive literals are always earlier in
         // the dependency list. Therefore, we can eval safely.
         m_term.boundMask = m_term.getDomain(overrideMap, boundVertex);
         ProgramSymbol matched = m_term.eval(overrideMap, boundVertex);
@@ -167,23 +167,23 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, Progr
     matchArgs.reserve(m_term.arguments.size());
     for (auto& arg : m_term.arguments)
     {
-        if (auto varArg = dynamic_cast<VariableTerm*>(arg.get()))
+        if (auto wcArg = dynamic_cast<WildcardTerm*>(arg.get()))
         {
-            if (varArg->isBinder)
+            if (wcArg->isBinder)
             {
                 allArgumentsBound = false;
-                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(varArg->sharedBoundRef));
+                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(wcArg->sharedBoundRef));
             }
             else
             {
-                ProgramSymbol boundVarVal = varArg->eval(overrideMap, boundVertex);
-                if (!boundVarVal.isValid())
+                ProgramSymbol boundWcVal = wcArg->eval(overrideMap, boundVertex);
+                if (!boundWcVal.isValid())
                 {
                     m_hitEnd = true;
                     return;
                 }                
-                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundVarVal));
-                if (boundVarVal.isAbstract())
+                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundWcVal));
+                if (boundWcVal.isAbstract())
                 {
                     anyAbstractArguments = true;
                 }
@@ -360,7 +360,7 @@ void EqualityInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 
     if (m_canBeAbstract || boundVertex.isValid() || !m_term.containsAbstracts())
     {
-        // all variables in right hand side should be fully bound now
+        // all wildcards in right hand side should be fully bound now
         ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
         if (rhsSym.isAbstract() || (dynamic_cast<VertexTerm*>(m_term.lhs.get()) != nullptr))
         {
@@ -443,7 +443,7 @@ void RelationInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 
     if (m_canBeAbstract || boundVertex.isValid() || !m_term.containsAbstracts())
     {
-        // variables in non-assignment binary ops should be fully bound now
+        // wildcards in non-assignment binary ops should be fully bound now
         ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
         // BinOpTerm::eval() will return 0 to indicate false.
         if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))

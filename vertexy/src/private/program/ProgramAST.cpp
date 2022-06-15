@@ -27,11 +27,11 @@ void Term::visit(const function<void(const Term*)>& visitor) const
     });
 }
 
-void Term::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+void Term::collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const
 {
     forChildren([&](const Term* child)
     {
-        child->collectVars(outVars, canEstablish);
+        child->collectWildcards(outWildcards, canEstablish);
     });
 }
 
@@ -41,29 +41,29 @@ UInstantiator LiteralTerm::instantiate(ProgramCompiler&, bool canBeAbstract, con
     return nullptr;
 }
 
-// For each variable occurring in the literal, if it isn't in the set bound of bound vars yet, create the
+// For each wildcard occurring in the literal, if it isn't in the set bound of bound wildcards yet, create the
 // shared ProgramSymbol for it. Later occurrences will take a reference to the same ProgramSymbol.
-bool LiteralTerm::createVariableReps(VariableMap& bound)
+bool LiteralTerm::createWildcardReps(WildcardMap& bound)
 {
-    vector<tuple<VariableTerm*, bool>> vars;
-    collectVars(vars);
+    vector<tuple<WildcardTerm*, bool>> wildcards;
+    collectWildcards(wildcards);
 
     bool foundNewBindings = false;
-    for (auto& tuple : vars)
+    for (auto& tuple : wildcards)
     {
-        auto varTerm = get<VariableTerm*>(tuple);
-        auto found = bound.find(varTerm->var);
+        auto wcTerm = get<WildcardTerm*>(tuple);
+        auto found = bound.find(wcTerm->wildcard);
         if (found == bound.end())
         {
-            // Mark this term as being the variable that should match any symbols passed to it.
-            // Later variables in the dependency chain will be matched against the matched symbol.
-            varTerm->isBinder = true;
-            varTerm->sharedBoundRef = make_shared<ProgramSymbol>();
-            bound.insert({varTerm->var, varTerm->sharedBoundRef});
+            // Mark this term as being the wildcard that should match any symbols passed to it.
+            // Later wildcards in the dependency chain will be matched against the matched symbol.
+            wcTerm->isBinder = true;
+            wcTerm->sharedBoundRef = make_shared<ProgramSymbol>();
+            bound.insert({wcTerm->wildcard, wcTerm->sharedBoundRef});
         }
         else
         {
-            varTerm->sharedBoundRef = found->second;
+            wcTerm->sharedBoundRef = found->second;
         }
         foundNewBindings = true;
     }
@@ -82,12 +82,12 @@ wstring LiteralTerm::toString() const
     return eval(temp, ProgramSymbol()).toString();
 }
 
-VariableTerm::VariableTerm(ProgramVariable param)
-    : var(param)
+WildcardTerm::WildcardTerm(ProgramWildcard param)
+    : wildcard(param)
 {
 }
 
-wstring VariableTerm::toString() const
+wstring WildcardTerm::toString() const
 {
     if (sharedBoundRef != nullptr && sharedBoundRef->isValid())
     {
@@ -95,45 +95,45 @@ wstring VariableTerm::toString() const
     }
     else
     {
-        return var.getName();
+        return wildcard.getName();
     }
 }
 
-bool VariableTerm::operator==(const LiteralTerm& rhs) const
+bool WildcardTerm::operator==(const LiteralTerm& rhs) const
 {
-    if (auto vrhs = dynamic_cast<const VariableTerm*>(&rhs))
+    if (auto vrhs = dynamic_cast<const WildcardTerm*>(&rhs))
     {
-        return vrhs->var == var;
+        return vrhs->wildcard == wildcard;
     }
     return false;
 }
 
-bool VariableTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
+bool WildcardTerm::visit(const function<EVisitResponse(const Term*)>& visitor) const
 {
     return visitor(this) != EVisitResponse::Abort;
 }
 
-UTerm VariableTerm::clone() const
+UTerm WildcardTerm::clone() const
 {
-    return make_unique<VariableTerm>(var);
+    return make_unique<WildcardTerm>(wildcard);
 }
 
-void VariableTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+void WildcardTerm::collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const
 {
-    outVars.push_back(make_pair(const_cast<VariableTerm*>(this), canEstablish));
+    outWildcards.push_back(make_pair(const_cast<WildcardTerm*>(this), canEstablish));
 }
 
-bool VariableTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+bool WildcardTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     if (isBinder)
     {
-        // if this is the term where the variable first appears in, we take on whatever symbol was handed to us.
-        // The ProgramSymbol pointed to by sharedBoundRef is shared by all other VariableTerms for the same variable in the
+        // if this is the term where the wildcard first appears in, we take on whatever symbol was handed to us.
+        // The ProgramSymbol pointed to by sharedBoundRef is shared by all other WildcardTerms for the same wildcard in the
         // rule's body.
         *sharedBoundRef = sym;
         return true;
     }
-    // Otherwise this is a variable that was already bound earlier. Check for equality.
+    // Otherwise this is a wildcard that was already bound earlier. Check for equality.
     else if (*sharedBoundRef == sym)
     {
         return true;
@@ -180,12 +180,12 @@ bool VariableTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& override
     return false;
 }
 
-bool VariableTerm::containsAbstracts() const
+bool WildcardTerm::containsAbstracts() const
 {
     return sharedBoundRef != nullptr && sharedBoundRef->containsAbstract();
 }
 
-ProgramSymbol VariableTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
+ProgramSymbol WildcardTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
 {
     if (sharedBoundRef == nullptr)
     {
@@ -317,24 +317,24 @@ FunctionTerm::FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, 
     vxy_assert(domainSize >= 1);
 }
 
-void FunctionTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+void FunctionTerm::collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const
 {
     for (auto& domainTerm : domainTerms)
     {
-        // variables in domain masks never act as binders.
-        domainTerm->collectVars(outVars, false);
+        // wildcards in domain masks never act as binders.
+        domainTerm->collectWildcards(outWildcards, false);
     }
     
     if (provider != nullptr)
     {
         for (int i = 0; i < arguments.size(); ++i)
         {
-            arguments[i]->collectVars(outVars, canEstablish && !negated && provider->canInstantiate(i));
+            arguments[i]->collectWildcards(outWildcards, canEstablish && !negated && provider->canInstantiate(i));
         }
     }
     else
     {
-        return LiteralTerm::collectVars(outVars, canEstablish && !negated);
+        return LiteralTerm::collectWildcards(outWildcards, canEstablish && !negated);
     }
 }
 
@@ -747,11 +747,11 @@ void BinaryOpTerm::replace(const function<UTerm(Term*)>& visitor)
     }
 }
 
-void BinaryOpTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+void BinaryOpTerm::collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const
 {
-    // only left hand side of assignments can serve as establishment for variables
-    lhs->collectVars(outVars, canEstablish && op == EBinaryOperatorType::Equality);
-    rhs->collectVars(outVars, false);
+    // only left hand side of assignments can serve as establishment for wildcards
+    lhs->collectWildcards(outWildcards, canEstablish && op == EBinaryOperatorType::Equality);
+    rhs->collectWildcards(outWildcards, false);
 }
 
 ProgramSymbol BinaryOpTerm::eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const
@@ -902,8 +902,8 @@ bool BinaryOpTerm::operator==(const LiteralTerm& term) const
     return false;
 }
 
-LinearTerm::LinearTerm(ULiteralTerm&& varTerm, int offset, int multiplier)
-    : childTerm(move(varTerm))
+LinearTerm::LinearTerm(ULiteralTerm&& wildcardTerm, int offset, int multiplier)
+    : childTerm(move(wildcardTerm))
     , offset(move(offset))
     , multiplier(move(multiplier))
 {
@@ -934,9 +934,9 @@ void LinearTerm::replace(const function<UTerm(Term*)>& visitor)
     }
 }
 
-void LinearTerm::collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const
+void LinearTerm::collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const
 {
-    return childTerm->collectVars(outVars, canEstablish);
+    return childTerm->collectWildcards(outWildcards, canEstablish);
 }
 
 bool LinearTerm::match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
@@ -971,8 +971,8 @@ bool LinearTerm::containsAbstracts() const
 
 UTerm LinearTerm::clone() const
 {
-    auto clonedVarTerm = static_cast<VariableTerm*>(childTerm->clone().detach());
-    return make_unique<LinearTerm>(UVariableTerm(move(clonedVarTerm)), offset, multiplier);
+    auto clonedWildcardTerm = static_cast<WildcardTerm*>(childTerm->clone().detach());
+    return make_unique<LinearTerm>(UWildcardTerm(move(clonedWildcardTerm)), offset, multiplier);
 }
 
 wstring LinearTerm::toString() const

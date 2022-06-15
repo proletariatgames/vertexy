@@ -252,7 +252,7 @@ protected:
 
     struct VarNode
     {
-        ProgramVariable variable;
+        ProgramWildcard wildcard;
         vector<int> provides;
         vector<int> boundBy;
         bool bound = false;
@@ -261,7 +261,7 @@ protected:
     struct LitNode
     {
         vector<int> provides;
-        vector<int> vars;
+        vector<int> wildcards;
         int numDeps = 0;
         LiteralTerm* lit=nullptr;
     };
@@ -270,7 +270,7 @@ protected:
     {
         ERuleHeadType headType;
         vector<ProgramSymbol> heads;
-        vector<ProgramSymbol> bodyLits;
+        vector<ProgramSymbol> body;
         ITopologyPtr topology;
     };
 
@@ -289,9 +289,9 @@ protected:
     
     void ground();
     void groundRule(DepGraphNodeData* statementNode);
-    void instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur=0);
+    void instantiateRule(DepGraphNodeData* stmtNode, const WildcardMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur=0);
 
-    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings);
+    void addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const WildcardMap& varBindings);
     bool addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology);
 
     void transformRules();

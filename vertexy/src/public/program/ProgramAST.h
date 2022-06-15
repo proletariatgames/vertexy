@@ -16,7 +16,7 @@ class ProgramCompiler;
 class Instantiator;
 using UInstantiator = unique_ptr<Instantiator>;
 
-class VariableTerm;
+class WildcardTerm;
 class VertexTerm;
 
 class Term
@@ -30,7 +30,7 @@ public:
     void visit(const function<void(const Term*)>& visitor) const;
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const = 0;
-    virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const;
+    virtual void collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish = true) const;
     virtual wstring toString() const = 0;
 
     template<typename T>
@@ -102,38 +102,38 @@ public:
     virtual bool operator==(const LiteralTerm& rhs) const = 0;
     bool operator !=(const LiteralTerm& rhs) const { return !operator==(rhs); }
 
-    bool createVariableReps(VariableMap& bound);
+    bool createWildcardReps(WildcardMap& bound);
 
     virtual wstring toString() const override;
 };
 
 using ULiteralTerm = unique_ptr<LiteralTerm>;
 
-class VariableTerm : public LiteralTerm
+class WildcardTerm : public LiteralTerm
 {
 public:
-    VariableTerm(ProgramVariable param);
+    WildcardTerm(ProgramWildcard param);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override {}    
     virtual UTerm clone() const override;
-    virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
+    virtual void collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish = true) const override;
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual bool containsAbstracts() const override;
     virtual size_t hash() const override
     {
-        return eastl::hash<ProgramVariable>()(var);
+        return eastl::hash<ProgramWildcard>()(wildcard);
     }
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual wstring toString() const override;
     virtual bool operator==(const LiteralTerm& rhs) const override;
 
-    ProgramVariable var;
+    ProgramWildcard wildcard;
     bool isBinder = false;
     shared_ptr<ProgramSymbol> sharedBoundRef;
 };
 
-using UVariableTerm = unique_ptr<VariableTerm>;
+using UWildcardTerm = unique_ptr<WildcardTerm>;
 
 class SymbolTerm : public LiteralTerm
 {
@@ -194,7 +194,7 @@ public:
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<UTerm(Term*)>& visitor) override;
-    virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const override;
+    virtual void collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool containsAbstracts() const override;
     virtual UTerm clone() const override;
@@ -211,11 +211,11 @@ public:
 class LinearTerm : public LiteralTerm
 {
 public:
-    LinearTerm(ULiteralTerm&& varTerm, int offset, int multiplier);
+    LinearTerm(ULiteralTerm&& wildcardTerm, int offset, int multiplier);
 
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<UTerm(Term*)>& visitor) override;
-    virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish) const override;
+    virtual void collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish) const override;
     virtual bool match(const ProgramSymbol& sym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;
     virtual bool containsAbstracts() const override;
@@ -306,7 +306,7 @@ class FunctionTerm : public LiteralTerm
 public:
     FunctionTerm(FormulaUID functionUID, const wchar_t* functionName, int domainSize, vector<ULiteralTerm>&& arguments, vector<UDomainTerm>&& domainTerms, bool negated, const IExternalFormulaProviderPtr& provider);
 
-    virtual void collectVars(vector<tuple<VariableTerm*, bool>>& outVars, bool canEstablish = true) const override;
+    virtual void collectWildcards(vector<tuple<WildcardTerm*, bool>>& outWildcards, bool canEstablish = true) const override;
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override;
     virtual ProgramSymbol eval(const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex) const override;

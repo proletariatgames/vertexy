@@ -13,22 +13,22 @@ using URuleStatement = unique_ptr<RuleStatement>;
 class ProgramSymbol;
 
 // Represents an ungrounded variable within a rule program
-class ProgramVariable
+class ProgramWildcard
 {
     friend struct ProgramVariableHasher;
 public:
-    explicit ProgramVariable(const wchar_t* name=nullptr);
-    VariableUID getID() const { return m_uid; }
+    explicit ProgramWildcard(const wchar_t* name=nullptr);
+    WildcardUID getID() const { return m_uid; }
     const wchar_t* getName() const { return m_name.c_str(); }
 
-    bool operator==(const ProgramVariable& rhs) const
+    bool operator==(const ProgramWildcard& rhs) const
     {
         return m_uid == rhs.m_uid;
     }
 
 private:
     wstring m_name;
-    VariableUID m_uid = VariableUID(0);
+    WildcardUID m_uid = WildcardUID(0);
 };
 
 class ProgramVertex
@@ -54,7 +54,7 @@ public:
     virtual bool hitEnd() const = 0;
 };
 
-using VariableMap = hash_map<ProgramVariable, shared_ptr<ProgramSymbol>>;
+using WildcardMap = hash_map<ProgramWildcard, shared_ptr<ProgramSymbol>>;
 
 } // namespace Vertexy
 
@@ -63,9 +63,9 @@ namespace eastl
 
 // Hashing for ProgramVariable
 template<>
-struct hash<Vertexy::ProgramVariable>
+struct hash<Vertexy::ProgramWildcard>
 {
-    uint32_t operator()(const Vertexy::ProgramVariable& var) const
+    uint32_t operator()(const Vertexy::ProgramWildcard& var) const
     {
         return hash<int>()(var.getID());
     }
