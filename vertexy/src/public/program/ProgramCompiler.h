@@ -3,18 +3,19 @@
 #pragma once
 
 #include "ConstraintTypes.h"
+#include "SignedClause.h"
 #include "Program.h"
 #include "program/ProgramAST.h"
 #include "program/ExternalFormula.h"
+#include "topology/TopologyVertexData.h"
 #include "rules/RuleTypes.h"
-#include "ConstraintSolver.h"
-#include "rules/RuleDatabase.h"
 
 namespace Vertexy
 {
 
 class RuleDatabase;
 class DigraphTopology;
+class ConstraintSolver;
 
 //
 // Translates a formula with a set of arguments to its associated atom (and the solver's literal associated with that atom).
@@ -224,7 +225,7 @@ public:
 
     bool hasFailure() const { return m_failure; }
 
-    ConstraintSolver& getSolver() const { return m_rdb.getSolver(); }
+    ConstraintSolver& getSolver() const;
 
 protected:
     struct DepGraphNodeData

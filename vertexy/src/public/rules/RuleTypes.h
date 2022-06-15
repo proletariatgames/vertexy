@@ -2,8 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "SignedClause.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
 #include <EASTL/variant.h>
 
 namespace Vertexy

@@ -1,8 +1,9 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "program/Program.h"
-
 #include "program/ProgramDSL.h"
 #include "program/ExternalFormula.h"
+#include "topology/TopologyLink.h"
+#include "topology/GraphRelations.h"
 
 using namespace Vertexy;
 

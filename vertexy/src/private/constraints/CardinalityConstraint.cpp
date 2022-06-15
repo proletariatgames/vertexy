@@ -1,5 +1,6 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/CardinalityConstraint.h"
+#include "constraints/ConstraintFactoryParams.h"
 #include "topology/BipartiteGraph.h"
 #include "ds/DisjointSet.h"
 #include "variable/IVariableDatabase.h"

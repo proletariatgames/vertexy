@@ -21,7 +21,8 @@
 #include "variable/GenericVariablePropagator.h"
 #include "variable/StubVariablePropagator.h"
 #include "variable/WordVariablePropagator.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
+#include "topology/TopologyVertexData.h"
 #include "util/SolverDecisionLog.h"
 #include "ds/FastLookupSet.h"
 #include "rules/UnfoundedSetAnalyzer.h"
@@ -195,6 +196,31 @@ VarID ConstraintSolver::makeVariable(const wstring& varName, const vector<int>& 
 		maxValue = max(maxValue, value);
 	}
 	return makeVariable(varName, SolverVariableDomain(minValue, maxValue), potentialValues);
+}
+
+shared_ptr<TTopologyVertexData<VarID>> ConstraintSolver::makeVariableGraph(const wstring& dataName, const shared_ptr<ITopology>& topology, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
+{
+	auto output = make_shared<TTopologyVertexData<VarID>>(topology, VarID::INVALID, dataName);
+	fillVariableGraph(output, variableDomain, namePrefix);
+	return output;
+}
+
+void ConstraintSolver::fillVariableGraph(const shared_ptr<TTopologyVertexData<VarID>>& data, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
+{
+	shared_ptr<ITopology> graph = data->getSource();
+	for (int i = 0; i < graph->getNumVertices(); ++i)
+	{
+		wstring varName = namePrefix + graph->vertexIndexToString(i);
+		VarID varID = makeVariable(varName, variableDomain);
+		data->set(i, varID);
+
+		m_variableToGraphs[varID.raw()].push_back(m_graphs.size());
+	}
+
+	if (!contains(m_graphs.begin(), m_graphs.end(), data->getSource()))
+	{
+		m_graphs.push_back(data->getSource());
+	}
 }
 
 void ConstraintSolver::setInitialValues(VarID varID, const vector<int>& potentialValues)

@@ -4,8 +4,6 @@
 #include "util/Asserts.h"
 #include "util/BitUtils.h"
 
-#include <EASTL/vector.h>
-#include <EASTL/unique_ptr.h>
 #include <EASTL/string.h>
 
 #ifndef TEXT

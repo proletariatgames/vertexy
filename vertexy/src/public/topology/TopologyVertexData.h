@@ -2,10 +2,12 @@
 
 #pragma once
 #include "ConstraintTypes.h"
-#include "Topology.h"
+#include <EASTL/shared_ptr.h>
 
 namespace Vertexy
 {
+
+class ITopology;
 
 /** Represents information stored with each vertex of a topology, with efficient retrieval */
 template <typename DataType>

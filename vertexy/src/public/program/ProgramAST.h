@@ -6,6 +6,7 @@
 #include "ProgramSymbol.h"
 #include "FormulaDomain.h"
 #include "rules/RuleTypes.h"
+#include "topology/algo/TopologySearchResponse.h"
 
 namespace Vertexy
 {

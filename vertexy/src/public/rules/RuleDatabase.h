@@ -6,6 +6,7 @@
 #include "program/ProgramTypes.h"
 #include "topology/GraphRelations.h"
 #include "topology/algo/Tarjan.h"
+#include <EASTL/hash_set.h>
 
 namespace Vertexy
 {

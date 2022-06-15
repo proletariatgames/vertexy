@@ -166,11 +166,7 @@ public:
 		m_extendedInfo->isPermanent = true;
 	}
 
-	inline bool isPromotableToGraph() const
-	{
-		return m_graphRelationInfo != nullptr && m_graphRelationInfo->getGraph() != nullptr &&
-			   m_extendedInfo != nullptr && !m_extendedInfo->isPromoted && !isPromotedFromGraph();
-	}
+	bool isPromotableToGraph() const;
 
 	inline void setPromotedToGraph()
 	{

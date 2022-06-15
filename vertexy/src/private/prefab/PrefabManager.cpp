@@ -1,6 +1,7 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "prefab/PrefabManager.h"
-
+#include "topology/GridTopology.h"
+#include "topology/IPlanarTopology.h"
 #include "ConstraintSolver.h"
 #include "ConstraintTypes.h"
 #include "prefab/Prefab.h"

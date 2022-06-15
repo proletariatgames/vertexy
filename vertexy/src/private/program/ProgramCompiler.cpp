@@ -1145,6 +1145,11 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
     }
 }
 
+ConstraintSolver& ProgramCompiler::getSolver() const
+{
+    return m_rdb.getSolver();
+}
+
 bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology)
 {
     vxy_assert(atom.symbol.isFormula());

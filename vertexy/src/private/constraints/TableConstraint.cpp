@@ -1,7 +1,11 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 
 #include "constraints/TableConstraint.h"
+#include "constraints/ConstraintFactoryParams.h"
 #include "variable/IVariableDatabase.h"
+#include <EASTL/hash_map.h>
+#include <EASTL/tuple.h>
+#include <EASTL/fixed_vector.h>
 
 using namespace Vertexy;
 

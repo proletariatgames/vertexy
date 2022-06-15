@@ -1,19 +1,12 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 
-#include <EASTL/vector.h>
-#include <EASTL/fixed_vector.h>
-#include <EASTL/hash_set.h>
-#include <EASTL/hash_map.h>
-#include <EASTL/string.h>
-#include <EASTL/functional.h>
-#include <EASTL/unique_ptr.h>
-#include <EASTL/shared_ptr.h>
-#include <EAAssert/eaassert.h>
+#include <cstdint>
 
 #include "ds/ValueBitset.h"
 #include "util/Logging.h"
 #include "util/Asserts.h"
+#include <EASTL/vector.h>
 
 #ifndef TEXT
 #define TEXT(s) L ## s

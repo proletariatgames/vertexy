@@ -2,7 +2,8 @@
 
 #pragma once
 #include "ConstraintTypes.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
+#include <EASTL/hash_map.h>
 
 namespace Vertexy
 {

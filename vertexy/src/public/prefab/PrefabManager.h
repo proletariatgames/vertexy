@@ -1,13 +1,13 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
-#include "topology/GraphRelations.h"
-#include "topology/GridTopology.h"
-#include "topology/IPlanarTopology.h"
+#include "topology/TopologyVertexData.h"
+#include <EASTL/hash_map.h>
 
 namespace Vertexy
 {
 	class Prefab;
 	class Tile;
+	class PlanarGridTopology;
 
 	class PrefabManager : public enable_shared_from_this<PrefabManager>
 	{

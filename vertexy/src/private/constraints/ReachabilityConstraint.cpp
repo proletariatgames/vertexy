@@ -1,8 +1,9 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/ReachabilityConstraint.h"
-
+#include "constraints/ConstraintFactoryParams.h"
 #include "variable/IVariableDatabase.h"
 #include "topology/GraphRelations.h"
+#include <EASTL/hash_set.h>
 
 using namespace Vertexy;
 

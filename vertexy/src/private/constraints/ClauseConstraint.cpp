@@ -1,6 +1,7 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/ClauseConstraint.h"
-
+#include "constraints/ConstraintFactoryParams.h"
+#include "constraints/ConstraintGraphRelationInfo.h"
 #include "variable/IVariableDatabase.h"
 #include "variable/SolverVariableDatabase.h"
 
@@ -386,6 +387,12 @@ vector<Literal> ClauseConstraint::getLiteralsCopy() const
 		outLiterals.push_back(m_literals[i]);
 	}
 	return outLiterals;
+}
+
+bool ClauseConstraint::isPromotableToGraph() const
+{
+	return m_graphRelationInfo != nullptr && m_graphRelationInfo->getGraph() != nullptr &&
+		m_extendedInfo != nullptr && !m_extendedInfo->isPromoted && !isPromotedFromGraph();
 }
 
 bool ClauseConstraint::checkConflicting(IVariableDatabase* db) const

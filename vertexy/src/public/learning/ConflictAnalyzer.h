@@ -4,6 +4,7 @@
 #include "ConstraintTypes.h"
 #include "constraints/IConstraint.h"
 #include "constraints/ClauseConstraint.h"
+#include "topology/IGraphRelation.h"
 #include <EASTL/variant.h>
 
 namespace Vertexy

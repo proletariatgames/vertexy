@@ -1,6 +1,7 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 
 #include "constraints/InequalityConstraint.h"
+#include "constraints/ConstraintFactoryParams.h"
 #include "variable/IVariableDatabase.h"
 #include "variable/SolverVariableDatabase.h"
 

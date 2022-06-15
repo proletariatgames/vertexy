@@ -3,9 +3,12 @@
 #pragma once
 
 #include <EASTL/hash_map.h>
+#include <EASTL/hash_set.h>
+
 #include <random> // no EASTL implementation available
 
 #include "ConstraintSolverStats.h"
+#include "ConstraintSolverResult.h"
 
 #include "ConstraintTypes.h"
 #include "SignedClause.h"
@@ -28,7 +31,7 @@
 #include <EASTL/deque.h>
 #include <EASTL/bonus/lru_cache.h>
 
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
 
 namespace Vertexy
 {
@@ -37,17 +40,7 @@ class IRestartPolicy;
 class ProgramInstance;
 class RuleDatabase;
 
-enum class EConstraintSolverResult : uint8_t
-{
-	// We have not yet started solving anything.
-	Uninitialized,
-	// We have not yet finished solving for all variables in the system.
-	Unsolved,
-	// We have arrived at a full solution for the system, with all variables having a value.
-	Solved,
-	// We have fully searched the search tree without finding a solution, i.e. no solution exists.
-	Unsatisfiable
-};
+template<typename T> class TTopologyVertexData;
 
 struct SolvedVariableRecord
 {
@@ -272,31 +265,10 @@ class ConstraintSolver : public IVariableDomainProvider
 
 	// Create a graph of variables for the associated topology
 	// Returned reference can be upcast to shared_ptr<ITopologyInstance<FVarID>>
-	shared_ptr<TTopologyVertexData<VarID>> makeVariableGraph(const wstring& dataName, const shared_ptr<ITopology>& topology, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
-	{
-		auto output = make_shared<TTopologyVertexData<VarID>>(topology, VarID::INVALID, dataName);
-		fillVariableGraph(output, variableDomain, namePrefix);
-		return output;
-	}
+	shared_ptr<TTopologyVertexData<VarID>> makeVariableGraph(const wstring& dataName, const shared_ptr<ITopology>& topology, const SolverVariableDomain& variableDomain, const wstring& namePrefix);
 
 	// Fill in an already-instantiated graph with variables
-	void fillVariableGraph(const shared_ptr<TTopologyVertexData<VarID>>& data, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
-	{
-		shared_ptr<ITopology> graph = data->getSource();
-		for (int i = 0; i < graph->getNumVertices(); ++i)
-		{
-			wstring varName = namePrefix + graph->vertexIndexToString(i);
-			VarID varID = makeVariable(varName, variableDomain);
-			data->set(i, varID);
-
-			m_variableToGraphs[varID.raw()].push_back(m_graphs.size());
-		}
-
-		if (!contains(m_graphs.begin(), m_graphs.end(), data->getSource()))
-		{
-			m_graphs.push_back(data->getSource());
-		}
-	}
+	void fillVariableGraph(const shared_ptr<TTopologyVertexData<VarID>>& data, const SolverVariableDomain& variableDomain, const wstring& namePrefix);
 
 	// Initialize a variable's potential values. Can only be called before solving.
 	void setInitialValues(VarID varID, const vector<int>& potentialValues);

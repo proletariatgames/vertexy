@@ -1,6 +1,7 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "ds/HallIntervalPropagation.h"
 #include "ConstraintTypes.h"
+#include <EASTL/fixed_vector.h>
 #include <EASTL/sort.h>
 
 using namespace Vertexy;

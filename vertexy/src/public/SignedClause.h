@@ -3,6 +3,7 @@
 
 #include "ConstraintTypes.h"
 #include "variable/SolverVariableDomain.h"
+#include <EASTL/shared_ptr.h>
 
 namespace Vertexy
 {

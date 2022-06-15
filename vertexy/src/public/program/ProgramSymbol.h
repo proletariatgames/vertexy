@@ -2,6 +2,7 @@
 
 #pragma once
 #include "ProgramTypes.h"
+#include <EASTL/hash_set.h>
 
 namespace Vertexy
 {

@@ -2,7 +2,6 @@
 #pragma once
 
 // !!FIXME!! Windows dependency
-#include "stdint.h"
 #include <intrin.h>
 
 namespace Vertexy

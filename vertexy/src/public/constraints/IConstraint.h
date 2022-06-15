@@ -2,11 +2,16 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "ConstraintFactoryParams.h"
 #include "variable/IVariableWatchSink.h"
+#include <EASTL/shared_ptr.h>
+
+#include "SignedClause.h"
 
 namespace Vertexy
 {
+
+class ConstraintGraphRelationInfo;
+class ConstraintFactoryParams;
 
 class ITopology;
 
@@ -14,14 +19,7 @@ class ITopology;
 class IConstraint : public IVariableWatchSink
 {
 public:
-	IConstraint(const ConstraintFactoryParams& params)
-		: m_id(params.getNextConstraintID())
-	{
-		if (params.getGraphRelationInfo().getGraph() != nullptr)
-		{
-			m_graphRelationInfo = move(make_unique<ConstraintGraphRelationInfo>(params.getGraphRelationInfo()));
-		}
-	}
+	IConstraint(const ConstraintFactoryParams& params);
 
 	virtual IConstraint* asConstraint() override final
 	{
@@ -79,48 +77,13 @@ public:
 
 	inline int getID() const { return m_id; }
 
-	inline const shared_ptr<ITopology>& getGraph() const
-	{
-		static shared_ptr<ITopology> nullRet = nullptr;
-		return (m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid()) ? m_graphRelationInfo->getGraph() : nullRet;
-	}
+	const shared_ptr<ITopology>& getGraph() const;
 
-	inline const ConstraintGraphRelationInfo* getGraphRelationInfo() const
-	{
-		return m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid() ? m_graphRelationInfo.get() : nullptr;
-	}
+	const ConstraintGraphRelationInfo* getGraphRelationInfo() const;
 
 	// Given a series of literals, return a set of relations for those literals.
 	// Returns false if a set of relations cannot be provided for all literals.
-	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outInfo) const
-	{
-		if (m_graphRelationInfo == nullptr || m_graphRelationInfo->getGraph() == nullptr)
-		{
-			return false;
-		}
-
-		outInfo.reset(m_graphRelationInfo->getGraph(), m_graphRelationInfo->getSourceGraphVertex());
-		for (auto& lit : literals)
-		{			
-			if (GraphVariableRelationPtr varRelation;
-				m_graphRelationInfo->getVariableRelation(lit.variable, varRelation))
-			{
-				outInfo.addVariableRelation(lit.variable, varRelation);
-			}
-			else if (GraphLiteralRelationPtr litRelation;
-				m_graphRelationInfo->getLiteralRelation(lit, litRelation))
-			{
-				outInfo.addLiteralRelation(lit, litRelation);
-			}
-			else
-			{
-				outInfo.invalidate();
-				return false;
-			}
-		}
-
-		return true;
-	}
+	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outInfo) const;
 
 protected:
 	// Unique ID for this instance
