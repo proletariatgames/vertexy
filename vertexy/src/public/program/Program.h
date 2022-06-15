@@ -114,6 +114,8 @@ public:
     const ITopologyPtr& getTopology() const { return m_topology; }
 
 protected:
+    void checkRule(const RuleStatement* stmt) const;
+    
     ITopologyPtr m_topology;
     BinderMap m_binders;
     vector<URuleStatement> m_ruleStatements;

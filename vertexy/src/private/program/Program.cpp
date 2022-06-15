@@ -501,6 +501,7 @@ ProgramInstance::~ProgramInstance()
 
 void ProgramInstance::addRule(URuleStatement&& rule)
 {
+    checkRule(rule.get());
     m_ruleStatements.push_back(move(rule));
 }
 
@@ -508,4 +509,133 @@ void ProgramInstance::addBinder(FormulaUID formulaUID, unique_ptr<BindCaller>&& 
 {
     vxy_assert(m_binders.find(formulaUID) == m_binders.end());
     m_binders[formulaUID] = move(binder);
+}
+
+//
+// Checks to ensure that wildcards in a rule can be resolved.
+// If an assert fires, check earlier in the callstack to find the program line that failed.
+//
+void ProgramInstance::checkRule(const RuleStatement* stmt) const
+{
+    struct VarNode
+    {
+        ProgramWildcard wildcard;
+        vector<int> provides;
+        vector<int> boundBy;
+        bool bound = false;
+    };
+
+    struct LitNode
+    {
+        vector<int> provides;
+        vector<int> wildcards;
+        int numDeps = 0;
+        LiteralTerm* lit=nullptr;
+    };
+    
+    vector<LitNode> litNodes;
+    vector<VarNode> varNodes;
+    vector<pair<WildcardUID, vector<int>>> boundBy;
+
+    //
+    // Build dependency graph of variables found in the body.
+    // Literals that are non-negative FunctionTerms provide support; everything else relies on support.
+    //
+    hash_map<WildcardUID, size_t> seen;
+    hash_map<WildcardUID, wstring> unbound;
+    hash_set<WildcardUID> bound;
+    for (auto& bodyLit : stmt->body)
+    {
+        litNodes.emplace_back();
+        litNodes.back().lit = bodyLit.get();
+        litNodes.back().numDeps = 0;
+
+        vector<tuple<WildcardTerm*, bool/*canEstablish*/>> varTerms;
+
+        bodyLit->collectWildcards(varTerms);
+        for (auto termEntry : varTerms)
+        {
+            ProgramWildcard var = get<0>(termEntry)->wildcard;
+
+            auto found = seen.find(var.getID());
+            if (found == seen.end())
+            {
+                unbound.insert({var.getID(), var.getName()});
+                
+                found = seen.insert({var.getID(), varNodes.size()}).first;
+                varNodes.emplace_back();
+                varNodes.back().wildcard = var;
+
+                boundBy.emplace_back(var.getID(), vector<int>{});
+            }
+
+            if (get<1>(termEntry))
+            {
+                litNodes.back().provides.push_back(found->second);
+            }
+            else
+            {
+                varNodes[found->second].provides.push_back(litNodes.size()-1);
+                litNodes.back().numDeps++;
+            }
+            litNodes.back().wildcards.push_back(found->second);
+        }
+    }
+
+    vector<LitNode*> openLits;
+    for (auto& litNode : litNodes)
+    {
+        if (litNode.numDeps == 0)
+        {
+            openLits.push_back(&litNode);
+        }
+    }
+    
+    // go through each literal in dependency order.
+    while (!openLits.empty())
+    {
+        LitNode* litNode = openLits.back();
+        openLits.pop_back();
+
+        // reduce the dependency count of literals waiting on variables to be provided.
+        // if there are no more dependencies, add them to the open list.
+        for (int varIndex : litNode->provides)
+        {
+            VarNode& varNode = varNodes[varIndex];
+            if (!varNode.bound)
+            {
+                varNode.bound = true;
+                bound.insert(varNode.wildcard.getID());
+                unbound.erase(varNode.wildcard.getID());
+                
+                for (int dep : varNode.provides)
+                {
+                    vxy_assert(litNodes[dep].numDeps > 0);
+                    litNodes[dep].numDeps--;
+                    if (litNodes[dep].numDeps == 0)
+                    {
+                        openLits.push_back(&litNodes[dep]);
+                    }
+                }
+            }
+        }
+    }
+
+    for (auto& unboundEntry : unbound)
+    {
+        vxy_fail_msg("Unsafe wildcard: %s. Wildcards must appear in at least one non-negative body term.", unboundEntry.second.c_str());
+    }
+
+    // Assign all variables/vertices appearing in head symbols to their shared binders. 
+    if (stmt->head != nullptr)
+    {
+        vector<tuple<WildcardTerm*, bool>> vars;
+        stmt->head->collectWildcards(vars, false);
+
+        for (const tuple<WildcardTerm*, bool>& tuple : vars)
+        {
+            auto wildcardTerm = get<WildcardTerm*>(tuple);
+            vxy_assert_msg(bound.find(wildcardTerm->wildcard.getID()) != bound.end(), "Wildcard %s exists in head but not in body.", wildcardTerm->wildcard.getName()); 
+        }
+    }
 }
