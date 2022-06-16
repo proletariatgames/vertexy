@@ -256,7 +256,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
 	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 10 });
+	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 20 });
 	//
 	// DECLARE CONSTRAINTS
 	//
@@ -411,6 +411,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	//
 	vector<shared_ptr<TTopologyVertexData<VarID>>> stepDatas;
 	vector<shared_ptr<TTopologyVertexData<VarID>>> stepEdgeDatas;
+	vector<shared_ptr<TTopologyVertexData<VarID>>> stepDoorDatas;
 	for (int step = 0; step < NUM_KEYS + 1; ++step)
 	{
 		//
@@ -423,6 +424,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		auto selfStepTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepData);
 
 		auto stepDoorData = solver.makeVariableGraph(stepName, ITopology::adapt(grid), stepDomain, { wstring::CtorSprintf(), TEXT("StepDoor%d-"), step });
+		stepDoorDatas.push_back(stepDoorData);
 		auto selfStepDoorTile = make_shared<TVertexToDataGraphRelation<VarID>>(stepDoorData);
 		// constraint 
 		solver.makeGraphConstraint<IffConstraint>(grid,
@@ -621,6 +623,17 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 			if (printVerbose && MAZE_REFRESH_RATE > 0 && (solver.getStats().stepCount % MAZE_REFRESH_RATE) == 0)
 			{
 				print(stepDatas[0], stepEdgeDatas[0], solver);
+				VERTEXY_LOG("step door data");
+				print(stepDoorDatas[1], stepEdgeDatas[1], solver);
+				VERTEXY_LOG("step data");
+				print(stepDatas[1], stepEdgeDatas[1], solver);
+				VERTEXY_LOG("start edge data");
+				for (int i = 0; i < (numRows * numCols) - 1; i++)
+				{
+					auto edge = stepEdgeDatas[1]->get(i);
+					VERTEXY_LOG("  %s --> %s", solver.getVariableName(edge).c_str(), solver.getVariableDB()->getPotentialValues(edge).toString().c_str());
+				}
+				VERTEXY_LOG("end edge data");
 			}
 		}
 

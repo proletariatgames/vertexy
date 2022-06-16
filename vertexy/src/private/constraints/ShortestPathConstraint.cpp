@@ -67,7 +67,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 	, m_distance(distance)
 {
 	vxy_assert(m_op != EConstraintOperator::NotEqual); //NotEqual not supported
-	if (m_op == EConstraintOperator::LessThan || m_op == EConstraintOperator::LessThanEq)
+	if (m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq)
 	{
 		this->m_explanationMinGraph = make_shared<BacktrackingDigraphTopology>();
 	}
@@ -75,10 +75,7 @@ ShortestPathConstraint::ShortestPathConstraint(
 
 void ShortestPathConstraint::onInitialArcConsistency(IVariableDatabase* db)
 {
-	if (this->m_op == EConstraintOperator::LessThan || this->m_op == EConstraintOperator::LessThanEq)
-	{
-		m_lastValidTimestamp.clear();
-	}
+	m_lastValidTimestamp.clear();
 }
 
 bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int dist) const
@@ -110,10 +107,12 @@ bool ShortestPathConstraint::isPossiblyValid(const IVariableDatabase* db, const 
 			if (!isValidDistance(db, src.minReachability->getDistance(vertex)))
 			{
 				// the shortest path is too short, so our vertex is definitely unreachable (ie it cannot be a target)
+				removeTimestampToCommit(db, src.vertex, vertex);
 				return false;
 			}
 			else
 			{
+				addTimestampToCommit(db, src.vertex, vertex);
 				return true;
 			}
 		}
@@ -156,9 +155,11 @@ ITopologySearchConstraint::EValidityDetermination ShortestPathConstraint::determ
 			if (!isValidDistance(db, src.minReachability->getDistance(vertex)))
 			{
 				// the shortest path is too short, so our vertex is definitely unreachable (ie it cannot be a target)
+				removeTimestampToCommit(db, src.vertex, vertex);
 				return EValidityDetermination::DefinitelyInvalid;
 			}
 
+			addTimestampToCommit(db, src.vertex, vertex);
 			if (definitelyIsSource(db, srcVertex))
 			{
 				return EValidityDetermination::DefinitelyValid;
@@ -247,7 +248,7 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 	ValueSet visited;
 	visited.init(m_initialPotentialSources.size(), false);
 
-	bool isGreaterOp = m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq;
+	const bool isGreaterOp = m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq;
 	{
 		bool hasAnyTimestamp = false;
 		auto foundLastTimestamp = m_lastValidTimestamp.find(conflictVertex);
@@ -267,25 +268,31 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 		{
 			// there was never a point where this vertex was valid
 			// the best explanation is that this edge is too far away / too close from any sources
-			//for (int potentialSrcIndex = 0; potentialSrcIndex < m_initialPotentialSources.size(); ++potentialSrcIndex)
-			//{
-			//	VarID potentialSource = m_initialPotentialSources[potentialSrcIndex];
-			//	if (!db->getPotentialValues(potentialSource).anyPossible(m_sourceMask))
-			//	{
-			//		lits.push_back(Literal(potentialSource, m_sourceMask));
-			//	}
-			//	else
-			//	{
-			//		lits.push_back(Literal(potentialSource, m_sourceMask.inverted()));
-			//	}
-			//}
-			//vxy_assert(false); //check if that's happening
+			for (int potentialSrcIndex = 0; potentialSrcIndex < m_initialPotentialSources.size(); ++potentialSrcIndex)
+			{
+				VarID potentialSource = m_initialPotentialSources[potentialSrcIndex];
+				int sourceVertex = m_variableToSourceVertexIndex.find(potentialSource)->second;
+				if (sourceVertex == conflictVertex)
+				{
+					continue;
+				}
+
+				if (!db->getPotentialValues(potentialSource).anyPossible(m_sourceMask))
+				{
+					// best explanation is that any source that isn't a source currently would make it reachable
+					lits.push_back(Literal(potentialSource, m_sourceMask));
+				}
+			}
 			return lits;
 		}
 	}
 
 	bool foundAny = false;
 	bool hasUnprocessedSources = false;
+	if (isGreaterOp)
+	{
+		m_explanationMinGraph->rewindUntil(params.timestamp);
+	}
 	// For each source that could possibly exist...
 	for (int potentialSrcIndex = 0; potentialSrcIndex < m_initialPotentialSources.size(); ++potentialSrcIndex)
 	{
@@ -300,16 +307,6 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 
 		// check if it's reachable
 		auto reachabilitySource = m_reachabilitySources.find(potentialSource);
-		//if (reachabilitySource != m_reachabilitySources.end())
-		//{
-		//	if (!reachabilitySource->second.maxReachability->isReachable(conflictVertex))
-		//	{
-		//		// it's not reachable, let's let the reachability explainer kick in
-		//		hasUnprocessedSources = true;
-		//		continue;
-		//	}
-		//}
-
 		SolverTimestamp valueToRewind = -1;
 		{
 			auto& lastValid = m_lastValidTimestamp[conflictVertex].find(sourceVertex);
@@ -322,29 +319,43 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 			}
 			valueToRewind = lastValid->second.getTimestamp();
 		}
-		auto& graph = isGreaterOp ? m_explanationMinGraph : m_explanationMaxGraph;
 
 		if (db->getPotentialValues(potentialSource).anyPossible(m_sourceMask) || reachabilitySource != m_reachabilitySources.end())
 		{
 			vector<int> path;
-			//if (getShortestPathForExplanation(valueToRewind, rewindMinGraph, sourceVertex, conflictVertex, path))
-			graph->rewindUntil(valueToRewind);
-			auto found = m_shortestPathAlgo.find<BacktrackingDigraphTopology>(*graph, sourceVertex, conflictVertex, path);
-			vxy_assert(found);
-			graph->fastForward();
-			//if ()
+			// so this is a bit confusing, bear with me:
+			auto timestampToCheck = isGreaterOp ? valueToRewind : params.timestamp;
+			if (isGreaterOp)
 			{
+				// if this is a greater than op, the only possibility for it to be invalid is if the min graph has a path that is lower
+				// than our constraint. In that case, we want to find the path that is too short currently (on the timestamp of the triggered
+				// explanation), and compare each edge against the last valid version of it
+				// any edge that was blocked but now is not will get into the explanation
+				if (!m_shortestPathAlgo.find<BacktrackingDigraphTopology>(*m_explanationMinGraph, sourceVertex, conflictVertex, path))
+				{
+					// it's actually unreachable right now, so let's let the reachability explainer kick in (by not setting visited = true)
+					hasUnprocessedSources = true;
+					continue;
+				}
+			}
+			else 
+			{
+				// in case this is a less than op, the only possibility for it to be invalid is if the max graph has a path that is too long
+				// so, in that case, what we want to do is rewind our explanation max graph to the last time it was valid, and get the shortest
+				// path at that point. Then, we can compare each edge against the timestamp of the conflict, and set to open any edge that
+				// is now blocked
+				m_explanationMaxGraph->rewindUntil(valueToRewind);
+				auto found = m_shortestPathAlgo.find<BacktrackingDigraphTopology>(*m_explanationMaxGraph, sourceVertex, conflictVertex, path);
+				vxy_assert(found);
+				// TODO optimize: we can sort the values to rewind in such a way that we can do many partial rewinds instead of rewinding,
+				// and then fast forwarding every time
+				m_explanationMaxGraph->fastForward();
 				vxy_assert(isValidDistance(db, path.size() - 1));
 			}
+
 			foundAny = true;
 			visited[potentialSrcIndex] = true;
-			// optimization - if the vertices are siblings, and greater than is used, we can safely say that
-			// this target is only reachable if this source is not a source
-			//if (isGreaterThan && path.size() == 2)
-			//{
-			//	lits.push_back(Literal(potentialSource, m_sourceMask.inverted().excluding(db->getPotentialValues(potentialSource))));
-			//	continue;
-			//}
+
 			auto& targetMask = isGreaterOp ? m_edgeBlockedMask : m_edgeOpenMask;
 			bool changedEdge = false;
 			for (int i = 0; i < (path.size() - 1); ++i)
@@ -354,9 +365,8 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 				auto edgeVar = m_edgeGraphData->get(edge);
 				if (edgeVarsRecorded.find(edgeVar) == edgeVarsRecorded.end())
 				{
-					if (!db->getValueBefore(edgeVar, params.timestamp).anyPossible(targetMask))
+					if (!db->getValueBefore(edgeVar, timestampToCheck).anyPossible(targetMask))
 					{
-						//VERTEXY_LOG("  %s --> %s", db->getSolver()->getVariableName(edgeVar).c_str(), targetMask.toString().c_str());
 						edgeVarsRecorded.insert(edgeVar);
 						lits.push_back(Literal(edgeVar, targetMask));
 						changedEdge = true;
@@ -371,14 +381,19 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 		}
 		else
 		{
-			// Not currently a potential source. For now, the conservative explanation is that we'd be able to reach if it
-			// was.
+			// Not currently a potential source. It's safe to assume that it would be valid in case that was a potention source
+			// because we are only at this point if valueToRewind was set (so there was a moment in time where this source was a valid
+			// source for the target)
 			lits.push_back(Literal(potentialSource, m_sourceMask));
 			visited[potentialSrcIndex] = true;
 			foundAny = true;
 		}
 	}
 	vxy_assert(foundAny);
+	if (isGreaterOp)
+	{
+		m_explanationMinGraph->fastForward();
+	}
 
 	if (hasUnprocessedSources)
 	{
@@ -395,12 +410,6 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 			}
 		}
 	}
-
-	//VERTEXY_LOG("BEGIN explainInvalid");
-	//for (int i = 0; i < lits.size(); i++)
-	//{
-	//	VERTEXY_LOG("  %s --> %s", db->getSolver()->getVariableName(lits[i].variable).c_str(), lits[i].values.toString().c_str());
-	//}
 
 	return lits;
 }
@@ -434,7 +443,29 @@ void ShortestPathConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, b
 	m_queuedVertexChanges.insert(vertexIndex);
 	auto reachability = determineValidity(m_edgeChangeDb, vertexIndex);
 
-	// See if this vertex is definitely reachable by any source now
+	// TODO understand why uncommenting both of these make everything run much, much slower
+	//if (reachability == EValidityDetermination::DefinitelyValid)
+	//{
+	//	// vertexIndex became unreachable in the max graph
+	//	VarID var = m_sourceGraphData->get(vertexIndex);
+
+	//	if (var.isValid() && m_edgeChangeDb->getPotentialValues(var).anyPossible(m_requireValidMask))
+	//	{
+	//		auto ret = m_edgeChangeDb->constrainToValues(var, m_requireValidMask, this);
+	//		vxy_assert(ret);
+	//	}
+	//}
+	//else if (reachability == EValidityDetermination::PossiblyValid)
+	//{
+	//	// vertexIndex became unreachable in the max graph
+	//	VarID var = m_sourceGraphData->get(vertexIndex);
+
+	//	m_edgeChangeDb->
+	//	if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask.inverted(), this))
+	//	{
+	//		m_edgeChangeFailure = true;
+	//	}
+	//}
 	if (reachability == EValidityDetermination::DefinitelyUnreachable)
 	{
 		// vertexIndex became unreachable in the max graph
@@ -464,32 +495,15 @@ void ShortestPathConstraint::backtrack(const IVariableDatabase* db, SolverDecisi
 {
 	auto stamp = db->getTimestamp();
 	ITopologySearchConstraint::backtrack(db, level);
-	if (this->m_op == EConstraintOperator::LessThan || this->m_op == EConstraintOperator::LessThanEq)
+
+	// TODO optimize: make a better data structure so we don't need to touch all vertices just to backtrack the ones that can be backtracked
+	for (auto& vertexData : m_lastValidTimestamp)
 	{
-		for (auto& vertexData : m_lastValidTimestamp)
+		for (auto& srcData : vertexData.second)
 		{
-			for (auto& srcData : vertexData.second)
-			{
-				srcData.second.backtrackUntil(stamp);
-			}
+			srcData.second.backtrackUntil(stamp);
 		}
 	}
-
-	//for (auto& it = m_cachedKeysToTimestamp.rbegin(); it != m_cachedKeysToTimestamp.rend(); it++)
-	//{
-	//	if (it->first <= stamp)
-	//	{
-	//		for (auto& sourceAndDest : it->second)
-	//		{
-	//			m_cachedShortestPaths.erase(sourceAndDest);
-	//		}
-	//		it = m_cachedKeysToTimestamp.erase(it);
-	//		if (it == m_cachedKeysToTimestamp.rend())
-	//		{
-	//			break;
-	//		}
-	//	}
-	//}
 }
 
 void ShortestPathConstraint::commitValidTimestamps(const IVariableDatabase* db)
@@ -509,7 +523,6 @@ void ShortestPathConstraint::commitValidTimestamps(const IVariableDatabase* db)
 		}
 		for (auto& value : toCommitDest.second)
 		{
-			// TODO cleanup
 			if (validTimestamp->find(value.first) == validTimestamp->end())
 			{
 				TBacktrackableValue<SolverTimestamp> val;
@@ -570,35 +583,11 @@ void ShortestPathConstraint::removeTimestampToCommit(const IVariableDatabase* db
 void Vertexy::ShortestPathConstraint::processQueuedVertexChanges(IVariableDatabase* db)
 {
 	m_validTimestampsToCommit.clear();
+	vxy_assert(m_processingVertices == false);
 	for (auto vertexIndex : m_queuedVertexChanges)
 	{
-		auto reachability = determineValidity(db, vertexIndex);
-
-		// See if this vertex is definitely reachable by any source now
-		if (reachability == EValidityDetermination::DefinitelyUnreachable)
-		{
-			// vertexIndex became unreachable in the max graph
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			//sanityCheckUnreachable(db, vertexIndex);
-
-			if (var.isValid() && !db->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
-			{
-				m_edgeChangeFailure = true;
-				break;
-			}
-		}
-		else if (reachability == EValidityDetermination::DefinitelyInvalid)
-		{
-			// vertexIndex became unreachable in the max graph
-			VarID var = m_sourceGraphData->get(vertexIndex);
-			//sanityCheckUnreachable(db, vertexIndex);
-
-			if (var.isValid() && !db->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
-			{
-				m_edgeChangeFailure = true;
-				break;
-			}
-		}
+		// we need to run determineValidity again for all these vertices so we can update our valid timestamps
+		determineValidity(db, vertexIndex);
 	}
 	m_queuedVertexChanges.clear();
 }
