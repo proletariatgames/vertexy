@@ -158,6 +158,76 @@ int PrefabTestSolver::solveJson(int times, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
+int PrefabTestSolver::solveNeighbor(int times, int seed, bool printVerbose)
+{
+	int nErrorCount = 0;
+
+	//
+	// Each tile of the map takes is one of these values:
+	//
+	constexpr int BLANK_IDX = 0;
+	constexpr int WALL_IDX = 1;
+
+	int numRows = 3;
+	int numCols = 4;
+
+	for (int time = 0; time < times; ++time)
+	{
+		ConstraintSolver solver(TEXT("PrefabTest-Neighbor"), seed);
+
+		// Create the topology for the grid
+		shared_ptr<PlanarGridTopology> grid = make_shared<PlanarGridTopology>(numCols, numRows);
+
+		// Create the PrefabManager
+		shared_ptr<PrefabManager> prefabManager = PrefabManager::create(&solver, grid);
+
+		// Generate test prefabs
+		prefabManager->createPrefabFromJson(TEXT("../../prefabs/test3.json"));
+		prefabManager->createPrefabFromJson(TEXT("../../prefabs/test4.json"));
+
+		// The domains for the various types of variables
+		SolverVariableDomain tileDomain(0, 1);
+
+		// Create a variable for each tile in the grid
+		auto tileData = solver.makeVariableGraph(TEXT("TileVars"), ITopology::adapt(grid), tileDomain, TEXT("Tile"));
+
+		// Generate the prefab constraints
+		prefabManager->generatePrefabConstraints(tileData);
+
+		// Set some initial values
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[5], prefabManager->getPrefabIdsByName(TEXT("test3")));
+
+		shared_ptr<SolverDecisionLog> outputLog;
+		if constexpr (WRITE_BREADCRUMB_LOG)
+		{
+			outputLog = make_shared<SolverDecisionLog>();
+		}
+
+		if (outputLog != nullptr)
+		{
+			solver.setOutputLog(outputLog);
+		}
+
+		solver.solve();
+		solver.dumpStats(printVerbose);
+
+		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
+		if (printVerbose)
+		{
+			print(&solver, grid, tileData, prefabManager);
+		}
+
+		if (outputLog != nullptr)
+		{
+			outputLog->write(TEXT("PrefabTest-Neighbor-Output.txt"));
+		}
+
+		nErrorCount += checkNeighbor(&solver, tileData, prefabManager);
+	}
+
+	return nErrorCount;
+}
+
 int PrefabTestSolver::solveRotationReflection(int times, int seed, bool printVerbose /*= true*/)
 {
 	int nErrorCount = 0;
@@ -300,4 +370,32 @@ int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertex
 	}
 
 	return nErrorCount;
+}
+
+// Pass in a row, column, or square to ensure every valid value is represented exactly once
+int PrefabTestSolver::checkNeighbor(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
+{
+	bool hasNeighbor = false;
+
+	// Iterate over the graph
+	for (int x = 0; x < tileData->getData().size(); x++)
+	{
+		// If this isn't part of prefab 1, we don't care about it. Skip it.
+		int solvedPrefab = solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x]);
+		if (solvedPrefab != 1)
+		{
+			continue;
+		}
+		auto prefab = prefabManager->getPrefabs()[solvedPrefab - 1];
+
+		// Whenever we encounter our target prefab, check the right neighbor
+		int neighborPrefab = solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x+1]);
+		if (neighborPrefab == 2)
+		{
+			hasNeighbor = true;
+		}
+		
+	}
+
+	return !hasNeighbor;
 }

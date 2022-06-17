@@ -500,6 +500,16 @@ public:
 		}
 		return out;
 	}
+
+	static GraphCulledVector allOptional(vector<T> vec)
+	{
+		GraphCulledVector out;
+		for (auto i = vec.begin(); i != vec.end(); ++i)
+		{
+			out.push_back(make_pair(*i, false));
+		}
+		return out;
+	}
 	
 	GraphCulledVector& operator=(const GraphCulledVector& rhs)
 	{

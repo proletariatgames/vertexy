@@ -6,9 +6,10 @@
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, const vector<vector<Tile>>& inTiles)
-	: m_tiles(inTiles)
-	, m_id(inID)
+Prefab::Prefab(int inID, const vector<vector<Tile>> inTiles, const wstring& rightNeighbor) :
+	m_id(inID),
+	m_tiles(inTiles),
+	m_rightNeighbor(rightNeighbor)
 {
 	updatePositions();
 }
@@ -88,16 +89,32 @@ void Prefab::reverse()
 void Prefab::updatePositions()
 {
 	m_positions.clear();
+	m_rightTiles.clear();
+
 	for (int x = 0; x < m_tiles.size(); x++)
 	{
+		int rightTile = -1;
+
 		for (int y = 0; y < m_tiles[x].size(); y++)
 		{
 			// Skip elements that aren't in the prefab
 			if (m_tiles[x][y].id() == INVALID_TILE)
 			{
+				if (rightTile != -1)
+				{
+					m_rightTiles.push_back(rightTile);
+					rightTile = -1;
+				}
 				continue;
 			}
 			m_positions.push_back(Position{ x,y });
+			rightTile = m_positions.size() - 1;
 		}
+
+		if (rightTile != -1)
+		{
+			m_rightTiles.push_back(rightTile);
+		}
+		
 	}
 }

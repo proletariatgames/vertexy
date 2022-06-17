@@ -1,0 +1,13 @@
+{
+    "name":"test3",
+    "tiles":
+    [
+        [1, 1],
+        [-1, 1],
+        [1, -1]
+    ],
+    "neighbors":
+    {
+        "right":"test4"
+    }
+}

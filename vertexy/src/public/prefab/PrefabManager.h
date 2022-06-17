@@ -19,7 +19,7 @@ namespace Vertexy
 		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
-		void createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name = TEXT(""), bool allowRotation = false, bool allowReflection = false);
+		void createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name = TEXT(""), bool allowRotation = false, bool allowReflection = false, const wstring& rightNeighbor = TEXT(""));
 
 		// Creates a prefab from a json file identified by fileName
 		void createPrefabFromJson(const wstring& fileName);
