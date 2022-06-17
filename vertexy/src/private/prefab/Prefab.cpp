@@ -104,3 +104,41 @@ void Prefab::updatePositions()
 		}
 	}
 }
+
+bool Prefab::isEqual(const Prefab& other)
+{
+	if (m_tiles.size() != other.tiles().size() || m_tiles[0].size() != other.tiles()[0].size())
+	{
+		return false;
+	}
+	for (int i = 0; i < m_tiles.size(); i++)
+	{
+		for (int j = 0; j < m_tiles[0].size(); j++)
+		{
+			if (m_tiles[i][j].id() != other.tiles()[i][j].id() || m_tiles[i][j].configuration() != other.tiles()[i][j].configuration())
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool Prefab::canOverlap(const Prefab& other, int dx, int dy)
+{
+	for (int y = 0; y < m_tiles.size(); y++)
+	{
+		for (int x = 0; x < m_tiles[0].size(); x++)
+		{
+			if (y - dy >= other.tiles().size() || y - dy < 0) { continue; }
+			if (x - dx >= other.tiles()[0].size() || x - dx < 0) { continue; }
+
+			if (m_tiles[y][x].id() != other.tiles()[y - dy][x - dx].id() ||
+				m_tiles[y][x].configuration() != other.tiles()[y - dy][x - dx].configuration())
+			{
+				return false;
+			}
+		}
+	}
+	return true;
+}
