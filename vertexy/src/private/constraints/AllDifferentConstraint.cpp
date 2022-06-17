@@ -1,9 +1,8 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/AllDifferentConstraint.h"
-
+#include "constraints/ConstraintFactoryParams.h"
 #include "topology/BipartiteGraph.h"
 #include "variable/IVariableDatabase.h"
-#include "topology/algo/tarjan.h"
 
 using namespace Vertexy;
 

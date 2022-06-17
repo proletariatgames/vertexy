@@ -1,17 +1,14 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "prefab/Prefab.h"
 
-#include "ConstraintSolver.h"
 #include "ConstraintTypes.h"
-#include "prefab/PrefabManager.h"
-#include "variable/SolverVariableDomain.h"
 #include "prefab/Tile.h"
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, const vector<vector<Tile>> inTiles):
-	m_id(inID),
-	m_tiles(inTiles)
+Prefab::Prefab(int inID, const vector<vector<Tile>>& inTiles)
+	: m_tiles(inTiles)
+	, m_id(inID)
 {
 	updatePositions();
 }

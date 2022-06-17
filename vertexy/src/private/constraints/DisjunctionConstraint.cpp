@@ -1,6 +1,6 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/DisjunctionConstraint.h"
-
+#include "constraints/ConstraintFactoryParams.h"
 #include "constraints/ClauseConstraint.h"
 #include "variable/CommittableVariableDatabase.h"
 #include "variable/HistoricalVariableDatabase.h"

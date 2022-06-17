@@ -58,7 +58,7 @@ public:
 	VarID getLastContradictingVariable() const { return m_lastContradictingVar; }
 
 	void onInitialArcConsistency();
-	void backtrack(SolverTimestamp timestamp);
+	void backtrack(SolverTimestamp timestamp, SolverTimestamp latestDecisionLevelTimestamp);
 
 	/** Retrieve last value this variable was assigned to (which may have been un-done due to backtracking)
 	 *  Returns false if this variable has not yet ever been solved.

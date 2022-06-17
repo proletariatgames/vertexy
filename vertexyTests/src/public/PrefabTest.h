@@ -18,6 +18,7 @@ namespace VertexyTests
 
 	public:
 		static int solveBasic(int times, int seed, bool printVerbose = true);
+		static int solveJson(int times, int seed, bool printVerbose = true);
 		static int solveRotationReflection(int times, int seed, bool printVerbose = true);
 
 		static int check(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager);

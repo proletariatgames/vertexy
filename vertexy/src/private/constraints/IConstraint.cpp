@@ -1,8 +1,18 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/IConstraint.h"
 #include "ConstraintSolver.h"
+#include "constraints/ConstraintFactoryParams.h"
 
 using namespace Vertexy;
+
+IConstraint::IConstraint(const ConstraintFactoryParams& params)
+    : m_id(params.getNextConstraintID())
+{
+    if (params.getGraphRelationInfo().getGraph() != nullptr)
+    {
+        m_graphRelationInfo = move(make_unique<ConstraintGraphRelationInfo>(params.getGraphRelationInfo()));
+    }
+}
 
 vector<Literal> IConstraint::explain(const NarrowingExplanationParams& params) const
 {
@@ -30,4 +40,45 @@ vector<Literal> IConstraint::explain(const NarrowingExplanationParams& params) c
 
     vxy_assert(foundPropagated || params.propagatedVariable == VarID::INVALID);
     return clauses;
+}
+
+const shared_ptr<ITopology>& IConstraint::getGraph() const
+{
+    static shared_ptr<ITopology> nullRet = nullptr;
+    return (m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid()) ? m_graphRelationInfo->getGraph() : nullRet;
+}
+
+const ConstraintGraphRelationInfo* IConstraint::getGraphRelationInfo() const
+{
+    return m_graphRelationInfo != nullptr && m_graphRelationInfo->isValid() ? m_graphRelationInfo.get() : nullptr;
+}
+
+bool IConstraint::getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outInfo) const
+{
+    if (m_graphRelationInfo == nullptr || m_graphRelationInfo->getGraph() == nullptr)
+    {
+        return false;
+    }
+
+    outInfo.reset(m_graphRelationInfo->getGraph(), m_graphRelationInfo->getSourceGraphVertex());
+    for (auto& lit : literals)
+    {			
+        if (GraphVariableRelationPtr varRelation;
+            m_graphRelationInfo->getVariableRelation(lit.variable, varRelation))
+        {
+            outInfo.addVariableRelation(lit.variable, varRelation);
+        }
+        else if (GraphLiteralRelationPtr litRelation;
+            m_graphRelationInfo->getLiteralRelation(lit, litRelation))
+        {
+            outInfo.addLiteralRelation(lit, litRelation);
+        }
+        else
+        {
+            outInfo.invalidate();
+            return false;
+        }
+    }
+
+    return true;
 }

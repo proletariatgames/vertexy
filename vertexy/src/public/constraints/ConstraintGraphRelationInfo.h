@@ -4,7 +4,6 @@
 
 #include "ConstraintTypes.h"
 #include "SignedClause.h"
-#include <EASTL/variant.h>
 
 namespace Vertexy
 {

@@ -8,6 +8,8 @@
 #include "IConstraint.h"
 #include "ds/SparseSet.h"
 #include "variable/SolverVariableDomain.h"
+#include <EASTL/hash_set.h>
+#include <EASTL/hash_map.h>
 
 namespace Vertexy
 {

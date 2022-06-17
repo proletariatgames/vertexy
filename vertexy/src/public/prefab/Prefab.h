@@ -1,8 +1,6 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 #include "topology/GraphRelations.h"
-#include "topology/GridTopology.h"
-#include "topology/IPlanarTopology.h"
 
 namespace Vertexy
 {
@@ -21,7 +19,7 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, const vector<vector<Tile>> inTiles);
+		Prefab(int inID, const vector<vector<Tile>>& inTiles);
 
 		// Returns the <x,y> grid position for the index-th tile in this prefab
 		const Position& getPositionForIndex(int index);

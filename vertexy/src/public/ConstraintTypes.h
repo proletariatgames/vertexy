@@ -1,19 +1,12 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 
-#include <EASTL/vector.h>
-#include <EASTL/fixed_vector.h>
-#include <EASTL/hash_set.h>
-#include <EASTL/hash_map.h>
-#include <EASTL/string.h>
-#include <EASTL/functional.h>
-#include <EASTL/unique_ptr.h>
-#include <EASTL/shared_ptr.h>
-#include <EAAssert/eaassert.h>
+#include <cstdint>
 
 #include "ds/ValueBitset.h"
 #include "util/Logging.h"
 #include "util/Asserts.h"
+#include <EASTL/vector.h>
 
 #ifndef TEXT
 #define TEXT(s) L ## s
@@ -183,16 +176,15 @@ struct Literal
 	Literal(Literal&& other) = default;
 
 	template <typename Allocator>
-	explicit Literal(VarID varID, const TValueBitset<Allocator>& values)
+	Literal(VarID varID, const TValueBitset<Allocator>& values)
 		: variable(varID)
 		, values(values)
 	{
 	}
 
-	template <typename Allocator>
-	explicit Literal(VarID varID, TValueBitset<Allocator>&& values)
+	Literal(VarID varID, ValueSet&& values)
 		: variable(varID)
-		, values(forward<TValueBitset<Allocator>>(values))
+		, values(move(values))
 	{
 	}
 
@@ -229,7 +221,7 @@ struct Literal
 };
 
 // unique ID to identify a ProgramVariable
-enum VariableUID : int32_t { };
+enum WildcardUID : int32_t { };
 
 // unique ID to identify a named Formula
 enum FormulaUID : int32_t { };
@@ -624,6 +616,12 @@ struct hash<Vertexy::Literal>
 inline wstring to_wstring(const Vertexy::Literal& lit)
 {
 	return {wstring::CtorSprintf(), TEXT("%d=%s"), lit.variable.raw(), lit.values.toString().c_str()};
+}
+
+// to_wstring for VarID
+inline wstring to_wstring(Vertexy::VarID var)
+{
+	return to_wstring(var.raw());
 }
 
 // to_wstring for vectors

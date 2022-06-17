@@ -6,11 +6,14 @@
 #include "program/ProgramTypes.h"
 #include "topology/GraphRelations.h"
 #include "topology/algo/Tarjan.h"
+#include <EASTL/hash_set.h>
 
 namespace Vertexy
 {
 
 class AbstractBodyMapper;
+
+class BindCaller;
 
 class FactGraphFilter;
 using FactGraphFilterPtr = shared_ptr<const FactGraphFilter>;
@@ -27,15 +30,10 @@ public:
         True,
         Undetermined
     };
-
-    using ALiteral = variant<Literal, GraphLiteralRelationPtr>;
+    
+    using AClause = variant<SignedClause, GraphRelationClause>;
     struct ConcreteAtomInfo;
     struct AbstractAtomInfo;
-
-    using RelationSetHasher = pointer_value_hash<AbstractAtomRelationInfo, call_hash>;
-
-    template<typename ValueType>
-    using RelationMap = hash_map<AbstractAtomRelationInfoPtr, ValueType, RelationSetHasher, pointer_value_equality>;
 
     struct ArgumentHasher
     {
@@ -50,10 +48,27 @@ public:
         }
     };
 
+    struct AtomLinkage
+    {
+        ValueSet mask;
+        BodyInfo* body;
+    };
+
+    struct HeadAtomLinkage : AtomLinkage
+    {
+        HeadAtomLinkage() {}
+        HeadAtomLinkage(const ValueSet& inMask, BodyInfo* inBody, bool inChoice)
+            : AtomLinkage{inMask, inBody}
+            , isChoice(inChoice)
+        {            
+        }
+        bool isChoice = false;
+    };
+    
     struct AtomInfo
     {
         AtomInfo() {}
-        explicit AtomInfo(AtomID id) : id(id) {}
+        explicit AtomInfo(AtomID id, int domainSize);
 
         AtomInfo(const AtomInfo&) = delete;
         AtomInfo(AtomInfo&&) = delete;
@@ -66,18 +81,18 @@ public:
         virtual const AbstractAtomInfo* asAbstract() const { return nullptr; }
         virtual const ConcreteAtomInfo* asConcrete() const { return nullptr; }
 
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) = 0;
-        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const = 0;
+        virtual AClause getClauseForAtomLiteral(const AtomLiteral& atomLit) const = 0;
+        virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const = 0;
         virtual ITopologyPtr getTopology() const = 0;
 
-        virtual bool isFullyKnown() const { return status != ETruthStatus::Undetermined; }
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const = 0;
+        virtual bool containsUnknowns(const ValueSet& values) const = 0;
         
         AbstractAtomInfo* asAbstract() { return const_cast<AbstractAtomInfo*>(const_cast<const AtomInfo*>(this)->asAbstract()); }
         ConcreteAtomInfo* asConcrete() { return const_cast<ConcreteAtomInfo*>(const_cast<const AtomInfo*>(this)->asConcrete()); }
-
-        bool isChoiceAtom() const { return status == ETruthStatus::Undetermined; }
-
+        
         AtomID id;
+        int domainSize = -1;
         // name for debugging
         wstring name;
         // Whether this is an external atom (possibly true even with no supports)
@@ -85,13 +100,15 @@ public:
         // the strongly connected component ID this belongs to
         int scc = -1;        
         // Bodies this head relies on for support
-        vector<BodyInfo*> supports;
+        vector<HeadAtomLinkage> supports;
         // Bodies referring to this atom positively
-        vector<BodyInfo*> positiveDependencies;
+        vector<AtomLinkage> positiveDependencies;
         // Bodies referring to this atom negatively
-        vector<BodyInfo*> negativeDependencies;
-        // the current truth status for this atom
-        ETruthStatus status = ETruthStatus::Undetermined;
+        vector<AtomLinkage> negativeDependencies;
+        // Mask of true facts
+        ValueSet trueFacts;
+        // Mask of false facts
+        ValueSet falseFacts;
         // whether this atom is enqueued for early propagation
         bool enqueued = false;
     };
@@ -99,20 +116,31 @@ public:
     struct ConcreteAtomInfo : public AtomInfo
     {
         ConcreteAtomInfo() {}
-        ConcreteAtomInfo(AtomID inID) : AtomInfo(inID)
+        ConcreteAtomInfo(AtomID inID, int inDomainSize)
+            : AtomInfo(inID, inDomainSize)
         {
         }
 
         virtual const ConcreteAtomInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
-        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const override { return nullptr; }        
-        virtual ITopologyPtr getTopology() const override { return nullptr; }        
-        
-        bool synchronize(RuleDatabase& rdb);
-        bool isVariable() const { return equivalence.variable.isValid(); }
+        virtual AClause getClauseForAtomLiteral(const AtomLiteral& atomLit) const override;
+        virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override { return nullptr; }        
+        virtual ITopologyPtr getTopology() const override { return nullptr; }
+        virtual bool containsUnknowns(const ValueSet& values) const override;
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const override;
 
-        // Optional equivalence to a constraint solver literal
-        Literal equivalence;
+        bool isChoiceAtom() const { return !trueFacts.isSingleton() && !falseFacts.isSingleton(); }
+        
+        bool isEstablished(const ValueSet& values) const;
+        ETruthStatus getTruthStatus(int index) const;
+        Literal getLiteralForIndex(int index) const;
+
+        void createLiteral(RuleDatabase& rdb);
+        bool synchronize(RuleDatabase& rdb);
+
+        // The variable created for this atom and the mapping from the atom's domain to the variable's domain.
+        SignedClause boundClause;
+        // The variable domain associated with the bound clause.
+        SolverVariableDomain boundDomain = SolverVariableDomain(0,0);
 
         AbstractAtomInfo* abstractParent = nullptr;
         int parentVertex = -1;
@@ -122,33 +150,46 @@ public:
     struct AbstractAtomInfo : public AtomInfo
     {
         AbstractAtomInfo() {}
-        AbstractAtomInfo(AtomID inID, const ITopologyPtr& topology)
-            : AtomInfo(inID)
-            , topology(topology)
-        {
-        }
+        AbstractAtomInfo(AtomID inID, int inDomainSize, const ITopologyPtr& topology);
 
         virtual const AbstractAtomInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, const AtomLiteral& atomLit) override;
+        virtual AClause getClauseForAtomLiteral(const AtomLiteral& atomLit) const override;
         virtual ITopologyPtr getTopology() const override { return topology; }
-        virtual FactGraphFilterPtr getFilter(const AbstractAtomRelationInfoPtr& litRelationInfo, ETruthStatus truthStatus) const override;
+        virtual FactGraphFilterPtr getFilter(const AtomLiteral& literal) const override;
+        virtual bool containsUnknowns(const ValueSet& values) const override;
+        virtual ETruthStatus getTruthStatus(const ValueSet& values) const override;
 
-        virtual bool isFullyKnown() const override;
         void lockVariableCreation();
-
+        
         // Set of relations where this atom was in the head of a rule
-        RelationMap<ETruthStatus> abstractLiterals;
+        using RelationMap = hash_map<AtomLiteral, ETruthStatus, call_hash>;        
+        RelationMap abstractLiterals;
+
+        // The set of AtomLiterals necessary to constrain the entire set of concrete atoms.
+        // This will be a subset of abstractLiterals.
+        vector<AtomLiteral> abstractLiteralsToConstrain;
+
         // The topology used for making this atom concrete
         ITopologyPtr topology;
-        
-        hash_map<vector<int>, ConcreteAtomInfo*, ArgumentHasher> concreteAtoms;
-        int numUnknownConcretes = 0;
-        bool hasTrueConcretes = false;
-        bool hasFalseConcretes = false;
+
+        struct ConcreteAtomRecord
+        {
+            ConcreteAtomInfo* atom;
+            hash_set<ValueSet> seenMasks;
+        };
+
+        // The set of concrete atoms created from this abstract atom, keyed by the concrete atom's arguments.
+        hash_map<vector<int>, ConcreteAtomRecord, ArgumentHasher> concreteAtoms;
     };
 
     struct ConcreteBodyInfo;
     struct AbstractBodyInfo;
+
+    struct HeadInfo
+    {
+        AtomLiteral lit;
+        bool isChoice;
+    };
 
     struct BodyInfo
     {
@@ -169,7 +210,7 @@ public:
         ConcreteBodyInfo* asConcrete() { return const_cast<ConcreteBodyInfo*>(const_cast<const BodyInfo*>(this)->asConcrete()); }
         AbstractBodyInfo* asAbstract() { return const_cast<AbstractBodyInfo*>(const_cast<const BodyInfo*>(this)->asAbstract()); }
 
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted) const = 0;
+        virtual AClause getClause(RuleDatabase& rdb, bool allowCreation, bool inverted) const = 0;
         virtual FactGraphFilterPtr getFilter() const = 0;
         virtual ITopologyPtr getTopology() const = 0;
         virtual bool isFullyKnown() const { return status != ETruthStatus::Undetermined; }
@@ -179,8 +220,8 @@ public:
         int32_t id;
         // The actual body literals
         vector<AtomLiteral> atomLits;
-        // heads that are true if this body is true
-        vector<AtomLiteral> heads;
+        // heads that are true if this body is true.
+        vector<HeadInfo> heads;
         // whether this body must not ever hold true
         bool isNegativeConstraint = false;
         // how many literals within the body that have not yet been assigned True status
@@ -204,15 +245,15 @@ public:
         }
 
         virtual const ConcreteBodyInfo* asConcrete() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
+        virtual AClause getClause(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return nullptr; }
         virtual FactGraphFilterPtr getFilter() const override { return nullptr; }
 
-        // the solver literal corresponding with this body
-        mutable Literal equivalence;
-        
-        AbstractBodyInfo* abstractParent = nullptr;
-        int parentVertex = -1;
+        // the variable associated with this body
+        mutable VarID equivalence;
+
+        // Maps an abstract parent of this body to the vertex it was instantiated for.
+        hash_map<AbstractBodyInfo*, int> abstractParents;
     };
 
     struct AbstractBodyInfo : public BodyInfo
@@ -225,10 +266,10 @@ public:
         }
 
         virtual const AbstractBodyInfo* asAbstract() const override { return this; }
-        virtual ALiteral getLiteral(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
+        virtual AClause getClause(RuleDatabase& rdb, bool allowCreation, bool inverted=false) const override;
         virtual ITopologyPtr getTopology() const override { return topology; }
 
-        GraphLiteralRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo);
+        GraphVariableRelationPtr makeRelationForAbstractHead(RuleDatabase& rdb, const AbstractAtomRelationInfoPtr& headRelInfo);
         bool getHeadArgumentsForVertex(int vertex, vector<int>& outArgs) const;
         virtual FactGraphFilterPtr getFilter() const override;
         virtual bool isFullyKnown() const override;
@@ -237,10 +278,8 @@ public:
 
         ITopologyPtr topology;
         mutable shared_ptr<AbstractBodyMapper> bodyMapper;
-        mutable GraphLiteralRelationPtr createRelation;
-        mutable GraphLiteralRelationPtr createInverseRelation;
-        mutable GraphLiteralRelationPtr noCreateRelation;
-        mutable GraphLiteralRelationPtr noCreateInverseRelation;
+        mutable GraphVariableRelationPtr createRelation;
+        mutable GraphVariableRelationPtr noCreateRelation;
         mutable FactGraphFilterPtr filter;
 
         struct ChildBodyHasher
@@ -265,14 +304,13 @@ public:
     RuleDatabase(const RuleDatabase&) = delete;
     RuleDatabase(RuleDatabase&&) = delete;
 
-    AtomID createAtom(const wchar_t* name=nullptr, bool external=false);
-    AtomID createBoundAtom(const Literal& equivalence, const wchar_t* name=nullptr, bool external=false);
-    AtomID createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name=nullptr, bool external=false);
-
+    AtomID createAtom(const wchar_t* name=nullptr, int domainSize=1, const SignedClause& boundClause={}, bool external=false);
+    AtomID createAbstractAtom(const ITopologyPtr& topology, const wchar_t* name=nullptr, int domainSize=1, bool external=false);
+    
     const ConstraintSolver& getSolver() const { return m_solver; }
     ConstraintSolver& getSolver() { return m_solver; }
 
-    void addRule(const AtomLiteral& head, const vector<AtomLiteral>& body, const ITopologyPtr& topology=nullptr);
+    void addRule(const AtomLiteral& head, bool isChoice, const vector<AtomLiteral>& body, const ITopologyPtr& topology=nullptr);
 
     bool finalize();
     bool isTight() const { return m_isTight; }
@@ -286,11 +324,14 @@ public:
     int getNumBodies() const { return m_bodies.size(); }
     const BodyInfo* getBody(int32_t id) const { return m_bodies[id].get(); }
 
-    bool getLiteralForBody(const AbstractBodyInfo& body, const vector<int>& headArguments, Literal& outLiteral);
+    VarID getVariableForBody(const AbstractBodyInfo& body, const vector<int>& headArguments);
 
     static bool getConcreteArgumentsForRelation(const AbstractAtomRelationInfoPtr& relationInfo, int vertex, vector<int>& outArgs);
 
 protected:
+    wstring literalToString(const AtomLiteral& lit) const;
+    wstring literalsToString(const vector<AtomLiteral>& lits, bool cullKnown=true) const;
+    
     void setConflicted();
     void lockVariableCreation();
     
@@ -303,26 +344,35 @@ protected:
         {
             return compareBodies(lhs->atomLits, rhs->atomLits);
         }
-        int32_t operator()(const BodyInfo* lhs) const
+        size_t operator()(const BodyInfo* lhs) const
         {
             return hashBody(lhs->atomLits);
         }
 
-        static bool compareBodies(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs, bool checkRelations=true);
+        bool operator()(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs) const
+        {
+            return compareBodies(lhs, rhs);
+        }
+        size_t operator()(const vector<AtomLiteral>& lhs) const
+        {
+            return hashBody(lhs);
+        }
+        
+        static bool compareBodies(const vector<AtomLiteral>& lhs, const vector<AtomLiteral>& rhs);
         static int32_t hashBody(const vector<AtomLiteral>& body);
     };
 
     class NogoodBuilder
     {
     public:
-        void clear() { m_literals.clear(); m_topologies.clear(); }
-        void reserve(int n) { m_literals.reserve(n); }
-        bool empty() const { return m_literals.empty(); }
-        void add(const ALiteral& lit, bool required, const ITopologyPtr& topology);
+        void clear() { m_clauses.clear(); m_topologies.clear(); }
+        void reserve(int n) { m_clauses.reserve(n); }
+        bool empty() const { return m_clauses.empty(); }
+        void add(const AClause& lit, bool required, const ITopologyPtr& topology);
         void emit(RuleDatabase& rdb, const IGraphRelationPtr<bool>& filter);
 
     protected:
-        vector<pair<ALiteral,bool/*required*/>> m_literals;
+        vector<pair<AClause,bool/*required*/>> m_clauses;
         vector<ITopologyPtr> m_topologies;
     };
     
@@ -338,19 +388,19 @@ protected:
         vector<vector<int32_t>> bodyMappings;
     };
 
-    static bool isConcreteLiteral(const ALiteral& lit);
+    static bool isConcreteLiteral(const AClause& lit);
     
-    bool setAtomStatus(ConcreteAtomInfo* atom, ETruthStatus status);    
+    bool setAtomLiteralStatus(AtomID atom, const ValueSet& mask, ETruthStatus status);    
     bool setBodyStatus(ConcreteBodyInfo* body, ETruthStatus status);
     
     bool propagateFacts();
-    bool isLiteralAssumed(const AtomLiteral& literal) const;
+    bool isLiteralAssumed(AtomID atomID, bool sign, const ValueSet& mask) const;
 
     bool emptyAtomQueue();
     bool emptyBodyQueue();
 
     BodyInfo* findOrCreateBodyInfo(const vector<AtomLiteral>& body, const ITopologyPtr& topology, const AbstractAtomRelationInfoPtr& headRelationInfo, bool forceAbstract);
-    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash, bool checkRelations=true) const;
+    BodyInfo* findBodyInfo(const vector<AtomLiteral>& body, const AbstractAtomRelationInfoPtr& headRelationInfo, size_t& outHash) const;
 
     template<typename T>
     void tarjanVisit(int node, T&& visitor);
@@ -358,37 +408,47 @@ protected:
 
     void makeConcrete();
     void groundBodyToConcrete(BodyInfo& oldBody, GroundingData& groundingData);
-    void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData);
-    vector<AtomLiteral> groundLiteralsToConcrete(int vertex, const vector<AtomLiteral>& oldLits, GroundingData& groundingData, bool& outSomeFailed);
-    void hookupGroundedDependencies(ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
+    void groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingData& groundingData, ConcreteBodyInfo* concreteBody, bool isChoiceAtom);
+    bool groundLiteralToConcrete(int vertex, const AtomLiteral& oldLit, GroundingData& groundingData, AtomLiteral& outLit);
+    void hookupGroundedDependencies(const vector<HeadInfo>& newHeads, ConcreteBodyInfo* newBodyInfo, GroundingData& groundingData);
 
+    void linkHeadToBody(const AtomLiteral& headLit, bool isChoice, BodyInfo* body);
+    void addAtomDependency(const AtomLiteral& bodyLit, BodyInfo* body);
+    
     // Solver that owns us
     ConstraintSolver& m_solver;
 
-    struct HashALiteral
+    struct HashAClause
     {
-        size_t operator()(const tuple<ALiteral, ITopologyPtr>& alit) const
+        static size_t hashValues(const vector<int>& values)
         {
-            return visit([](auto&& typedLit)
+            int out = 0;
+            for (int value : values)
             {
-                using Type = decay_t<decltype(typedLit)>;
-                if constexpr (is_same_v<Type, Literal>)
-                {
-                    return eastl::hash<Literal>()(typedLit);
-                }
-                else
-                {
-                    return typedLit->hash();
-                }
-            }, get<ALiteral>(alit));
+                out = combineHashes(out, value);
+            }
+            return out;
+        }
+        
+        size_t operator()(const tuple<AClause, ITopologyPtr>& aClause) const
+        {
+            if (auto signedClause = get_if<SignedClause>(&get<AClause>(aClause)))
+            {
+                return combineHashes(eastl::hash<VarID>()(signedClause->variable), hashValues(signedClause->values));
+            }
+            else
+            {
+                auto& graphClause = get<GraphRelationClause>(get<AClause>(aClause));
+                return combineHashes(graphClause.variable->hash(), hashValues(graphClause.values));
+            }            
         }
     };
 
-    struct CompareALiteral
+    struct CompareAClause
     {
-        bool operator()(const tuple<ALiteral, ITopologyPtr>& lhs, const tuple<ALiteral, ITopologyPtr>& rhs) const
+        bool operator()(const tuple<AClause, ITopologyPtr>& lhs, const tuple<AClause, ITopologyPtr>& rhs) const
         {
-            if (get<ALiteral>(lhs).index() != get<ALiteral>(rhs).index())
+            if (get<AClause>(lhs).index() != get<AClause>(rhs).index())
             {
                 return false;
             }
@@ -398,19 +458,20 @@ protected:
                 return false;
             }
 
-            auto& lhsLit = get<ALiteral>(lhs);
-            auto& rhsLit = get<ALiteral>(rhs);
+            auto& lhsLit = get<AClause>(lhs);
+            auto& rhsLit = get<AClause>(rhs);
 
             return visit([&](auto&& typedLeft)
             {
                 using Type = decay_t<decltype(typedLeft)>;
-                if constexpr (is_same_v<Type, Literal>)
+                if constexpr (is_same_v<Type, SignedClause>)
                 {
-                    return typedLeft == get<Literal>(rhsLit);
+                    return typedLeft == get<SignedClause>(rhsLit);
                 }
                 else
                 {
-                    return typedLeft->equals(*get<GraphLiteralRelationPtr>(rhsLit));
+                    return typedLeft.variable->equals(*get<GraphRelationClause>(rhsLit).variable) &&
+                        typedLeft.values == get<GraphRelationClause>(rhsLit).values;
                 }
             }, lhsLit);
         }
@@ -422,6 +483,7 @@ protected:
     // Stored bodies.
     BodySet m_bodySet;
     vector<unique_ptr<BodyInfo>> m_bodies;
+    hash_map<vector<AtomLiteral>, VarID, BodyHasher, BodyHasher> m_bodyVariables;
 
     // Whether any abstract heads or bodies exist.
     bool m_hasAbstract = false;
@@ -441,8 +503,8 @@ class AbstractBodyMapper
 {
 public:
     AbstractBodyMapper(RuleDatabase& rdb, const RuleDatabase::AbstractBodyInfo* bodyInfo, const AbstractAtomRelationInfoPtr& headRelationInfo=nullptr);
-    bool getForHead(const vector<int>& concreteHeadArgs, Literal& outLiteral);
-    bool getForVertex(ITopology::VertexID vertex, bool allowCreation, Literal& outLit);
+    bool getForHead(const vector<int>& concreteHeadArgs, VarID& outVar);
+    bool getForVertex(ITopology::VertexID vertex, bool allowCreation, VarID& outVar);
     const RuleDatabase::AbstractBodyInfo* getBodyInfo() const { return m_bodyInfo; }
 
     // Called when the RDB is destroyed, which happens before solving.
@@ -452,19 +514,19 @@ protected:
     RuleDatabase* m_rdb;
     AbstractAtomRelationInfoPtr m_headRelationInfo;
     const RuleDatabase::AbstractBodyInfo* m_bodyInfo;
-    mutable hash_map<vector<int>, Literal, RuleDatabase::ArgumentHasher> m_bindMap;
+    mutable hash_map<vector<int>, VarID, RuleDatabase::ArgumentHasher> m_bindMap;
     mutable vector<int> m_concrete;
 };
 
 // Given a specific head relation, maps to the corresponding body literal
-class BoundBodyInstantiatorRelation : public IGraphRelation<Literal>
+class BoundBodyInstantiatorRelation : public IGraphRelation<VarID>
 {
 public:
-    BoundBodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations);
+    BoundBodyInstantiatorRelation(const wstring& name, const shared_ptr<AbstractBodyMapper>& mapper, const vector<GraphVertexRelationPtr>& headRelations);
 
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual bool getRelation(VertexID sourceVertex, VarID& out) const override;
     virtual size_t hash() const override;
-    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual bool equals(const IGraphRelation<VarID>& rhs) const override;
     virtual wstring toString() const override;
 
 protected:    
@@ -475,14 +537,14 @@ protected:
 };
 
 // Maps a vertex to a body literal
-class BodyInstantiatorRelation : public IGraphRelation<Literal>
+class BodyInstantiatorRelation : public IGraphRelation<VarID>
 {
 public:
     BodyInstantiatorRelation(const shared_ptr<AbstractBodyMapper>& mapper, bool allowCreation);
 
-    virtual bool getRelation(VertexID sourceVertex, Literal& out) const override;
+    virtual bool getRelation(VertexID sourceVertex, VarID& out) const override;
     virtual size_t hash() const override;
-    virtual bool equals(const IGraphRelation<Literal>& rhs) const override;
+    virtual bool equals(const IGraphRelation<VarID>& rhs) const override;
     virtual wstring toString() const override { return TEXT("BodyInstantiator"); }
 
 protected:
@@ -496,8 +558,7 @@ class FactGraphFilter : public IGraphRelation<bool>
     FactGraphFilter() {}
     
 public:
-    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo, RuleDatabase::ETruthStatus excludeStatus);
-    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const AbstractAtomRelationInfoPtr& relationInfo);
+    FactGraphFilter(const RuleDatabase::AbstractAtomInfo* atomInfo, const ValueSet& mask, const AbstractAtomRelationInfoPtr& relationInfo);
     FactGraphFilter(const RuleDatabase::AbstractBodyInfo* bodyInfo);
 
     virtual bool getRelation(VertexID sourceVertex, bool& out) const override;

@@ -3,12 +3,14 @@
 
 using namespace Vertexy;
 
-FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, const ITopologyPtr& topology)
+FunctionInstantiator::FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, bool canBeAbstract, const ITopologyPtr& topology)
     : m_term(term)
     , m_domain(domain)
+    , m_canBeAbstract(canBeAbstract)
     , m_topology(topology)
 {
     vxy_assert(m_term.provider == nullptr);
+    m_numDomainAtoms = m_domain.list.size();
 }
 
 void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
@@ -16,7 +18,8 @@ void FunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol
     m_hitEnd = false;
     m_index = 0;
     m_subIndex = 0;
-    m_forceConcrete = !m_term.containsAbstracts();
+    m_forceConcrete = !m_canBeAbstract || m_term.domainContainsAbstracts() || !m_term.containsAbstracts();
+    m_visited.clear();
     match(overrideMap, boundVertex);
 }
 
@@ -30,8 +33,9 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 
     if (m_term.negated)
     {
-        // all variables should be fully bound at this point, because positive literals are always earlier in
+        // all wildcards should be fully bound at this point, because positive literals are always earlier in
         // the dependency list. Therefore, we can eval safely.
+        m_term.boundMask = m_term.getDomain(overrideMap, boundVertex);
         ProgramSymbol matched = m_term.eval(overrideMap, boundVertex);
         if (matched.isInvalid())
         {
@@ -40,56 +44,72 @@ void FunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
         }
 
         vxy_assert(matched.getFormula()->uid == m_term.functionUID);
-        auto found = m_domain.map.find(matched.negatedFormula());
-        bool hasFact = found != m_domain.map.end() && m_domain.list[found->second].isFact;
-
-        // if this has definitely been established as true, we can't match.
-        if (hasFact)
+        auto found = m_domain.map.find(matched.negatedFormula().unmasked());
+        if (found != m_domain.map.end())
         {
-            m_hitEnd = true;
+            auto& facts = m_domain.list[found->second].facts;
+            if (matched.getFormula()->mask.isSubsetOf(facts))
+            {
+                m_hitEnd = true;
+            }
         }
-
-        m_term.assignedToFact = hasFact;
+        
+        m_term.assignedToFact = false;
     }
     else
     {
-        for (; m_index < m_domain.list.size(); moveNextDomainAtom())
+        auto isFact = [&](const CompilerAtom& assignedAtom)
+        {
+            return !assignedAtom.facts.isZero() &&
+                   assignedAtom.facts.isSubsetOf(m_term.boundMask) &&
+                   !m_term.eval(overrideMap, boundVertex).containsAbstract();
+        };
+        
+        for (; m_index < m_numDomainAtoms; moveNextDomainAtom())
         {
             const CompilerAtom& atom = m_domain.list[m_index];
-            if (atom.symbol.isNegated() && atom.isFact)
-            {
-                continue;
-            }
+            vxy_assert(!atom.symbol.isNegated());
 
-            if (m_forceConcrete && atom.symbol.containsAbstract())
+            if (m_forceConcrete && !boundVertex.isInteger() &&
+                (atom.symbol.containsAbstract() || m_term.domainContainsAbstracts()))
             {
-                // This term contains no abstracts, so we need to ground the abstract domain atom
                 for (; m_subIndex < m_topology->getNumVertices(); ++m_subIndex)
                 {
-                    ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(m_subIndex);
+                    int vertex = m_subIndex;
+                    if (boundVertex.isAbstract() && !boundVertex.getAbstractRelation()->getRelation(m_subIndex, vertex))
+                    {
+                        continue;
+                    }
+                    
+                    ProgramSymbol concreteSymbol = atom.symbol.makeConcrete(vertex);
                     if (!concreteSymbol.isValid())
                     {
                         continue;
                     }
-        
-                    bool isFact = atom.isFact;
-                    if (m_term.match(concreteSymbol, overrideMap, boundVertex))
+
+                    auto prevBoundVertex = boundVertex;
+                    boundVertex = ProgramSymbol(vertex); 
+                    if (matches(concreteSymbol, overrideMap, boundVertex))
                     {
+                        m_term.assignedToFact = isFact(atom);
                         ++m_subIndex;
                         return;
                     }
+                    boundVertex = prevBoundVertex;
                 }
             
                 continue;
             }
 
-            bool isFact = atom.isFact;
-            if (m_term.match(atom.symbol, overrideMap, boundVertex))
+            auto prevBoundVertex = boundVertex;
+            if (matches(atom.symbol, overrideMap, boundVertex))
             {
-                m_term.assignedToFact = isFact && !m_term.eval(overrideMap, boundVertex).containsAbstract();
+                m_visited.insert(atom.symbol);
+                m_term.assignedToFact = isFact(atom);
                 moveNextDomainAtom();
                 return;
             }
+            boundVertex = prevBoundVertex;
         }
         m_hitEnd = true;
     }
@@ -99,6 +119,24 @@ void FunctionInstantiator::moveNextDomainAtom()
 {
     ++m_index;
     m_subIndex = 0;
+}
+
+bool FunctionInstantiator::matches(const ProgramSymbol& symbol, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    AbstractOverrideMap newOverrideMap = overrideMap;
+    if (!m_term.match(symbol, newOverrideMap, boundVertex))
+    {
+        return false;
+    }
+
+    auto applied = m_term.eval(newOverrideMap, boundVertex);
+    if (m_visited.find(applied) == m_visited.end())
+    {
+        m_visited.insert(applied);
+        overrideMap = move(newOverrideMap);
+        return true; 
+    }
+    return false;
 }
 
 bool FunctionInstantiator::hitEnd() const
@@ -129,18 +167,23 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, Progr
     matchArgs.reserve(m_term.arguments.size());
     for (auto& arg : m_term.arguments)
     {
-        if (auto varArg = dynamic_cast<VariableTerm*>(arg.get()))
+        if (auto wcArg = dynamic_cast<WildcardTerm*>(arg.get()))
         {
-            if (varArg->isBinder)
+            if (wcArg->isBinder)
             {
                 allArgumentsBound = false;
-                matchArgs.push_back(ExternalFormulaMatchArg::makeUnboundOrOverridable(varArg->sharedBoundRef));
+                matchArgs.push_back(ExternalFormulaMatchArg::makeUnbound(wcArg->sharedBoundRef));
             }
             else
             {
-                ProgramSymbol boundVarVal = varArg->eval(overrideMap, boundVertex);
-                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundVarVal));
-                if (boundVarVal.isAbstract())
+                ProgramSymbol boundWcVal = wcArg->eval(overrideMap, boundVertex);
+                if (!boundWcVal.isValid())
+                {
+                    m_hitEnd = true;
+                    return;
+                }                
+                matchArgs.push_back(ExternalFormulaMatchArg::makeBound(boundWcVal));
+                if (boundWcVal.isAbstract())
                 {
                     anyAbstractArguments = true;
                 }
@@ -170,7 +213,7 @@ void ExternalFunctionInstantiator::first(AbstractOverrideMap& overrideMap, Progr
     match(overrideMap, boundVertex);
 }
 
-void ExternalFunctionInstantiator::match(AbstractOverrideMap&, ProgramSymbol&)
+void ExternalFunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     vxy_assert(m_term.provider != nullptr);
     if (m_hitEnd)
@@ -178,6 +221,7 @@ void ExternalFunctionInstantiator::match(AbstractOverrideMap&, ProgramSymbol&)
         return;
     }
 
+    m_term.boundMask = m_term.getDomain(overrideMap, boundVertex);
     if (m_needsAbstractRelation)
     {
         m_term.assignedToFact = false;
@@ -207,9 +251,94 @@ bool ExternalFunctionInstantiator::hitEnd() const
     return hadHit;
 }
 
-EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler)
+ExternalConcreteFunctionInstantiator::ExternalConcreteFunctionInstantiator(FunctionTerm& term, const ITopologyPtr& topology)
     : m_term(term)
+    , m_topology(topology)
+    , m_nextVertex(0)
+    , m_hitEnd(false)
+{
+    vxy_fail_msg("Not yet working");
+}
+
+void ExternalConcreteFunctionInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    m_nextVertex = 0;
+    m_hitEnd = false;
+    match(overrideMap, boundVertex);
+}
+
+void ExternalConcreteFunctionInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    if (m_hitEnd)
+    {
+        return;
+    }
+    
+    if (boundVertex.isValid())
+    {
+        if (m_nextVertex > 0)
+        {
+            m_hitEnd = true;
+            return;
+        }
+        
+        vxy_assert(boundVertex.isInteger());
+        if (matches(boundVertex.getInt(), overrideMap))
+        {
+            ++m_nextVertex;
+            return;
+        }
+        m_hitEnd = true;
+    }
+    else
+    {
+        for (; m_nextVertex < m_topology->getNumVertices(); ++m_nextVertex)
+        {
+            boundVertex = ProgramSymbol(m_nextVertex); 
+            if (matches(m_nextVertex, overrideMap))
+            {
+                ++m_nextVertex;
+                return;
+            }
+            boundVertex = {};
+        }
+        m_hitEnd = true;
+    }
+}
+
+bool ExternalConcreteFunctionInstantiator::hitEnd() const
+{
+    return m_nextVertex >= m_topology->getNumVertices();
+}
+
+bool ExternalConcreteFunctionInstantiator::matches(int vertex, const AbstractOverrideMap& overrideMap)
+{
+    m_term.boundMask = m_term.getDomain(overrideMap, vertex);
+
+    vector<ProgramSymbol> concreteArgs;
+    for (auto& arg : m_term.arguments)
+    {
+        ProgramSymbol concreteArg = arg->eval(overrideMap, vertex);
+        if (!concreteArg.isValid())
+        {
+            return false;
+        }
+        concreteArgs.push_back(move(concreteArg));
+    }
+
+    if (m_term.negated == m_term.provider->eval(concreteArgs))
+    {
+        return false;
+    }
+    return true;
+}
+
+EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, bool canBeAbstract, const ProgramCompiler& compiler, const ITopologyPtr& topology)
+    : m_term(term)
+    , m_canBeAbstract(canBeAbstract)
     , m_compiler(compiler)
+    , m_topology(topology)
+    , m_nextVertex(0)
     , m_hitEnd(false)
 {
     vxy_assert(term.op == EBinaryOperatorType::Equality);
@@ -218,6 +347,7 @@ EqualityInstantiator::EqualityInstantiator(BinaryOpTerm& term, const ProgramComp
 void EqualityInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
+    m_nextVertex = 0;
     match(overrideMap, boundVertex);
 }
 
@@ -228,39 +358,70 @@ void EqualityInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
         return;
     }
 
-    // all variables in right hand side should be fully bound now
-    ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
-    if (rhsSym.isAbstract() || (dynamic_cast<VertexTerm*>(m_term.lhs.get()) != nullptr))
+    if (m_canBeAbstract || boundVertex.isValid() || !m_term.containsAbstracts())
     {
-        // Create an abstract relation
-        ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
-        if (sym.isInvalid())
+        // all wildcards in right hand side should be fully bound now
+        ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
+        if (rhsSym.isAbstract() || (dynamic_cast<VertexTerm*>(m_term.lhs.get()) != nullptr))
         {
-            m_hitEnd = true;
+            // Create an abstract relation
+            ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
+            if (sym.isInvalid())
+            {
+                m_hitEnd = true;
+            }
+            else
+            {
+                vxy_assert(sym.isAbstract());
+            }
         }
         else
         {
-            vxy_assert(sym.isAbstract());
+            if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, overrideMap, boundVertex))
+            {
+                m_hitEnd = true;
+            }
         }
     }
     else
     {
-        if (!rhsSym.isValid() || !m_term.lhs->match(rhsSym, overrideMap, boundVertex))
+        for (; m_nextVertex < m_topology->getNumVertices(); ++m_nextVertex)
         {
-            m_hitEnd = true;
+            boundVertex = ProgramSymbol(m_nextVertex);
+
+            ProgramSymbol rhsSym = m_term.rhs->eval(overrideMap, boundVertex);
+            if (rhsSym.isValid())
+            {
+                vxy_assert(!rhsSym.containsAbstract());
+                if (m_term.lhs->match(rhsSym, overrideMap, boundVertex))
+                {
+                    ++m_nextVertex;
+                    return;
+                }
+            }
+
+            boundVertex = {};
         }
+        m_hitEnd = true;
     }
 }
 
 bool EqualityInstantiator::hitEnd() const
 {
     bool hadHit = m_hitEnd;
-    m_hitEnd = true;
+    if (m_canBeAbstract)
+    {
+        m_hitEnd = true;
+    }
     return hadHit;
 }
 
-RelationInstantiator::RelationInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler): m_term(term)
+RelationInstantiator::RelationInstantiator(BinaryOpTerm& term, bool canBeAbstract, const ProgramCompiler& compiler, const ITopologyPtr& topology)
+    : m_term(term)
+    , m_canBeAbstract(canBeAbstract)
     , m_compiler(compiler)
+    , m_topology(topology)
+    , m_nextVertex(0)
     , m_hitEnd(false)
 {
     vxy_assert(isRelationOp(m_term.op));
@@ -269,6 +430,7 @@ RelationInstantiator::RelationInstantiator(BinaryOpTerm& term, const ProgramComp
 void RelationInstantiator::first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
 {
     m_hitEnd = false;
+    m_nextVertex = 0;
     match(overrideMap, boundVertex);
 }
 
@@ -279,11 +441,29 @@ void RelationInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
         return;
     }
 
-    // variables in non-assignment binary ops should be fully bound now
-    ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
-    // BinOpTerm::eval() will return 0 to indicate false.
-    if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))
+    if (m_canBeAbstract || boundVertex.isValid() || !m_term.containsAbstracts())
     {
+        // wildcards in non-assignment binary ops should be fully bound now
+        ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
+        // BinOpTerm::eval() will return 0 to indicate false.
+        if (sym.isInvalid() || (sym.isInteger() && sym.getInt() == 0))
+        {
+            m_hitEnd = true;
+        }
+    }
+    else
+    {
+        for (; m_nextVertex < m_topology->getNumVertices(); ++m_nextVertex)
+        {
+            boundVertex = ProgramSymbol(m_nextVertex);
+            ProgramSymbol sym = m_term.eval(overrideMap, boundVertex);
+            if (sym.isValid() && (!sym.isInteger() || sym.getInt() != 0))
+            {
+                m_nextVertex++;
+                return;
+            }
+            boundVertex = {};
+        }
         m_hitEnd = true;
     }
 }
@@ -291,7 +471,10 @@ void RelationInstantiator::match(AbstractOverrideMap& overrideMap, ProgramSymbol
 bool RelationInstantiator::hitEnd() const
 {
     bool hadHit = m_hitEnd;
-    m_hitEnd = true;
+    if (m_canBeAbstract)
+    {
+        m_hitEnd = true;
+    }
     return hadHit;
 }
 

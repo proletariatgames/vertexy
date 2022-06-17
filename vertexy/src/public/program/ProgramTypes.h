@@ -2,7 +2,8 @@
 
 #pragma once
 #include "ConstraintTypes.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
+#include <EASTL/hash_map.h>
 
 namespace Vertexy
 {
@@ -13,22 +14,22 @@ using URuleStatement = unique_ptr<RuleStatement>;
 class ProgramSymbol;
 
 // Represents an ungrounded variable within a rule program
-class ProgramVariable
+class ProgramWildcard
 {
     friend struct ProgramVariableHasher;
 public:
-    explicit ProgramVariable(const wchar_t* name=nullptr);
-    VariableUID getID() const { return m_uid; }
-    const wchar_t* getName() const { return m_name; }
+    explicit ProgramWildcard(const wchar_t* name=nullptr);
+    WildcardUID getID() const { return m_uid; }
+    const wchar_t* getName() const { return m_name.c_str(); }
 
-    bool operator==(const ProgramVariable& rhs) const
+    bool operator==(const ProgramWildcard& rhs) const
     {
         return m_uid == rhs.m_uid;
     }
 
 private:
-    const wchar_t* m_name;
-    VariableUID m_uid = VariableUID(0);
+    wstring m_name;
+    WildcardUID m_uid = WildcardUID(0);
 };
 
 class ProgramVertex
@@ -43,7 +44,7 @@ private:
 class Instantiator
 {
 public:
-    using AbstractOverrideMap = hash_map<ProgramSymbol*, ProgramSymbol>;
+    using AbstractOverrideMap = hash_map<ProgramSymbol*, int>;
     
     virtual ~Instantiator() {}
     // Find the first match/reset to first match
@@ -54,7 +55,7 @@ public:
     virtual bool hitEnd() const = 0;
 };
 
-using VariableMap = hash_map<ProgramVariable, shared_ptr<ProgramSymbol>>;
+using WildcardMap = hash_map<ProgramWildcard, shared_ptr<ProgramSymbol>>;
 
 } // namespace Vertexy
 
@@ -63,9 +64,9 @@ namespace eastl
 
 // Hashing for ProgramVariable
 template<>
-struct hash<Vertexy::ProgramVariable>
+struct hash<Vertexy::ProgramWildcard>
 {
-    uint32_t operator()(const Vertexy::ProgramVariable& var) const
+    uint32_t operator()(const Vertexy::ProgramWildcard& var) const
     {
         return hash<int>()(var.getID());
     }

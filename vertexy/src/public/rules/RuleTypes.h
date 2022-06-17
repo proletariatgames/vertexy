@@ -2,8 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
-#include "SignedClause.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
 #include <EASTL/variant.h>
 
 namespace Vertexy
@@ -31,20 +30,18 @@ struct AtomID
     bool isValid() const { return value > 0; }
     bool operator==(const AtomID& other) const { return value == other.value; }
     bool operator!=(const AtomID& other) const { return value != other.value; }
-    AtomLiteral pos() const;
-    AtomLiteral neg() const;
 
     int32_t value;
 };
 
 // Relation type for abstract atom literals.
-class IAtomGraphRelation : public IGraphRelation<Literal>
+class IAtomGraphRelation : public IGraphRelation<VarID>
 {
 public:
-    // Whether we need to instantiate this atom. Only true if the underlying formula has a binder.
-    virtual bool needsInstantiation() const = 0;    
+    // Gets an array mapping the values of the atom domain to the atoms of the variable domain.  
+    virtual void getDomainMapping(vector<int>& outMapping) const = 0;
     // Bind the variable for this vertex and assign its deduced value.
-    virtual bool instantiateNecessary(int vertex, Literal& outLiteral) const = 0;
+    virtual bool instantiateNecessary(int vertex, VarID& outVar) const = 0;
     // Notify the relation that it should not create any more variables/that the RDB has been destroyed.
     virtual void lockVariableCreation() const = 0;
 };
@@ -56,20 +53,32 @@ class AbstractAtomRelationInfo
 public:
     // Maps the abstract atom literal to the variable/value it is bound to.
     AtomGraphRelationPtr literalRelation;
+    // Optional filter of where this atom is valid on the graph.
+    IGraphRelationPtr<bool> filterRelation;
     // The set of relations used to map this abstract literal to its body
     vector<GraphVertexRelationPtr> argumentRelations;
 
-    size_t hash() const { return literalRelation->hash(); }
+    size_t hash() const { return literalRelation != nullptr ? literalRelation->hash() : filterRelation->hash(); }
     bool operator==(const AbstractAtomRelationInfo& rhs) const
     {
         if (this == &rhs)
         {
             return true;
         }
-        if (!literalRelation->equals(*rhs.literalRelation))
+
+        if ((literalRelation == nullptr) != (rhs.literalRelation == nullptr))
+        {
+            return false;
+        }        
+        if (literalRelation != nullptr && !literalRelation->equals(*rhs.literalRelation))
         {
             return false;
         }
+        if (filterRelation != nullptr && !filterRelation->equals(*rhs.filterRelation))
+        {
+            return false;
+        }
+        
         if (argumentRelations.size() != rhs.argumentRelations.size())
         {
             return false;
@@ -84,18 +93,10 @@ public:
 
         return true;
     }
-
-    const GraphLiteralRelationPtr& getInverseRelation() const
+    bool operator!=(const AbstractAtomRelationInfo& rhs) const
     {
-        if (m_invRelation == nullptr)
-        {
-            m_invRelation = make_shared<InvertLiteralGraphRelation>(literalRelation);
-        }
-        return m_invRelation;
+        return !(operator==(rhs));
     }
-
-private:
-    mutable GraphLiteralRelationPtr m_invRelation;
 };
 using AbstractAtomRelationInfoPtr = shared_ptr<AbstractAtomRelationInfo>;
 
@@ -104,37 +105,70 @@ struct AtomLiteral
     using IDType = AtomID;
 
     AtomLiteral() : m_value(0) {}
-    explicit AtomLiteral(AtomID id, bool value=true, const AbstractAtomRelationInfoPtr& relationInfo=nullptr)
+    explicit AtomLiteral(AtomID id, bool value, const ValueSet& mask, const AbstractAtomRelationInfoPtr& relationInfo=nullptr)
         : m_value(value ? id.value : -id.value)
+        , m_mask(mask)
         , m_relationInfo(relationInfo)
     {
     }
 
-    AtomLiteral inverted() const { return AtomLiteral(id(), !sign(), m_relationInfo); }
+    AtomLiteral inverted() const { return AtomLiteral(id(), !sign(), m_mask, m_relationInfo); }
+    AtomLiteral unmasked() const { return AtomLiteral(id(), sign(), ValueSet(m_mask.size(), true), m_relationInfo); }
+    AtomLiteral excludingMask(const ValueSet& mask) const { return AtomLiteral(id(), sign(), m_mask.excluding(mask), m_relationInfo); }
+
     bool sign() const { return m_value > 0; }
     AtomID id() const { return AtomID(m_value < 0 ? -m_value : m_value); }
     bool isValid() const { return m_value != 0; }
 
+    const ValueSet& getMask() const { return m_mask; }
+    void includeMask(const ValueSet& mask)
+    {
+        m_mask.include(mask);
+    }
+    
     const AbstractAtomRelationInfoPtr& getRelationInfo() const { return m_relationInfo; }
     void setRelationInfo(const AbstractAtomRelationInfoPtr& info) { m_relationInfo = info; }
 
-    bool operator==(const AtomLiteral& other) const { return m_value == other.m_value; }
+    bool operator==(const AtomLiteral& other) const
+    {
+        if (this == &other) { return true; }
+        if (m_value != other.m_value)
+        {
+            return false;
+        }
+        if ((m_relationInfo == nullptr) != (other.m_relationInfo == nullptr))
+        {
+            return false;
+        }
+        if (m_relationInfo != nullptr && *m_relationInfo != *other.m_relationInfo)
+        {
+            return false;
+        }
+        if (m_mask != other.m_mask)
+        {
+            return false;
+        }
+        return true;
+    }
     bool operator!=(const AtomLiteral& other) const { return m_value != other.m_value; }
+
+    size_t hash() const
+    {
+        size_t out = eastl::hash<int32_t>()(m_value);
+        out = combineHashes(out, eastl::hash<ValueSet>()(m_mask));
+        if (m_relationInfo != nullptr)
+        {
+            out = combineHashes(out, m_relationInfo->hash());
+        }
+               
+        return out;
+    }
 
 protected:
     int32_t m_value;
+    ValueSet m_mask;
     AbstractAtomRelationInfoPtr m_relationInfo;
 };
-
-inline AtomLiteral AtomID::pos() const
-{
-    return AtomLiteral(*this, true);
-}
-
-inline AtomLiteral AtomID::neg() const
-{
-    return AtomLiteral(*this, false);
-}
 
 enum class ERuleHeadType : uint8_t
 {

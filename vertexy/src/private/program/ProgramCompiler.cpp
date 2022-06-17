@@ -10,20 +10,9 @@
 
 using namespace Vertexy;
 static constexpr bool LOG_RULE_INSTANTIATION = false;
+static constexpr bool LOG_RULE_EXPORTS = false;
 static constexpr bool LOG_MATH_REWRITE = false;
 static constexpr bool LOG_VAR_INSTANTIATION = false;
-
-struct VariableNameAllocator
-{
-    static const wchar_t* allocate()
-    {
-        storage.emplace_back(wstring::CtorSprintf(), TEXT("__M%d"), count++);
-        return storage.back().c_str();
-    }
-    static void reset() { count = 1; }
-    inline static int count = 1;
-    inline static vector<wstring> storage = {};
-};
 
 hash_set<ConstantFormula*, ConstantFormula::Hash, ConstantFormula::Hash> ConstantFormula::s_lookup;
 vector<unique_ptr<ConstantFormula>> ConstantFormula::s_formulas;
@@ -98,25 +87,51 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
         }
     };
 
-    struct TermHasher
-    {
-        size_t operator()(const BinaryOpTerm* term) const
-        {
-            return term->hash();
-        }
-        size_t operator()(const UBinaryOpTerm& term) const
-        {
-            return term->hash();
-        }
-    };
-
     for (auto& stmt : statements)
     {
-        VariableNameAllocator::reset();
+        hash_map<const BinaryOpTerm*, ProgramWildcard, pointer_value_hash<BinaryOpTerm, call_hash>, pointer_value_equality> replacements;
+        hash_map<ProgramWildcard, UBinaryOpTerm> assignments;
 
-        hash_map<const BinaryOpTerm*, ProgramVariable, TermHasher, pointer_value_equality> replacements;
-        hash_map<ProgramVariable, UBinaryOpTerm> assignments;
+        stmt.statement->replace<BinaryOpTerm>([&](BinaryOpTerm* opTerm) -> UTerm
+        {
+            ProgramSymbol eff = opTerm->eval(AbstractOverrideMap{}, {});
+            if (eff.isValid())
+            {
+                return make_unique<SymbolTerm>(ProgramSymbol(eff));
+            }
 
+            ProgramSymbol left = opTerm->lhs->eval(AbstractOverrideMap{}, {});
+            ProgramSymbol right = opTerm->rhs->eval(AbstractOverrideMap{}, {});
+
+            if (left.isInteger())
+            {
+                switch (opTerm->op)
+                {
+                case EBinaryOperatorType::Add:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), left.getInt(), 1);
+                case EBinaryOperatorType::Subtract:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), -left.getInt(), 1);
+                case EBinaryOperatorType::Multiply:
+                    return make_unique<LinearTerm>(move(opTerm->rhs), 0, left.getInt());
+                }
+            }
+            else if (right.isInteger())
+            {
+                switch (opTerm->op)
+                {
+                case EBinaryOperatorType::Add:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), right.getInt(), 1);
+                case EBinaryOperatorType::Subtract:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), -right.getInt(), 1);
+                case EBinaryOperatorType::Multiply:
+                    return make_unique<LinearTerm>(move(opTerm->lhs), 0, right.getInt());
+                }
+            }
+            
+            return nullptr; 
+        });
+
+        int synthVariableCount = 0;
         stmt.statement->visit<Term>([&](const Term* term)
         {
             if (auto binOpTerm = dynamic_cast<const BinaryOpTerm*>(term))
@@ -126,7 +141,8 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
                     auto insertionPoint = replacements.find(binOpTerm);
                     if (insertionPoint == replacements.end())
                     {
-                        ProgramVariable newVar(VariableNameAllocator::allocate());
+                        wstring name{wstring::CtorSprintf(), TEXT("__M%d"), synthVariableCount++};
+                        ProgramWildcard newVar(name.c_str());
 
                         auto clone = UBinaryOpTerm(move(static_cast<BinaryOpTerm*>(binOpTerm->clone().detach())));
 
@@ -146,14 +162,14 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
                 auto found = replacements.find(term);
                 if (found != replacements.end())
                 {
-                    return make_unique<VariableTerm>(found->second);
+                    return make_unique<WildcardTerm>(found->second);
                 }
                 return nullptr;
             });
 
             for (auto& assignment : assignments)
             {
-                auto lhs = make_unique<VariableTerm>(assignment.first);
+                auto lhs = make_unique<WildcardTerm>(assignment.first);
                 auto assignmentTerm = make_unique<BinaryOpTerm>(
                     EBinaryOperatorType::Equality,
                     move(lhs),
@@ -381,7 +397,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
 {
     vector<LitNode> litNodes;
     vector<VarNode> varNodes;
-    vector<pair<VariableUID, vector<int>>> boundBy;
+    vector<pair<WildcardUID, vector<int>>> boundBy;
 
     const RelationalRuleStatement* stmt = statementNode->stmt;
 
@@ -389,19 +405,19 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     // Build dependency graph of variables found in the body.
     // Literals that are non-negative FunctionTerms provide support; everything else relies on support.
     //
-    hash_map<VariableUID, size_t> seen;
+    hash_map<WildcardUID, size_t> seen;
     for (auto& bodyLit : stmt->statement->body)
     {
         litNodes.emplace_back();
         litNodes.back().lit = bodyLit.get();
         litNodes.back().numDeps = 0;
 
-        vector<tuple<VariableTerm*, bool/*canEstablish*/>> varTerms;
+        vector<tuple<WildcardTerm*, bool/*canEstablish*/>> varTerms;
 
-        bodyLit->collectVars(varTerms);
+        bodyLit->collectWildcards(varTerms);
         for (auto varTerm : varTerms)
         {
-            ProgramVariable var = get<0>(varTerm)->var;
+            ProgramWildcard var = get<0>(varTerm)->wildcard;
 
             // create a VarNode if we haven't made one already.
             auto found = seen.find(var.getID());
@@ -409,7 +425,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             {
                 found = seen.insert({var.getID(), varNodes.size()}).first;
                 varNodes.emplace_back();
-                varNodes.back().variable = var;
+                varNodes.back().wildcard = var;
 
                 boundBy.emplace_back(var.getID(), vector<int>{});
             }
@@ -428,7 +444,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
                 litNodes.back().numDeps++;
             }
             // add index of varNode to list of all variables in this lit.
-            litNodes.back().vars.push_back(found->second);
+            litNodes.back().wildcards.push_back(found->second);
         }
     }
 
@@ -442,14 +458,16 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
         }
     }
 
-    VariableMap bound;
+    WildcardMap bound;
     vector<UInstantiator> instantiators;
 
     //
     // Terms will bind variables in the following precedence:
-    // 1) External terms will always bind variables first (if they can).
-    // 2) Function terms that contain abstract terms (either previously bound abstract variables or VertexTerms) are next.
-    // 3) Finally, precedence follows right-to-left order.
+    // 1) Constant terms are always bound first
+    // 2) Terms that contain a Vertex literal are next.
+    // 3) External terms that can bind any unbound variables are next.
+    // 4) Terms that contain a bound variable are next.
+    // 5) Finally, precedence follows right-to-left order.
     // 
     auto shouldTakePrecedence = [&](const LitNode* testLit, const LitNode* checkLit)
     {
@@ -460,6 +478,17 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             return true;
         }
         else if (!testLitSymTerm && checkLitSymTerm)
+        {
+            return false;
+        }
+        
+        bool testHasVertex = testLit->lit->contains<VertexTerm>();
+        bool checkHasVertex = checkLit->lit->contains<VertexTerm>();
+        if (testHasVertex && !checkHasVertex)
+        {
+            return true;
+        }
+        else if (!testHasVertex && checkHasVertex)
         {
             return false;
         }
@@ -478,19 +507,22 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
             return false;
         }
 
-        bool testIsAbstract = testLit->lit->hasBoundAbstracts(*this, bound);
-        bool checkIsAbstract = checkLit->lit->hasBoundAbstracts(*this, bound);
-        if (testIsAbstract && !checkIsAbstract)
+        auto isBound = [&](auto&& varTerm) { return bound.find(varTerm->wildcard) != bound.end(); };
+        bool testAllUnbound = !testLit->lit->contains<WildcardTerm>(isBound);
+        bool checkAllUnbound = !checkLit->lit->contains<WildcardTerm>(isBound);
+        if (!testAllUnbound && checkAllUnbound)
         {
             return true;
         }
-        else if (!testIsAbstract && checkIsAbstract)
+        else if (testAllUnbound && !checkAllUnbound)
         {
             return false;
         }
 
         return false;
     };
+
+    bool canBeAbstract = stmt->statement->head == nullptr || stmt->statement->headContains<VertexTerm>();
     
     // go through each literal in dependency order.
     while (!openLits.empty())
@@ -510,9 +542,9 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
         // for each variable in this literal that hasn't been bound yet, mark the first VariableTerm it appears in
         // as being the variable provider. This will create the shared ProgramSymbol that all occurrences
         // of this variable within this body will point to.
-        litNode->lit->createVariableReps(bound);
+        litNode->lit->createWildcardReps(bound);
 
-        instantiators.push_back(litNode->lit->instantiate(*this, statementNode->stmt->topology));
+        instantiators.push_back(litNode->lit->instantiate(*this, canBeAbstract, statementNode->stmt->topology));
 
         // reduce the dependency count of literals waiting on variables to be provided.
         // if there are no more dependencies, add them to the open list.
@@ -538,13 +570,13 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     // Assign all variables/vertices appearing in head symbols to their shared binders. 
     if (stmt->statement->head != nullptr)
     {
-        vector<tuple<VariableTerm*, bool>> vars;
-        stmt->statement->head->collectVars(vars, false);
+        vector<tuple<WildcardTerm*, bool>> vars;
+        stmt->statement->head->collectWildcards(vars, false);
 
-        for (const tuple<VariableTerm*, bool>& tuple : vars)
+        for (const tuple<WildcardTerm*, bool>& tuple : vars)
         {
-            auto varTerm = get<VariableTerm*>(tuple);
-            auto found = bound.find(varTerm->var);
+            auto varTerm = get<WildcardTerm*>(tuple);
+            auto found = bound.find(varTerm->wildcard);
             vxy_assert_msg(found != bound.end(), "variable appears in head but not body?");
             varTerm->sharedBoundRef = found->second;
         }
@@ -563,7 +595,7 @@ void ProgramCompiler::groundRule(DepGraphNodeData* statementNode)
     instantiateRule(statementNode, bound, instantiators, overrideMap, boundVertex);
 }
 
-void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const VariableMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur)
+void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const WildcardMap& varBindings, const vector<UInstantiator>& nodes, AbstractOverrideMap& parentMap, ProgramSymbol& parentBoundVertex, int cur)
 {
     if (cur == nodes.size())
     {
@@ -583,13 +615,27 @@ void ProgramCompiler::instantiateRule(DepGraphNodeData* stmtNode, const Variable
     }
 }
 
-void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const VariableMap& varBindings)
+void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const RuleStatement* stmt, const AbstractOverrideMap& overrideMap, const ProgramSymbol& boundVertex, const WildcardMap& varBindings)
 {
+    if (stmt->head != nullptr && stmt->head->mustBeConcrete(overrideMap, boundVertex))
+    {
+        vxy_assert(!boundVertex.isValid());
+        for (int vertex = 0, numVerts = stmtNode->stmt->topology->getNumVertices(); vertex < numVerts; ++vertex)
+        {
+            addGroundedRule(stmtNode, stmt, overrideMap, ProgramSymbol(vertex), varBindings);
+        }
+        return;
+    }
+    
     vector<ProgramSymbol> bodyTerms;
     for (auto& bodyTerm : stmt->body)
     {
         ProgramSymbol bodySym = bodyTerm->eval(overrideMap, boundVertex);
-        vxy_assert(bodySym.isValid());
+        if (!bodySym.isValid())
+        {
+            return;
+        }
+        
         if (bodySym.isFormula())
         {
             auto fnTerm = dynamic_cast<FunctionTerm*>(bodyTerm.get());
@@ -624,7 +670,7 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 if (bodySym.isExternalFormula())
                 {
                     // Add this to the grounded database; we'll need it when exporting rules.
-                    addGroundedAtom(CompilerAtom{bodySym, false}, stmtNode->stmt->topology);
+                    addGroundedAtom(CompilerAtom{bodySym.absolute(), ValueSet(bodySym.getFormula()->mask.size(),false)}, stmtNode->stmt->topology);
                 }
 
                 auto& domain = m_groundedAtoms[bodySym.getFormula()->uid]; 
@@ -665,21 +711,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
         headSymbols = stmt->head->eval(overrideMap, boundVertex, isNormalRule);
         vxy_assert(!isNormalRule || headSymbols.size() == 1);
 
-        auto isAtomFact = [&](const ProgramSymbol& sym)
-        {
-            auto foundDomain = m_groundedAtoms.find(sym.getFormula()->uid);
-            if (foundDomain == m_groundedAtoms.end())
-            {
-                return false;
-            }
-            UAtomDomain& domain = foundDomain->second;
-            auto found = domain->map.find(sym);
-            return found != domain->map.end() && domain->list[found->second].isFact;
-        };
-
-        bool headHasAbstracts = false;
-        bool headHasIdentityAbstract = false;
-
         int j = 0;
         for (int i = 0; i < headSymbols.size(); ++i)
         {
@@ -693,24 +724,6 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
                 // Otherwise, if this is already a fact, no need to include.
                 continue;
             }
-
-            // Check whether this is an abstract formula. If so, we should only ground it if it 
-            // includes an identity relation as one of its arguments.
-            if (headSymbols[i].containsAbstract())
-            {
-                headHasAbstracts = true;
-                if (!headHasIdentityAbstract)
-                {
-                    for (auto& arg : headSymbols[i].getFormula()->args)
-                    {
-                        if (arg.isAbstract() && arg.getAbstractRelation()->equals(*IdentityGraphRelation::get()))
-                        {
-                            headHasIdentityAbstract = true;
-                            break;
-                        }
-                    }
-                }
-            }
             headSymbols[j++] = headSymbols[i];
         }
         headSymbols.resize(j);
@@ -720,23 +733,19 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
             // If all heads are facts, no need to include this statement.
             return;
         }
-
-        // If this head is abstract, it needs to include an identity term.
-        // if (headHasAbstracts && !headHasIdentityAbstract)
-        // {
-        //     return;
-        // }
     }
 
     //
-    // All all the head symbols to the grounded database, and mark all the rules that contain these heads
+    // Add all the head symbols to the grounded database, and mark all the rules that contain these heads
     // in the body to be (re)grounded.
     //
 
     bool areFacts = isNormalRule && bodyTerms.empty();
     for (const auto& headSym : headSymbols)
     {
-        if (addGroundedAtom(CompilerAtom{headSym, areFacts}, stmtNode->stmt->topology))
+        auto& headSymMask = headSym.getFormula()->mask;
+        auto factMask = areFacts ? headSymMask : ValueSet(headSymMask.size(), false);
+        if (addGroundedAtom(CompilerAtom{headSym, factMask}, stmtNode->stmt->topology))
         {
             int numEdges = m_depGraph->getNumOutgoing(stmtNode->vertex);
             for (int edgeIdx = 0; edgeIdx < numEdges; ++edgeIdx)
@@ -804,6 +813,26 @@ void ProgramCompiler::addGroundedRule(const DepGraphNodeData* stmtNode, const Ru
     }
 }
 
+bool ProgramCompiler::isAtomFact(const ProgramSymbol& sym) const
+{
+    auto foundDomain = m_groundedAtoms.find(sym.getFormula()->uid);
+    if (foundDomain == m_groundedAtoms.end())
+    {
+        return false;
+    }
+    auto& domain = foundDomain->second;
+    auto found = domain->map.find(sym);
+    if (found != domain->map.end())
+    {
+        auto& facts = domain->list[found->second].facts;
+        if (!facts.isZero() && facts.isSubsetOf(sym.getFormula()->mask))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ProgramCompiler::exportRules()
 {
     //
@@ -814,6 +843,7 @@ void ProgramCompiler::exportRules()
         FormulaUID formulaUID = domainEntry.first;
         AtomDomain* domain = domainEntry.second.get();
         const wchar_t* formulaName = domain->list[0].symbol.getFormula()->name.c_str();
+        const int domainSize = domain->list[0].symbol.getFormula()->mask.size();
 
         vxy_sanity(m_exportedLits.find(formulaUID) == m_exportedLits.end());
         auto exportMapIt = m_exportedLits.insert({formulaUID, make_unique<ExportMap>()}).first;
@@ -826,11 +856,13 @@ void ProgramCompiler::exportRules()
                 m_rdb,
                 formulaUID,
                 formulaName,
+                domainSize,
+                domain->abstractTopology,
                 foundBinder != m_binders.end() ? foundBinder->second.get() : nullptr
             );
            
             vxy_assert(domain->abstractTopology != nullptr);
-            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, domain->isExternal);
+            AtomID atomID = m_rdb.createAbstractAtom(domain->abstractTopology, formulaName, domainSize, domain->isExternal);
             mapper->setAtomID(atomID);
 
             m_exportedFormulas.insert({formulaUID, move(mapper)});
@@ -841,20 +873,18 @@ void ProgramCompiler::exportRules()
             for (auto& atom : domain->list)
             {
                 vxy_assert(!atom.symbol.isNegated());
+                auto unmaskedSym = atom.symbol.unmasked();
+
+                SignedClause equivalence;
                 if (foundBinder != m_binders.end())
                 {
-                    Literal lit = foundBinder->second->call(m_rdb, atom.symbol.getFormula()->args);
-                    if (lit.variable.isValid())
-                    {
-                        AtomLiteral atomLit(m_rdb.createBoundAtom(lit, atom.symbol.toString().c_str()), true);
-                        exportMap->concreteExports.insert({atom.symbol, atomLit.id()});
-
-                        continue;
-                    }
+                    equivalence.variable = foundBinder->second->call(m_rdb, unmaskedSym.getFormula()->args);
+                    equivalence.values = foundBinder->second->getDomainMapping();
                 }
-
-                AtomID atomID = m_rdb.createAtom(atom.symbol.toString().c_str());
-                exportMap->concreteExports.insert({atom.symbol, atomID});
+                
+                AtomID atomID = m_rdb.createAtom(unmaskedSym.toString().c_str(), domainSize, equivalence);
+                AtomLiteral atomLit(atomID, true, atom.symbol.getFormula()->mask);                                            
+                exportMap->concreteExports.insert({unmaskedSym, atomID});
             }
         }
     }
@@ -871,13 +901,13 @@ void ProgramCompiler::exportRules()
             out.append(rule.heads[0].toString());
         }
         
-        if (!rule.bodyLits.empty())
+        if (!rule.body.empty())
         {
             out.append(TEXT(" <- "));
         
-            for (int i = 0; i < rule.bodyLits.size(); ++i)
+            for (int i = 0; i < rule.body.size(); ++i)
             {
-                auto& bodyTerm = rule.bodyLits[i];
+                auto& bodyTerm = rule.body[i];
                 if (i > 0)
                 {
                     out.append(TEXT(", "));
@@ -890,7 +920,7 @@ void ProgramCompiler::exportRules()
 
     for (auto& rule : m_groundedRules)
     {
-        vxy_assert(rule.headType == ERuleHeadType::Normal);
+        vxy_assert(rule.headType != ERuleHeadType::Disjunction);
         vxy_assert(rule.heads.size() <= 1);
         
         bool containsAbstracts;
@@ -912,8 +942,8 @@ void ProgramCompiler::exportRules()
             }
             
             vector<AtomLiteral> exportedBody;
-            exportedBody.reserve(rule.bodyLits.size());
-            for (auto& bodySym : rule.bodyLits)
+            exportedBody.reserve(rule.body.size());
+            for (auto& bodySym : rule.body)
             {
                 if (bodySym.isExternalFormula() && !bodySym.containsAbstract())
                 {
@@ -922,11 +952,11 @@ void ProgramCompiler::exportRules()
                 exportedBody.push_back(exportAtom(bodySym, rule.topology, false));
             }
 
-            if (LOG_RULE_INSTANTIATION)
+            if (LOG_RULE_EXPORTS)
             {
                 VERTEXY_LOG("Exporting %s", toString(rule).c_str());
             }
-            m_rdb.addRule(headLiteral, exportedBody, rule.topology);
+            m_rdb.addRule(headLiteral, rule.headType == ERuleHeadType::Choice, exportedBody, rule.topology);
         }
         else
         {
@@ -938,7 +968,7 @@ void ProgramCompiler::exportRules()
 bool ProgramCompiler::shouldExportAsAbstract(const GroundedRule& rule, bool& outContainsAbstracts) const
 {
     outContainsAbstracts = false;
-    vxy_assert(rule.headType == ERuleHeadType::Normal);
+    vxy_assert(rule.headType != ERuleHeadType::Disjunction);
     vxy_assert(rule.heads.size() <= 1);
 
     if (!rule.heads.empty())
@@ -959,7 +989,7 @@ bool ProgramCompiler::shouldExportAsAbstract(const GroundedRule& rule, bool& out
     }
 
     // Head is empty or contains no abstracts
-    for (auto& bodyLit : rule.bodyLits)
+    for (auto& bodyLit : rule.body)
     {
         if (bodyLit.containsAbstract())
         {
@@ -979,10 +1009,10 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     {
         // TODO: hash/reuse these?
         auto relationInfo = make_shared<AbstractAtomRelationInfo>();
-        relationInfo->literalRelation = make_shared<HasRelationGraphRelation>(symbol.getAbstractRelation(), m_rdb.getSolver().getTrue());
+        relationInfo->filterRelation = make_shared<HasRelationGraphRelation>(symbol.getAbstractRelation());
 
-        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->literalRelation->toString().c_str(), true);
-        return AtomLiteral(abstractID, symbol.isPositive(), relationInfo);
+        AtomID abstractID = m_rdb.createAbstractAtom(topology, relationInfo->filterRelation->toString().c_str(), 1, true);
+        return AtomLiteral(abstractID, symbol.isPositive(), ValueSet(1, true), relationInfo);
     }
 
     // Handle concrete symbols
@@ -991,9 +1021,9 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     {
         vxy_sanity(!symbol.containsAbstract());
         
-        AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute()];
+        AtomID atomID = m_exportedLits[symbol.getFormula()->uid]->concreteExports[symbol.absolute().unmasked()];
         vxy_assert(atomID.isValid());
-        return AtomLiteral(atomID, symbol.isPositive());
+        return AtomLiteral(atomID, symbol.isPositive(), symbol.getFormula()->mask);
     }
 
     vxy_sanity(symbol.isFormula());
@@ -1006,14 +1036,15 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
             m_exportedLits[symbol.getFormula()->uid] = make_unique<ExportMap>();
         }
     }
+
+    ProgramSymbol absoluteUnmaskedSym = symbol.absolute().unmasked();
     
     // See if we already created a literal for this abstract formula term...
     auto& exportMap = m_exportedLits[symbol.getFormula()->uid]->abstractExports;
-    auto foundExport = exportMap.find(make_tuple(symbol.absolute(), forHead));
+    auto foundExport = exportMap.find(make_tuple(absoluteUnmaskedSym, forHead));
     if (foundExport != exportMap.end())
     {
-        auto& relationInfo = foundExport->second->getRelationInfo();
-        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), relationInfo);
+        return AtomLiteral(foundExport->second->getAtomID(), symbol.isPositive(), symbol.getFormula()->mask, foundExport->second->getRelationInfo());
     }
 
     //
@@ -1040,20 +1071,20 @@ AtomLiteral ProgramCompiler::exportAtom(const ProgramSymbol& symbol, const ITopo
     FormulaMapperPtr& formulaMapper = m_exportedFormulas[symbol.getFormula()->uid];
     if (symbol.isExternalFormula())
     {
-        litRelation = make_shared<ExternalFormulaGraphRelation>(symbol.absolute(), m_rdb.getSolver().getTrue());
+        litRelation = make_shared<ExternalFormulaGraphRelation>(absoluteUnmaskedSym, SignedClause(m_rdb.getSolver().getTrue().variable, vector{1}));
     }
     else
     {
         vxy_assert(symbol.isNormalFormula());
-        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, symbol.absolute(), forHead);
+        litRelation = make_shared<FormulaGraphRelation>(formulaMapper, absoluteUnmaskedSym, forHead);
     }
     relationInfo->literalRelation = litRelation;
 
     litRelation->setAtomID(formulaMapper->getAtomID());
     litRelation->setRelationInfo(relationInfo);
-    exportMap[make_tuple(symbol.absolute(), forHead)] = litRelation;
+    exportMap[make_tuple(absoluteUnmaskedSym, forHead)] = litRelation;
     
-    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), relationInfo);
+    return AtomLiteral(formulaMapper->getAtomID(), symbol.isPositive(), symbol.getFormula()->mask, relationInfo);
 }
 
 void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopologyPtr& topology)
@@ -1063,10 +1094,23 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
     {
         if (!sym.containsAbstract())
         {
-            Literal lit = found->second->call(m_rdb, sym.getFormula()->args);
-            if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+            VarID boundVar = found->second->call(m_rdb, sym.getFormula()->args);
+            if (boundVar.isValid())
             {
-                m_failure = true;
+                auto& formulaMask = sym.getFormula()->mask;
+                auto& varDomain = m_rdb.getSolver().getDomain(boundVar);
+                auto& domainMapping = found->second->getDomainMapping();
+
+                Literal lit(boundVar, ValueSet(varDomain.getDomainSize(), false));
+                for (auto it = formulaMask.beginSetBits(), itEnd = formulaMask.endSetBits(); it != itEnd; ++it)
+                {
+                    lit.values[ varDomain.getIndexForValue(domainMapping[*it]) ] = true;
+                }
+                
+                if (!m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                {
+                    m_failure = true;
+                }
             }
         }
         else
@@ -1077,10 +1121,23 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
                 ProgramSymbol concreteSym = sym.makeConcrete(vertex);
                 if (concreteSym.isValid())
                 {
-                    Literal lit = found->second->call(m_rdb, concreteSym.getFormula()->args);
-                    if (lit.variable.isValid() && !m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                    VarID boundVar = found->second->call(m_rdb, concreteSym.getFormula()->args);
+                    if (boundVar.isValid())
                     {
-                        m_failure = true;
+                        auto& formulaMask = sym.getFormula()->mask;
+                        auto& varDomain = m_rdb.getSolver().getDomain(boundVar);
+                        auto& domainMapping = found->second->getDomainMapping();
+
+                        Literal lit(boundVar, ValueSet(varDomain.getDomainSize(), false));
+                        for (auto it = formulaMask.beginSetBits(), itEnd = formulaMask.endSetBits(); it != itEnd; ++it)
+                        {
+                            lit.values[ varDomain.getIndexForValue(domainMapping[*it]) ] = true;
+                        }
+                       
+                        if (!m_rdb.getSolver().getVariableDB()->constrainToValues(lit, nullptr))
+                        {
+                            m_failure = true;
+                        }
                     }
                 }
             }
@@ -1088,9 +1145,16 @@ void ProgramCompiler::bindFactIfNeeded(const ProgramSymbol& sym, const ITopology
     }
 }
 
+ConstraintSolver& ProgramCompiler::getSolver() const
+{
+    return m_rdb.getSolver();
+}
+
 bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyPtr& topology)
 {
     vxy_assert(atom.symbol.isFormula());
+    vxy_assert(!atom.symbol.isNegated());
+    
     auto domainIt = m_groundedAtoms.find(atom.symbol.getFormula()->uid);
     if (domainIt == m_groundedAtoms.end())
     {
@@ -1101,13 +1165,16 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
     bool isNew = false;
 
     AtomDomain& domain = *domainIt->second;
-    auto atomIt = domain.map.find(atom.symbol);
+
+    auto unmaskedSym = atom.symbol.unmasked();
+    
+    auto atomIt = domain.map.find(unmaskedSym);
     if (atomIt == domain.map.end())
     {
-        domain.map.insert({atom.symbol, domain.list.size()});
+        domain.map.insert({unmaskedSym, domain.list.size()});
         domain.list.push_back(atom);
 
-        if (atom.symbol.containsAbstract())
+        if (unmaskedSym.containsAbstract())
         {
             if (!domain.containsAbstract)
             {
@@ -1118,16 +1185,16 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
             {
                 vxy_assert_msg(domain.abstractTopology == topology,
                     "Mixed topologies in a formula definition: %s: not currently supported", 
-                    atom.symbol.getFormula()->name.c_str()
+                    unmaskedSym.getFormula()->name.c_str()
                 );
             }
         }
         
-        if (!domain.isExternal && atom.symbol.isExternalFormula())
+        if (!domain.isExternal && unmaskedSym.isExternalFormula())
         {
             vxy_assert_msg(domain.list.size() == 1,
                     "Mixture of external and non-external atoms for formula %s", 
-                    atom.symbol.getFormula()->name.c_str()
+                    unmaskedSym.getFormula()->name.c_str()
             );
             domain.isExternal = true;
         }
@@ -1137,7 +1204,8 @@ bool ProgramCompiler::addGroundedAtom(const CompilerAtom& atom, const ITopologyP
     else
     {
         CompilerAtom& existing = domain.list[atomIt->second];
-        existing.isFact = existing.isFact || atom.isFact;
+        existing.symbol = existing.symbol.withIncludedMask(atom.symbol.getFormula()->mask);
+        existing.facts.include(atom.facts);
     }
 
     return isNew;
@@ -1177,41 +1245,18 @@ void ProgramCompiler::transformChoice(GroundedRule&& rule)
     vxy_assert(rule.headType == ERuleHeadType::Choice);
 
     // head choice "H1 .. \/ Hn" becomes
-    // H1 <- <body> /\ not Choice1
-    // Choice1 <- not H1
+    // H1.choice() <- <body>
     // ...
-    // Hn <- <body> /\ not ChoiceN
-    // ChoiceN <- not Hn
+    // Hn.choice() <- <body>
     
     for (const auto& headSym : rule.heads)
     {
         vxy_assert(headSym.isNormalFormula());
-
-        auto foundChoice = m_choiceFormulas.find(headSym.getFormula()->uid);
-        if (foundChoice == m_choiceFormulas.end())
-        {
-            auto choiceUID = Program::allocateFormulaUID();
-            foundChoice = m_choiceFormulas.insert({headSym.getFormula()->uid, choiceUID}).first;
-        }
         
-        wstring choiceName;
-        choiceName.sprintf(TEXT("not-chosen::%s"), headSym.getFormula()->name.c_str());
-        ProgramSymbol choiceSym(foundChoice->second, choiceName.c_str(), headSym.getFormula()->args, false);
-
-        vector<ProgramSymbol> extBody = rule.bodyLits; 
-        extBody.push_back(choiceSym.negatedFormula());
-
         addTransformedRule(GroundedRule{
-            ERuleHeadType::Normal,
+            ERuleHeadType::Choice,
             vector{headSym},
-            extBody,
-            rule.topology
-        });
-
-        addTransformedRule(GroundedRule{
-            ERuleHeadType::Normal,
-            vector{choiceSym},
-            vector{headSym.negatedFormula()}, 
+            rule.body,
             rule.topology
         });
     }
@@ -1222,7 +1267,7 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
     vxy_assert(rule.headType == ERuleHeadType::Disjunction);
     if (rule.heads.size() <= 1)
     {
-        addTransformedRule(GroundedRule{ERuleHeadType::Normal, rule.heads, rule.bodyLits, rule.topology});
+        addTransformedRule(GroundedRule{ERuleHeadType::Normal, rule.heads, rule.body, rule.topology});
     }
     else
     {
@@ -1230,7 +1275,7 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
         // Hi <- <body> /\ {not Hn | n != i}
         for (int i = 0; i < rule.heads.size(); ++i)
         {
-            vector<ProgramSymbol> extBody = rule.bodyLits;
+            vector<ProgramSymbol> extBody = rule.body;
             for (int j = 0; j < rule.heads.size(); ++j)
             {
                 if (i == j) continue;
@@ -1243,17 +1288,18 @@ void ProgramCompiler::transformDisjunction(GroundedRule&& rule)
 
 bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
 {
-    vxy_assert(rule.headType == ERuleHeadType::Normal);
+    vxy_assert(rule.headType != ERuleHeadType::Disjunction);
     vxy_assert(rule.heads.size() <= 1);
 
     if (!rule.heads.empty())
     {
-        addGroundedAtom(CompilerAtom{rule.heads[0], false}, rule.topology);
+        ValueSet factMask(rule.heads[0].getFormula()->mask.size(), false);
+        addGroundedAtom(CompilerAtom{rule.heads[0], factMask}, rule.topology);
     }
 
     // remove duplicates
     // silently discard rule if it is self-contradicting (p and -p)
-    vector<ProgramSymbol> newBody = rule.bodyLits;
+    vector<ProgramSymbol> newBody = rule.body;
     for (auto it = newBody.begin(); it != newBody.end(); ++it)
     {
         const ProgramSymbol& cur = *it;
@@ -1282,7 +1328,7 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
     }
 
     m_groundedRules.push_back(GroundedRule{
-        ERuleHeadType::Normal,
+        rule.headType,
         move(rule.heads),
         move(newBody),
         rule.topology
@@ -1290,10 +1336,13 @@ bool ProgramCompiler::addTransformedRule(GroundedRule&& rule)
     return true;
 }
 
-FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, BindCaller* binder)
+FormulaMapper::FormulaMapper(RuleDatabase& rdb, FormulaUID formulaUID, const wchar_t* formulaName, int domainSize, const ITopologyPtr& topology, BindCaller* binder)
     : m_rdb(&rdb)
+    , m_solver(m_rdb->getSolver())
     , m_formulaUID(formulaUID)
     , m_formulaName(formulaName)
+    , m_domainSize(domainSize)
+    , m_topology(topology)
     , m_binder(binder)
 {
 }
@@ -1303,52 +1352,70 @@ void FormulaMapper::lockVariableCreation()
     m_rdb = nullptr;
 }
 
-Literal FormulaMapper::getLiteral(const vector<ProgramSymbol>& concrete, CreationType creationType) const
+VarID FormulaMapper::getVariableForArguments(const vector<ProgramSymbol>& concrete, CreationType creationType) const
 {
-    size_t argHash = ArgumentHasher()(concrete);
-    auto found = m_bindMap.find_by_hash(concrete, argHash);
-    if (found == m_bindMap.end())
+    size_t hashCode = ArgumentHasher()(concrete);
+    auto found = m_bindMap.find_by_hash(concrete, hashCode);
+    if (found != m_bindMap.end())
     {
-        if (creationType == NeverCreate || m_rdb == nullptr)
-        {
-            return {};
-        }
-
-        Literal lit;
-        if (m_binder != nullptr)
-        {
-            lit = m_binder->call(*m_rdb, concrete);
-        }
-
-        if (!lit.isValid())
-        {
-            if (creationType == CreateIfBound)
-            {
-                return {};
-            }
-            
-            wstring name = m_formulaName;
-            name.append(TEXT("("));
-            for (int i = 0; i < concrete.size(); ++i)
-            {
-                if (i > 0)
-                {
-                    name.append(TEXT(", "));
-                }
-                name.append(concrete[i].toString());
-            }
-            name.append(TEXT(")"));
-
-            lit = Literal(m_rdb->getSolver().makeBoolean(name), SolverVariableDomain(0,1).getBitsetForValue(1));
-            if (lit.isValid() && LOG_VAR_INSTANTIATION)
-            {
-                VERTEXY_LOG("  Created %s", name.c_str());
-            }
-        }
-        found = m_bindMap.insert(argHash, nullptr, {concrete, move(lit)}).first;
+        return found->second;
     }
-    vxy_assert(found->second.isValid());
-    return found->second;
+    
+    if (m_rdb == nullptr || creationType == NeverCreate)
+    {
+        return {};
+    }
+    
+    if (m_binder != nullptr)
+    {
+        VarID var = m_binder->call(*m_rdb, concrete);
+        vxy_assert(var.isValid());
+
+        m_bindMap.insert(hashCode, nullptr, {concrete, var});
+        return var;
+    }
+
+    if (creationType == CreateIfBound)
+    {
+        return {};
+    }
+    
+    wstring name = m_formulaName;
+    name.append(TEXT("("));
+    for (int i = 0; i < concrete.size(); ++i)
+    {
+        if (i > 0)
+        {
+            name.append(TEXT(", "));
+        }
+        name.append(m_topology->vertexIndexToString(concrete[i].getInt()));
+    }
+    name.append(TEXT(")"));
+
+    auto newVar = m_rdb->getSolver().makeVariable(name, SolverVariableDomain(0, m_domainSize));
+    if (LOG_VAR_INSTANTIATION)
+    {
+        VERTEXY_LOG("  Created %s", name.c_str());
+    }
+
+    m_bindMap.insert(hashCode, nullptr, {concrete, newVar});
+    return newVar;
+}
+
+void FormulaMapper::getDomainMapping(vector<int>& outMapping) const
+{
+    if (m_binder != nullptr)
+    {
+        outMapping = m_binder->getDomainMapping();
+    }
+    else
+    {
+        outMapping.clear();
+        for (int i = 1; i <= m_domainSize; ++i)
+        {
+            outMapping.push_back(i);
+        }
+    }
 }
 
 FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, const ProgramSymbol& symbol, bool headTerm)
@@ -1361,18 +1428,23 @@ FormulaGraphRelation::FormulaGraphRelation(const FormulaMapperPtr& bindMapper, c
     vxy_assert(m_formulaMapper->getFormulaUID() == symbol.getFormula()->uid);
 }
 
-bool FormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+void FormulaGraphRelation::getDomainMapping(vector<int>& outMapping) const
+{
+    m_formulaMapper->getDomainMapping(outMapping);
+}
+
+bool FormulaGraphRelation::getRelation(VertexID sourceVertex, VarID& out) const
 {
     if (!makeConcrete(sourceVertex, m_concrete))
     {
         return false;
     }
 
-    out = m_formulaMapper->getLiteral(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
+    out = m_formulaMapper->getVariableForArguments(m_concrete, m_isHeadTerm ? FormulaMapper::AlwaysCreate : FormulaMapper::NeverCreate);
     return out.isValid();
 }
 
-bool FormulaGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool FormulaGraphRelation::equals(const IGraphRelation<VarID>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const FormulaGraphRelation*>(&rhs))
     {
@@ -1393,19 +1465,15 @@ wstring FormulaGraphRelation::toString() const
     return out;
 }
 
-bool FormulaGraphRelation::needsInstantiation() const
-{
-    return m_formulaMapper->hasBinder();
-}
-
-bool FormulaGraphRelation::instantiateNecessary(int vertex, Literal& outLiteral) const
+bool FormulaGraphRelation::instantiateNecessary(int vertex, VarID& outVar) const
 {
     if (!makeConcrete(vertex, m_concrete))
     {
         return false;
     }
-    outLiteral = m_formulaMapper->getLiteral(m_concrete, FormulaMapper::CreateIfBound);
-    return outLiteral.isValid();
+
+    outVar = m_formulaMapper->getVariableForArguments(m_concrete, FormulaMapper::CreateIfBound);
+    return outVar.isValid();
 }
 
 void FormulaGraphRelation::lockVariableCreation() const
@@ -1430,7 +1498,7 @@ bool FormulaGraphRelation::makeConcrete(int vertex, vector<ProgramSymbol>& outCo
     return true;
 }
 
-ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const Literal& trueValue)
+ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& symbol, const SignedClause& trueValue)
     : m_symbol(symbol)
     , m_trueValue(trueValue)
 {
@@ -1438,15 +1506,21 @@ ExternalFormulaGraphRelation::ExternalFormulaGraphRelation(const ProgramSymbol& 
     vxy_assert(!m_symbol.isNegated());
 }
 
-bool ExternalFormulaGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+void ExternalFormulaGraphRelation::getDomainMapping(vector<int>& outMapping) const
 {
-    out = m_trueValue;
+    outMapping.clear();
+    outMapping.push_back(1);
+}
+
+bool ExternalFormulaGraphRelation::getRelation(VertexID sourceVertex, VarID& out) const
+{
+    out = m_trueValue.variable;
 
     ProgramSymbol concrete = m_symbol.makeConcrete(sourceVertex);
     return concrete.isValid();
 }
 
-bool ExternalFormulaGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool ExternalFormulaGraphRelation::equals(const IGraphRelation<VarID>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const ExternalFormulaGraphRelation*>(&rhs))
     {
@@ -1467,29 +1541,23 @@ wstring ExternalFormulaGraphRelation::toString() const
     return out;
 }
 
-HasRelationGraphRelation::HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation, const Literal& trueValue)
+HasRelationGraphRelation::HasRelationGraphRelation(const IGraphRelationPtr<VertexID>& relation)
     : m_relation(relation)
-    , m_trueValue(trueValue)
 {
 }
 
-bool HasRelationGraphRelation::getRelation(VertexID sourceVertex, Literal& out) const
+bool HasRelationGraphRelation::getRelation(VertexID sourceVertex, bool& out) const
 {
-    out = m_trueValue;
-
     int ignored;
-    if (!m_relation->getRelation(sourceVertex, ignored))
-    {
-        out = out.inverted();
-    }
+    out = m_relation->getRelation(sourceVertex, ignored);
     return true;
 }
 
-bool HasRelationGraphRelation::equals(const IGraphRelation<Literal>& rhs) const
+bool HasRelationGraphRelation::equals(const IGraphRelation<bool>& rhs) const
 {
     if (auto rrhs = dynamic_cast<const HasRelationGraphRelation*>(&rhs))
     {
-        return m_relation->equals(*rrhs->m_relation) && m_trueValue == rrhs->m_trueValue;
+        return m_relation->equals(*rrhs->m_relation);
     }
     return false;
 }

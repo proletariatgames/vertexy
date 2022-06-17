@@ -21,7 +21,8 @@
 #include "variable/GenericVariablePropagator.h"
 #include "variable/StubVariablePropagator.h"
 #include "variable/WordVariablePropagator.h"
-#include "topology/GraphRelations.h"
+#include "topology/IGraphRelation.h"
+#include "topology/TopologyVertexData.h"
 #include "util/SolverDecisionLog.h"
 #include "ds/FastLookupSet.h"
 #include "rules/UnfoundedSetAnalyzer.h"
@@ -40,11 +41,11 @@ using namespace Vertexy;
 static constexpr bool EXPLANATION_SANITY_CHECK = VERTEXY_SANITY_CHECKS;
 // Whether graph-learning is enabled. When enabled, some learned constraints can be promoted to all vertices on a graph.
 static constexpr bool GRAPH_LEARNING_ENABLED = true;
-// Whether we should log every graph promotion that happens.
-static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Whether we should test that graph promotions are valid. Happens after solve is complete (SAT or UNSAT).
 // Can be used even if GRAPH_LEARNING_ENABLED = false, to verify that graph constraints *would've* been (in)correct
 static constexpr bool TEST_GRAPH_PROMOTIONS = true;
+// How many constraints promoted from a graph constraint should be queued before we restart solving and initialize them.
+static constexpr int NUM_PENDING_PROMOTIONS_BEFORE_RESTART = 500;
 
 // Whether we attempt to simplify clause constraints prior to solving.
 static constexpr bool SIMPLIFY_CONSTRAINTS = true;
@@ -55,8 +56,10 @@ static constexpr int DECISION_LOG_FREQUENCY = -1;
 static constexpr bool LOG_VARIABLE_PROPAGATIONS = false;
 // Whether to log every time the solver backtracks. Very noisy!
 static constexpr bool LOG_BACKTRACKS = false;
-// Log every clause constraint created
+// Log every initial clause constraint created
 static constexpr bool LOG_CLAUSE_CONSTRAINTS = false;
+// Whether we should log every graph promotion that happens.
+static constexpr bool LOG_GRAPH_PROMOTIONS = false;
 // Log the set of variables that remain unsolved after initialization
 static constexpr bool LOG_INITIAL_UNSOLVED_VARIABLES = false;
 
@@ -193,6 +196,31 @@ VarID ConstraintSolver::makeVariable(const wstring& varName, const vector<int>& 
 		maxValue = max(maxValue, value);
 	}
 	return makeVariable(varName, SolverVariableDomain(minValue, maxValue), potentialValues);
+}
+
+shared_ptr<TTopologyVertexData<VarID>> ConstraintSolver::makeVariableGraph(const wstring& dataName, const shared_ptr<ITopology>& topology, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
+{
+	auto output = make_shared<TTopologyVertexData<VarID>>(topology, VarID::INVALID, dataName);
+	fillVariableGraph(output, variableDomain, namePrefix);
+	return output;
+}
+
+void ConstraintSolver::fillVariableGraph(const shared_ptr<TTopologyVertexData<VarID>>& data, const SolverVariableDomain& variableDomain, const wstring& namePrefix)
+{
+	shared_ptr<ITopology> graph = data->getSource();
+	for (int i = 0; i < graph->getNumVertices(); ++i)
+	{
+		wstring varName = namePrefix + graph->vertexIndexToString(i);
+		VarID varID = makeVariable(varName, variableDomain);
+		data->set(i, varID);
+
+		m_variableToGraphs[varID.raw()].push_back(m_graphs.size());
+	}
+
+	if (!contains(m_graphs.begin(), m_graphs.end(), data->getSource()))
+	{
+		m_graphs.push_back(data->getSource());
+	}
 }
 
 void ConstraintSolver::setInitialValues(VarID varID, const vector<int>& potentialValues)
@@ -441,8 +469,10 @@ void ConstraintSolver::addProgram(const ProgramInstancePtr& instance)
 
 bool ConstraintSolver::simplify()
 {
-	vector<vector<int>> occurList;
-	occurList.resize(m_variableDB.getNumVariables()+1, {});
+	double startTime = TimeUtils::getSeconds();
+	
+	vector<hash_map<ValueSet, vector<int>>> occurList;
+	occurList.resize(m_variableDB.getNumVariables()+1);
 
 	vector<ClauseConstraint*> clauses;
 	clauses.reserve(m_constraints.size());
@@ -477,7 +507,7 @@ bool ConstraintSolver::simplify()
 	// Note that we may discover the problem is UNSAT here.
 	auto propagateTopLevel = [&]()
 	{
-		vector<VarID> varsRemoved;
+		vector<Literal> litsRemoved;
 		bool fixPoint = false;
 		while (!fixPoint)
 		{
@@ -489,20 +519,20 @@ bool ConstraintSolver::simplify()
 					continue;
 				}
 
-				varsRemoved.clear();
-				if (!clauses[i]->propagateAndStrengthen(&m_variableDB, varsRemoved))
+				litsRemoved.clear();
+				if (!clauses[i]->propagateAndStrengthen(&m_variableDB, litsRemoved))
 				{
 					return false;
 				}
 
-				if (!varsRemoved.empty())
+				if (!litsRemoved.empty())
 				{
 					fixPoint = false;
 
 					strengthenedConstraints.add(i);
-					for (auto& var : varsRemoved)
+					for (auto& lit : litsRemoved)
 					{
-						occurList[var.raw()].erase_first_unsorted(i);
+						occurList[lit.variable.raw()][lit.values].erase_first_unsorted(i);
 						++numLiteralsRemoved;
 					}
 				}
@@ -518,14 +548,14 @@ bool ConstraintSolver::simplify()
 
 					for (auto itLit = clauses[i]->beginLiterals(), itLitEnd = clauses[i]->endLiterals(); itLit != itLitEnd; ++itLit)
 					{
-						occurList[itLit->variable.raw()].erase_first_unsorted(i);
+						occurList[itLit->variable.raw()][itLit->values].erase_first_unsorted(i);
 						++numLiteralsRemoved;
 					}
 
 					m_constraints[clauses[i]->getID()].reset();
 					clauses[i] = nullptr;
 				}
-				else if (!varsRemoved.empty())
+				else if (!litsRemoved.empty())
 				{
 					clauseHashes[i] = hashClause(clauses[i]);
 				}
@@ -553,7 +583,7 @@ bool ConstraintSolver::simplify()
 				for (int i = 0; i < clauseCon->getNumLiterals(); ++i)
 				{
 					auto& lit = clauseCon->getLiteral(i);
-					occurList[lit.variable.raw()].push_back(clauses.size());
+					occurList[lit.variable.raw()][lit.values].push_back(clauses.size());
 				}
 				numTotalLiterals += clauseCon->getNumLiterals();
 
@@ -594,6 +624,11 @@ bool ConstraintSolver::simplify()
 
 			if (negateVar == it->variable)
 			{
+				// TODO: This seems like it would be correct, but not totally sure:
+				// if (!found->values.isSubsetOf(it->values.inverted()))
+				// {
+				// 	return false;
+				// }
 				if (found->values != it->values.inverted())
 				{
 					return false;
@@ -619,13 +654,15 @@ bool ConstraintSolver::simplify()
 
 		outConsumed.clear();
 
-		VarID bestVar = cons->getLiteral(0).variable;
+		const Literal* bestLit = &cons->getLiteral(0);
+		int bestSize = occurList[bestLit->variable.raw()][bestLit->values].size();
 		for (int i = 1; i < cons->getNumLiterals(); ++i)
 		{
 			auto& lit = cons->getLiteral(i);
-			if (occurList[lit.variable.raw()].size() < occurList[bestVar.raw()].size())
+			int size = occurList[lit.variable.raw()][lit.values].size();
+			if (size < bestSize)
 			{
-				bestVar = lit.variable;
+				bestLit = &lit;
 			}
 		}
 
@@ -636,7 +673,7 @@ bool ConstraintSolver::simplify()
 			negateVar = cons->getLiteral(negateLitIdx).variable;
 		}
 
-		for (int& occur : occurList[bestVar.raw()])
+		for (int occur : occurList[bestLit->variable.raw()][bestLit->values])
 		{
 			if (isSubsetOf(clauseIdx, occur, negateVar))
 			{
@@ -657,19 +694,21 @@ bool ConstraintSolver::simplify()
 		{
 			auto& lit = cons->getLiteral(i);
 			findSubsumed(clauseIdx, consumed, i);
-			for (int& clause : consumed)
+			for (int consumedIdx : consumed)
 			{
-				auto strCons = clauses[clause];
+				vxy_assert(consumedIdx != clauseIdx);
+				auto strCons = clauses[consumedIdx];
 				bool found = false;
 				for (int j = 0; j < strCons->getNumLiterals(); ++j)
 				{
 					if (strCons->getLiteral(j).variable == lit.variable)
 					{
 						vxy_sanity(strCons->getLiteral(j).values == lit.values.inverted());
+						occurList[lit.variable.raw()][strCons->getLiteral(j).values].erase_first_unsorted(consumedIdx);
+
 						strCons->removeLiteralAt(&m_variableDB, j);
-						clauseHashes[clause] = hashClause(strCons);
-						occurList[lit.variable.raw()].erase_first_unsorted(clause);
-						strengthenedConstraints.add(clause);
+						clauseHashes[consumedIdx] = hashClause(strCons);
+						strengthenedConstraints.add(consumedIdx);
 
 						++numLiteralsRemoved;
 
@@ -685,15 +724,10 @@ bool ConstraintSolver::simplify()
 	// Return all clauses that contain the specified literal (exact match)
 	auto getClausesWithLiteral = [&](const Literal& lit, LookupSet& outClauses)
 	{
-		const auto& list = occurList[lit.variable.raw()];
+		const auto& list = occurList[lit.variable.raw()][lit.values];
 		for (int listLit : list)
 		{
-			auto cons = clauses[listLit];
-			auto found = find_if(cons->beginLiterals(), cons->endLiterals(), [&](auto& l) { return l.variable == lit.variable; });
-			if (found != cons->endLiterals() && found->values == lit.values)
-			{
-				outClauses.add(listLit);
-			}
+			outClauses.add(listLit);
 		}
 	};
 
@@ -768,7 +802,7 @@ bool ConstraintSolver::simplify()
 				auto subsumed = clauses[subsumedIdx];
 				for (auto itLit = subsumed->beginLiterals(), itLitEnd = subsumed->endLiterals(); itLit != itLitEnd; ++itLit)
 				{
-					occurList[itLit->variable.raw()].erase_first_unsorted(subsumedIdx);
+					occurList[itLit->variable.raw()][itLit->values].erase_first_unsorted(subsumedIdx);
 					++numLiteralsRemoved;
 				}
 
@@ -780,9 +814,10 @@ bool ConstraintSolver::simplify()
 		}
 	}
 
+	double endTime = TimeUtils::getSeconds();
 	if (numConstraintsRemoved > 0 || numLiteralsRemoved > 0)
 	{
-		VERTEXY_LOG("Simplification: removed %d/%d clause constraints, %d/%d clause literals", numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
+		VERTEXY_LOG("Simplification in %.2fs: removed %d/%d clause constraints, %d/%d clause literals", endTime-startTime, numConstraintsRemoved, clauses.size(), numLiteralsRemoved, numTotalLiterals);
 	}
 	return true;
 }
@@ -1039,6 +1074,16 @@ EConstraintSolverResult ConstraintSolver::step()
 
 	++m_stats.stepCount;
 
+	if (getCurrentDecisionLevel() == 0)
+	{
+		if (!registerQueuedGraphPromotions())
+		{
+			m_stats.endTime = TimeUtils::getSeconds();
+			m_currentStatus = EConstraintSolverResult::Unsatisfiable;
+			return EConstraintSolverResult::Unsatisfiable;
+		}
+	}
+
 	// Propagate any assignments made. If this returns false, then a constraint has reported failure,
 	// or a variable has no potential values left.
 	if (!propagate())
@@ -1099,7 +1144,7 @@ EConstraintSolverResult ConstraintSolver::step()
 	else
 	{
 		// Check if we should restart now
-		if (getCurrentDecisionLevel() > 0 && m_restartPolicy.shouldRestart())
+		if (getCurrentDecisionLevel() > 0 && shouldRestart())
 		{
 			backtrackUntilDecision(0, true);
 
@@ -1173,22 +1218,6 @@ EConstraintSolverResult ConstraintSolver::step()
 
 bool ConstraintSolver::propagate()
 {
-	// If we have any constraints queued up to be propagated across graphs, do so now.
-	if (GRAPH_LEARNING_ENABLED)
-	{
-		for (auto it = m_constraintsToPromoteToGraph.begin(), itEnd = m_constraintsToPromoteToGraph.end(); it != itEnd;)
-		{
-			if (!it->first->isPromotableToGraph() || promoteConstraintToGraph(*it->first, it->second))
-			{
-				it = m_constraintsToPromoteToGraph.erase(it);
-			}
-			else
-			{
-				return false;
-			}
-		}
-	}
-
 	if (!propagateVariables())
 	{
 		return false;
@@ -1296,6 +1325,21 @@ bool ConstraintSolver::getNextDecisionLiteral(VarID& variable, ValueSet& value)
 	return false;
 }
 
+bool ConstraintSolver::shouldRestart()
+{
+	if (m_restartPolicy.shouldRestart())
+	{
+		return true;
+	}
+
+	if (m_pendingPromotedConstraints.size() >= NUM_PENDING_PROMOTIONS_BEFORE_RESTART)
+	{
+		return true;
+	}
+
+	return false;
+}
+
 void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel, bool isRestart/*=false*/)
 {
 	vxy_assert(decisionLevel < getCurrentDecisionLevel());
@@ -1314,7 +1358,7 @@ void ConstraintSolver::backtrackUntilDecision(SolverDecisionLevel decisionLevel,
 	}
 
 	const SolverTimestamp newTimestamp = getTimestampForDecisionLevel(decisionLevel + 1);
-	m_variableDB.backtrack(newTimestamp);
+	m_variableDB.backtrack(newTimestamp, m_decisionLevels.back().modificationIndex);
 
 	while (getCurrentDecisionLevel() > decisionLevel)
 	{
@@ -1531,8 +1575,7 @@ ClauseConstraint* ConstraintSolver::learn(const vector<Literal>& explanation, co
 			// instantiate it over the whole graph.
 			if (canPromoteToGraph)
 			{
-				vxy_sanity(m_constraintsToPromoteToGraph.find(learnedCons) == m_constraintsToPromoteToGraph.end());
-				m_constraintsToPromoteToGraph[learnedCons] = 0;
+				promoteConstraintToGraph(*learnedCons);
 			}
 		}
 		else
@@ -1621,17 +1664,21 @@ void ConstraintSolver::markConstraintActivity(ClauseConstraint& constraint, bool
 
 			// Once a constraint learned from a graph is promoted to permanent pool, we
 			// instantiate it over the whole graph.
-			if (GRAPH_LEARNING_ENABLED && constraint.isPromotableToGraph() &&
-				m_constraintsToPromoteToGraph.find(&constraint) == m_constraintsToPromoteToGraph.end())
+			if (constraint.isPromotableToGraph())
 			{
-				m_constraintsToPromoteToGraph[&constraint] = 0;
+				promoteConstraintToGraph(constraint);
 			}
 		}
 	}
 }
 
-bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, int& startVertex)
+void ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint)
 {
+	if (!GRAPH_LEARNING_ENABLED)
+	{
+		return;
+	}
+	
 	vxy_assert(constraint.isLearned());
 	vxy_assert(constraint.isPermanent());
 	vxy_assert(constraint.getGraph() != nullptr);
@@ -1650,13 +1697,10 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 	// Instantiate the constraint for each applicable node in the graph
 	//
 
-	bool success = true;
-
 	auto& filter = constraint.getGraphRelationInfo()->getFilter();
 
 	static vector<Literal> nodeClauses;
-	vxy_sanity(startVertex < graph->getNumVertices());
-	for (int nodeIndex = startVertex; nodeIndex < graph->getNumVertices(); ++nodeIndex)
+	for (int nodeIndex = 0; nodeIndex < graph->getNumVertices(); ++nodeIndex)
 	{
 		// No need to create the same exact clause we're promoting
 		if (nodeIndex == promotingNode)
@@ -1696,27 +1740,10 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 		else
 		{
 			++numCreated;
-			++m_stats.numGraphClonedConstraints;
-			++m_stats.numConstraintsLearned;
-
 			registerConstraint(newCons);
-			m_learnedConstraintSet.insert(hash, nullptr, newCons);
-
 			newCons->setStepLearned(m_stats.stepCount);
 			newCons->setPromotionSource(&constraint);
-
-			m_temporaryLearnedConstraints.push_back(newCons);
-
-			m_lastTriggeredSink = newCons;
-			m_lastTriggeredTs = m_variableDB.getTimestamp();
-			if (!newCons->initialize(&m_variableDB, nullptr))
-			{
-				success = false;
-				startVertex = nodeIndex;
-				break;
-			}
-			m_lastTriggeredSink = nullptr;
-			m_lastTriggeredTs = -1;
+			m_pendingPromotedConstraints.push_back(newCons);
 		}
 	}
 
@@ -1759,12 +1786,31 @@ bool ConstraintSolver::promoteConstraintToGraph(ClauseConstraint& constraint, in
 		++m_stats.numFailedConstraintPromotions;
 	}
 
-	if (success)
+	constraint.setPromotedToGraph();
+}
+
+bool ConstraintSolver::registerQueuedGraphPromotions()
+{
+	for (auto cons : m_pendingPromotedConstraints)
 	{
-		constraint.setPromotedToGraph();
-		startVertex = graph->getNumVertices();
+		++m_stats.numGraphClonedConstraints;
+		++m_stats.numConstraintsLearned;
+		
+		m_temporaryLearnedConstraints.push_back(cons);
+		m_learnedConstraintSet.insert(cons);
+
+		m_lastTriggeredSink = cons;
+		m_lastTriggeredTs = m_variableDB.getTimestamp();
+		if (!cons->initialize(&m_variableDB, nullptr))
+		{
+			return false;
+		}
+		m_lastTriggeredSink = nullptr;
+		m_lastTriggeredTs = -1;
 	}
-	return success;
+	m_pendingPromotedConstraints.clear();
+
+	return true;
 }
 
 bool ConstraintSolver::createLiteralsForGraphPromotion(const ClauseConstraint& promotingCons, int destVertex, ConstraintGraphRelationInfo& outRelInfo, vector<Literal>& outLits) const
@@ -1936,8 +1982,11 @@ void ConstraintSolver::sanityCheckGraphClauses()
 			{
 				int startNode = 0;
 				constraint->setPermanent();
-				bool promoted = promoteConstraintToGraph(*constraint, startNode);
-				vxy_assert_msg(promoted, "Invalid graph constraint %d: %s", constraint->getID(), clauseConstraintToString(*constraint).c_str());
+				promoteConstraintToGraph(*constraint);
+				if (!registerQueuedGraphPromotions())
+				{
+					vxy_fail_msg("Invalid graph constraint %d: %s", constraint->getID(), clauseConstraintToString(*constraint).c_str());
+				}
 			}
 		}
 	}
@@ -2040,6 +2089,8 @@ wstring ConstraintSolver::literalArrayToString(const vector<Literal>& clauses) c
 wstring ConstraintSolver::literalToString(const Literal& lit) const
 {
 	wstring out = m_variableDB.getVariableName(lit.variable);
+	out.append_sprintf(TEXT("[%d]"), lit.variable.raw());
+	
 	ValueSet values = lit.values;
 	if (values.getNumSetBits() > (values.size() >> 1))
 	{

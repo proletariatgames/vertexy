@@ -12,7 +12,7 @@ namespace Vertexy
 class FunctionInstantiator : public Instantiator
 {
 public:
-    FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, const ITopologyPtr& topology);
+    FunctionInstantiator(FunctionTerm& term, const ProgramCompiler::AtomDomain& domain, bool canBeAbstract, const ITopologyPtr& topology);
 
     virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
@@ -20,14 +20,19 @@ public:
 
 protected:
     void moveNextDomainAtom();
+    bool matches(const ProgramSymbol& symbol, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex);
 
     FunctionTerm& m_term;
     const ProgramCompiler::AtomDomain& m_domain;
+    bool m_canBeAbstract = false;
     const ITopologyPtr& m_topology;
+
     int m_index = 0;
     int m_subIndex = 0;
+    int m_numDomainAtoms = 0;
     bool m_forceConcrete = false;
     mutable bool m_hitEnd = false;
+    hash_set<ProgramSymbol, call_hash> m_visited;
 };
 
 class ExternalFunctionInstantiator : public Instantiator
@@ -44,11 +49,28 @@ protected:
     mutable bool m_hitEnd;
 };
 
+class ExternalConcreteFunctionInstantiator : public Instantiator
+{
+public:
+    ExternalConcreteFunctionInstantiator(FunctionTerm& term, const ITopologyPtr& topology);
+    virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
+    virtual bool hitEnd() const override;
+
+protected:
+    bool matches(int vertex, const AbstractOverrideMap& overrideMap);
+    
+    FunctionTerm& m_term;
+    ITopologyPtr m_topology;
+    int m_nextVertex;
+    bool m_hitEnd;
+};
+
 // Instantiator for <Variable> = <Term> terms
 class EqualityInstantiator : public Instantiator
 {
 public:
-    EqualityInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler);
+    EqualityInstantiator(BinaryOpTerm& term, bool canBeAbstract, const ProgramCompiler& compiler, const ITopologyPtr& topology);
 
     virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
@@ -56,7 +78,10 @@ public:
 
 protected:
     BinaryOpTerm& m_term;
+    bool m_canBeAbstract;
     const ProgramCompiler& m_compiler;
+    ITopologyPtr m_topology;
+    int m_nextVertex;
     mutable bool m_hitEnd;
 };
 
@@ -64,7 +89,7 @@ protected:
 class RelationInstantiator : public Instantiator
 {
 public:
-    RelationInstantiator(BinaryOpTerm& term, const ProgramCompiler& compiler);
+    RelationInstantiator(BinaryOpTerm& term, bool canBeAbstract, const ProgramCompiler& compiler, const ITopologyPtr& topology);
 
     virtual void first(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual void match(AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
@@ -74,7 +99,10 @@ protected:
     static bool isRelationOp(EBinaryOperatorType op);
 
     BinaryOpTerm& m_term;
+    bool m_canBeAbstract;
     const ProgramCompiler& m_compiler;
+    ITopologyPtr m_topology;
+    int m_nextVertex;
     mutable bool m_hitEnd;
 };
 

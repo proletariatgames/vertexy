@@ -2,13 +2,15 @@
 
 #pragma once
 #include "ProgramTypes.h"
+#include <EASTL/hash_set.h>
 
 namespace Vertexy
 {
 
 enum class ESymbolType : uint8_t
 {
-    Integer = 0,
+    PositiveInteger = 0,
+    NegativeInteger,
     ID,
     Formula,
     External,
@@ -35,8 +37,8 @@ public:
     ProgramSymbol(int32_t constant);
     ProgramSymbol(const wchar_t* name);
 
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
-    ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
+    ProgramSymbol(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
     ProgramSymbol(const ConstantFormula* formula, bool negated, const IExternalFormulaProviderPtr& relation=nullptr);
 
     ProgramSymbol& operator=(const ProgramSymbol& rhs);
@@ -51,8 +53,8 @@ public:
 
     int getInt() const
     {
-        vxy_sanity(getType() == ESymbolType::Integer);
-        return m_packed;
+        vxy_sanity(isInteger());
+        return getType() == ESymbolType::PositiveInteger ? m_packed : -decode(m_packed);
     }
 
     const wchar_t* getID() const
@@ -68,7 +70,7 @@ public:
     }
 
     bool isAbstract() const { return getType() == ESymbolType::Abstract; }
-    bool isInteger() const { return getType() == ESymbolType::Integer; }
+    bool isInteger() const { return getType() == ESymbolType::PositiveInteger || getType() == ESymbolType::NegativeInteger; }
     bool isID() const { return getType() == ESymbolType::ID; }
     bool isExternalFormula() const { return getType() == ESymbolType::External; }
     bool isNormalFormula() const { return getType() == ESymbolType::Formula; }
@@ -84,6 +86,9 @@ public:
 
     ProgramSymbol negatedFormula() const;
     ProgramSymbol absolute() const;
+
+    ProgramSymbol unmasked() const;
+    ProgramSymbol withIncludedMask(const ValueSet& mask) const;
 
     const GraphVertexRelationPtr& getAbstractRelation() const;
     const IExternalFormulaProviderPtr& getExternalFormulaProvider() const;
@@ -120,15 +125,16 @@ private:
 // Represents a unique grounded formula call.
 class ConstantFormula
 {
-    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, size_t hash);
+    /*private*/ ConstantFormula(FormulaUID formula, const wchar_t* formulaName, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t hash);
 
 public:
     FormulaUID uid;
     wstring name;
     vector<ProgramSymbol> args;
+    ValueSet mask;
 
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args);
-    static ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args);
+    static const ConstantFormula* get(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask);
+    static const ConstantFormula* get(FormulaUID formula, const wchar_t* name, vector<ProgramSymbol>&& args, const ValueSet& mask);
 
     wstring toString() const;
     size_t hash() const { return m_hash; }
@@ -136,8 +142,8 @@ public:
 private:
     size_t m_hash;
     
-    static ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, size_t& outHash);
-    static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args);
+    static const ConstantFormula* getExisting(FormulaUID formula, const wchar_t* name, const vector<ProgramSymbol>& args, const ValueSet& mask, size_t& outHash);
+    static uint32_t makeHash(FormulaUID formula, const vector<ProgramSymbol>& args, const ValueSet& mask);
 
     struct Hash
     {
@@ -152,7 +158,7 @@ private:
 struct CompilerAtom
 {
     ProgramSymbol symbol;
-    bool isFact;
+    ValueSet facts;
 };
 
 } // namespace Vertexy
@@ -167,16 +173,6 @@ struct hash<Vertexy::ProgramSymbol>
     inline size_t operator()(const Vertexy::ProgramSymbol& lit) const
     {
         return lit.hash();
-    }
-};
-
-// Hashing for CompilerAtom
-template<>
-struct hash<Vertexy::CompilerAtom>
-{
-    inline size_t operator()(const Vertexy::CompilerAtom& atom) const
-    {
-        return atom.symbol.hash();
     }
 };
 

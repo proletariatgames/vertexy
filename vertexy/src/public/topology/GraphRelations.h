@@ -2,6 +2,7 @@
 #pragma once
 
 #include "ConstraintTypes.h"
+#include "IGraphRelation.h"
 #include "SignedClause.h"
 #include "topology/DigraphEdgeTopology.h"
 #include "topology/TopologyVertexData.h"
@@ -9,47 +10,6 @@
 
 namespace Vertexy
 {
-// Interface for a mapping between a vertices in a graph and values.
-template <typename T>
-class IGraphRelation : public enable_shared_from_this<IGraphRelation<T>>
-{
-public:
-	using RelationType = T;
-	using VertexID = ITopology::VertexID;
-
-	IGraphRelation()
-	{
-	}
-
-	virtual ~IGraphRelation()
-	{
-	}
-
-	template <typename U>
-	shared_ptr<const IGraphRelation<typename U::RelationType>> map(const shared_ptr<U>& relation) const;
-	template<typename U>
-	shared_ptr<const IGraphRelation<T>> filter(U&& filter) const;
-
-	virtual bool equals(const IGraphRelation<T>& rhs) const
-	{
-		return this == &rhs;
-	}
-
-	bool operator==(const IGraphRelation<T>& rhs) const
-	{
-		return equals(rhs);
-	}
-
-	virtual size_t hash() const = 0;
-
-	virtual bool getRelation(VertexID sourceVertex, T& out) const = 0;
-	virtual wstring toString() const { return TEXT("Custom"); }
-};
-
-template<typename T>
-using IGraphRelationPtr = shared_ptr<const IGraphRelation<T>>;
-
-using GraphVertexRelationPtr = IGraphRelationPtr<ITopology::VertexID>;
 
 // Basic graph relation that simply returns the vertex itself.
 class IdentityGraphRelation : public IGraphRelation<ITopology::VertexID>
@@ -121,7 +81,7 @@ public:
 		return eastl::hash<T>()(m_val);
 	}
 
-	virtual wstring toString() const override { return eastl::to_wstring(m_val); }
+	virtual wstring toString() const override { return to_wstring(m_val); }
 
 	const T& getConstant() const { return m_val; }
 	
@@ -790,7 +750,7 @@ protected:
 	int m_edgeIndex;
 };
 
-/** Maps a Vertex->FLiteral relation to the inverse of the literal */
+/** Maps a Vertex->Literal relation to the inverse of the literal */
 class InvertLiteralGraphRelation : public IGraphRelation<Literal>
 {
 public:
@@ -806,7 +766,6 @@ protected:
 	shared_ptr<const IGraphRelation<Literal>> m_inner;
 };
 
-
 class NegateGraphRelation : public IGraphRelation<int>
 {
 public:
@@ -820,6 +779,52 @@ public:
 
 protected:
     IGraphRelationPtr<int> m_child;
+};
+
+template<typename T>
+class NotGraphRelation : public IGraphRelation<T>
+{
+public:
+	explicit NotGraphRelation(const IGraphRelationPtr<T>& child)
+		: m_child(child)
+	{		
+	}
+
+	virtual bool equals(const IGraphRelation<T>& rhs) const override
+	{
+		if (this == &rhs) return true;
+		if (auto rrhs = dynamic_cast<const NotGraphRelation<T>*>(&rhs))
+		{
+			return rrhs->m_child->equals(*m_child);	
+		}
+		return false;
+	}
+	
+	virtual bool getRelation(int sourceVertex, T& out) const override
+	{		
+		if (!m_child->getRelation(sourceVertex, out))
+		{
+			return false;
+		}
+
+		out = !out;
+		return true;
+	}
+	
+	virtual size_t hash() const override
+	{
+		return m_child->hash();
+	}
+	
+	virtual wstring toString() const override
+	{
+		return TEXT("~") + m_child->toString();
+	}
+	
+	const IGraphRelationPtr<T>& getInner() const { return m_child; }
+
+protected:
+	IGraphRelationPtr<T> m_child;
 };
 
 class BinOpGraphRelation : public IGraphRelation<int>
@@ -842,16 +847,16 @@ template <>
 template <typename U>
 shared_ptr<const IGraphRelation<typename U::RelationType>> IGraphRelation<int>::map(const shared_ptr<U>& relation) const
 {
-	if constexpr (is_same_v<typename U::RelationType, int>)
+	if (dynamic_cast<const IdentityGraphRelation*>(this) != nullptr)
+	{
+		return relation;
+	}
+	else if constexpr (is_same_v<typename U::RelationType, int>)
 	{
 		if (dynamic_cast<const IdentityGraphRelation*>(relation.get()) != nullptr)
 		{
 			return shared_from_this();
 		}
-	}
-	else if (dynamic_cast<const IdentityGraphRelation*>(this) != nullptr)
-	{
-		return relation;
 	}
 	
 	return make_shared<TMappingGraphRelation<typename U::RelationType>>(shared_from_this(), const_shared_pointer_cast<U, add_const<U>::type>(relation));

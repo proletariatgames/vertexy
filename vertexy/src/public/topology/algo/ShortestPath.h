@@ -4,6 +4,7 @@
 
 #include "BreadthFirstSearch.h"
 #include "ConstraintTypes.h"
+#include <EASTL/tuple.h>
 
 namespace Vertexy
 {

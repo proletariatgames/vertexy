@@ -2,6 +2,7 @@
 #pragma once
 
 #include "variable/IVariablePropagator.h"
+#include <EASTL/fixed_vector.h>
 
 namespace Vertexy
 {

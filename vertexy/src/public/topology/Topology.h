@@ -4,6 +4,7 @@
 
 #include "ConstraintTypes.h"
 #include "util/EventDispatcher.h"
+#include <EASTL/shared_ptr.h>
 
 namespace Vertexy
 {

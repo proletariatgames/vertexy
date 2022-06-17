@@ -1,8 +1,7 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/OffsetConstraint.h"
-
+#include "constraints/ConstraintFactoryParams.h"
 #include "variable/IVariableDatabase.h"
-#include "ConstraintSolver.h"
 
 using namespace Vertexy;
 

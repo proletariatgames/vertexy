@@ -102,17 +102,18 @@
     <!-- ProgramSymbol -->
     <Type Name="Vertexy::ProgramSymbol">
         <DisplayString Condition="(m_packed >> 56) == 0">{m_packed}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 1">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 2 &amp;&amp; ((m_packed&amp;1)==1)">{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 2 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! {((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==1)">External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 4">Abstract</DisplayString>
-        <DisplayString Condition="(m_packed >> 56) == 5">Invalid</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 1">{-(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 2">{(wchar_t*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==1)">{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 3 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! {((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 4 &amp;&amp; ((m_packed&amp;1)==1)">External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 4 &amp;&amp; ((m_packed&amp;1)==0)">!!FALSE!! External:{((Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL))->name}</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 5">Abstract</DisplayString>
+        <DisplayString Condition="(m_packed >> 56) == 6">Invalid</DisplayString>
         <Expand>
-            <Item Name="Signature" Condition="(m_packed >> 56)==2 || (m_packed >> 56)==3">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
-            <Item Name="Provider" Condition="(m_packed >> 56)==3">(Vertexy::IExternalFormulaProvider*)m_smartPtrBytes[0]</Item>
-            <Item Name="Relation" Condition="(m_packed >> 56)==4">(Vertexy::IGraphRelation&lt;int&gt;*)m_smartPtrBytes[0]</Item>
+            <Item Name="Signature" Condition="(m_packed >> 56)==3 || (m_packed >> 56)==4">(Vertexy::ConstantFormula*)(m_packed &amp; 0x00FFFFFFFFFFFFFEULL)</Item>
+            <Item Name="Provider" Condition="(m_packed >> 56)==4">(Vertexy::IExternalFormulaProvider*)m_smartPtrBytes[0]</Item>
+            <Item Name="Relation" Condition="(m_packed >> 56)==5">(Vertexy::IGraphRelation&lt;int&gt;*)m_smartPtrBytes[0]</Item>
         </Expand>
     </Type>
 </AutoVisualizer>

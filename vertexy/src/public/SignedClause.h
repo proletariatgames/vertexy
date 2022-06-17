@@ -3,6 +3,7 @@
 
 #include "ConstraintTypes.h"
 #include "variable/SolverVariableDomain.h"
+#include <EASTL/shared_ptr.h>
 
 namespace Vertexy
 {
@@ -101,6 +102,8 @@ public:
 	{
 		return !(*this == rhs);
 	}
+
+	bool isValid() const { return variable.isValid(); }
 
 	VariableType variable;
 	EClauseSign sign;

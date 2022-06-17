@@ -1,5 +1,6 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #include "constraints/IffConstraint.h"
+#include "constraints/ConstraintFactoryParams.h"
 #include "variable/IVariableDatabase.h"
 #include "variable/SolverVariableDatabase.h"
 #include <EASTL/algorithm.h>

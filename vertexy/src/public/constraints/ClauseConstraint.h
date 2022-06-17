@@ -117,7 +117,7 @@ public:
 		return nullptr;
 	}
 
-	bool propagateAndStrengthen(IVariableDatabase* db, vector<VarID>& outVarsRemoved);
+	bool propagateAndStrengthen(IVariableDatabase* db, vector<Literal>& outLitsRemoved);
 	void removeLiteralAt(IVariableDatabase* db, int litIndex);
 
 	void getLiterals(vector<Literal>& outLiterals) const;
@@ -166,16 +166,11 @@ public:
 		m_extendedInfo->isPermanent = true;
 	}
 
-	inline bool isPromotableToGraph() const
-	{
-		return m_graphRelationInfo != nullptr && m_graphRelationInfo->getGraph() != nullptr &&
-			   m_extendedInfo != nullptr && !m_extendedInfo->isPromoted && !isPromotedFromGraph();
-	}
+	bool isPromotableToGraph() const;
 
 	inline void setPromotedToGraph()
 	{
 		vxy_assert(isLearned());
-		vxy_assert(m_graphRelationInfo != nullptr);
 		vxy_assert(m_extendedInfo != nullptr);
 		m_extendedInfo->isPromoted = true;
 	}

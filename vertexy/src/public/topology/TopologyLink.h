@@ -4,6 +4,8 @@
 
 #include "ConstraintTypes.h"
 #include "ITopology.h"
+#include <EASTL/fixed_vector.h>
+#include <EASTL/tuple.h>
 
 namespace Vertexy
 {

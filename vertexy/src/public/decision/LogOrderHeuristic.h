@@ -2,6 +2,7 @@
 #pragma once
 #include "ConstraintTypes.h"
 #include "ISolverDecisionHeuristic.h"
+#include <EASTL/shared_ptr.h>
 
 namespace Vertexy
 {
