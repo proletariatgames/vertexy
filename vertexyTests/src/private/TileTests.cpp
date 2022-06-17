@@ -116,7 +116,7 @@ int TileTests::solveImplicit(int times, int seed, bool printVerbose)
     })";
 
 	ConstraintSolver solver(TEXT("PatternTest"), seed);
-	TileSolver tilingSolver(&solver, 10, 10, 3, true, true);
+	TileSolver tilingSolver(&solver, 20, 20, 3, true, true);
     tilingSolver.parseJsonString(input);
 	//tilingSolver.parseJsonFile("W:\\Projetos\\Meus\\C++\\misc\\input.json");
 

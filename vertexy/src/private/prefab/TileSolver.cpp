@@ -116,19 +116,19 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 		}
 	}
 	//DEBUG
-	printf("Total Tiles: %d\n", m_prefabs.size());
-	for (const auto& p : m_prefabs)
-	{
-		printf("(%d) w:%d\n", p->id(), m_prefabFreq[p->id()]);
-		for (int i = 0; i < p->tiles().size(); i++)
-		{
-			for (int j = 0; j < p->tiles()[0].size(); j++)
-			{
-				printf("%d", p->tiles()[i][j].id());
-			}
-			printf("\n");
-		}
-	}
+	//printf("Total Tiles: %d\n", m_prefabs.size());
+	//for (const auto& p : m_prefabs)
+	//{
+	//	printf("(%d) w:%d\n", p->id(), m_prefabFreq[p->id()]);
+	//	for (int i = 0; i < p->tiles().size(); i++)
+	//	{
+	//		for (int j = 0; j < p->tiles()[0].size(); j++)
+	//		{
+	//			printf("%d", p->tiles()[i][j].id());
+	//		}
+	//		printf("\n");
+	//	}
+	//}
 
 	// get possible overlaps for cardinal directions
 	hash_map<int, hash_map<tuple<int, int>, set<int>>> overlaps;
@@ -184,13 +184,15 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 	for (int x = -(m_kernelSize - 1); x < m_kernelSize; x++)
 	{
 		if (x == 0) { continue; }
-		offsets[tuple<int, int>(x, 0)] = x < 0? make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveLeft(-x)) :
+		offsets[tuple<int, int>(x, 0)] = x < 0?
+			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveLeft(-x)) :
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));
 	}
 	for (int y = -(m_kernelSize - 1); y < m_kernelSize; y++)
 	{
 		if (y == 0) { continue; }
-		offsets[tuple<int, int>(0, y)] = y < 0 ? make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveUp(-y)) :
+		offsets[tuple<int, int>(0, y)] = y < 0 ?
+			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveUp(-y)) :
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveDown(y));
 	}
 
@@ -210,11 +212,42 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 
 }
 
+void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection)
+{
+	auto pr = make_shared<Prefab>(m_prefabs.size() + 1, prefab->tiles());
+	if (reflection)
+	{
+		pr->reflect();
+	}
+	pr->rotate(rotations);
+	addUnique(pr);
+}
+
+void TileSolver::addUnique(shared_ptr<Prefab> p)
+{
+	int equalId = -1;
+	for (const auto& prefab : m_prefabs)
+	{
+		if (p->isEqual(*prefab))
+		{
+			equalId = prefab->id();
+			break;
+		}
+	}
+	if (equalId == -1)
+	{
+		m_prefabs.push_back(p);
+		m_prefabFreq[p->id()] = 1;
+	}
+	else
+	{
+		m_prefabFreq[equalId]++;
+	}
+}
+
 void TileSolver::exportJson(string path)
 {
 	json j;
-	j["projection"] = "orthographic"; //PLACEHOLER
-	j["tile_dimension"] = 10; //PLACEHOLER
 	j["grid_cols"] = m_grid->GetWidth();
 	j["grid_rows"] = m_grid->GetHeight();
 	auto tileArray = json::array();
@@ -254,39 +287,3 @@ void TileSolver::exportJson(string path)
 	std::ofstream o(path.c_str());
 	o << std::setw(4) << j << std::endl;
 }
-
-void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection)
-{
-	auto pr = make_shared<Prefab>(m_prefabs.size() + 1, prefab->tiles());
-	if (reflection)
-	{
-		pr->reflect();
-	}
-	pr->rotate(rotations);
-	addUnique(pr);
-}
-
-void TileSolver::addUnique(shared_ptr<Prefab> p)
-{
-	int equalId = -1;
-	for (const auto& prefab : m_prefabs)
-	{
-		if (p->isEqual(*prefab))
-		{
-			equalId = prefab->id();
-			break;
-		}
-	}
-	if (equalId == -1)
-	{
-		m_prefabs.push_back(p);
-		m_prefabFreq[p->id()] = 1;
-	}
-	else
-	{
-		m_prefabFreq[equalId]++;
-	}
-}
-
-
-
