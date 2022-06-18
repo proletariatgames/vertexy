@@ -22,7 +22,6 @@ static constexpr int MAZE_NUM_ROWS = 15;
 static constexpr int MAZE_NUM_COLS = 15;
 static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
-static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
 static constexpr bool PRINT_VERBOSE = false;
 

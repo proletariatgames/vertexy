@@ -12,8 +12,8 @@
 using namespace VertexyTests;
 
 static constexpr int NUM_PEGS = 3;
-static constexpr int NUM_DISKS = 4;
-static constexpr int NUM_TURNS = (1 << NUM_DISKS); //2^n
+static constexpr int NUM_DISCS = 4;
+static constexpr int NUM_TURNS = (1 << NUM_DISCS); //2^n
 
 int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 {
@@ -23,7 +23,7 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 		ConstraintSolver solver(TEXT("Towers-Of-Hanoi"), seed);
 		
 		VXY_DOMAIN_BEGIN(LocationDomain)
-			VXY_DOMAIN_VALUE_ARRAY(loc, NUM_PEGS+NUM_DISKS);
+			VXY_DOMAIN_VALUE_ARRAY(loc, NUM_PEGS+NUM_DISCS);
 		VXY_DOMAIN_END()
 
 		constexpr int FIRST_DISC_IDX = NUM_PEGS;
@@ -42,11 +42,11 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 
 			// location(N) exists for every location (pegs + discs)
 			VXY_FORMULA(location, 1);
-			location = Program::range(0, NUM_PEGS+NUM_DISKS-1);
+			location = Program::range(0, NUM_PEGS+NUM_DISCS-1);
 			
 			// disc(N) exists for every location that is not a peg
 			VXY_FORMULA(isDisc, 1);
-			isDisc = Program::range(NUM_PEGS, NUM_PEGS+NUM_DISKS-1);
+			isDisc = Program::range(NUM_PEGS, NUM_PEGS+NUM_DISCS-1);
 			
 			VXY_FORMULA(start, 2);
 			VXY_FORMULA(end, 2);
@@ -63,7 +63,7 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 			// Choose a move to make each turn
 			move(time).is(move.loc[DISC]).choice() <<= isDisc(DISC);
 			
-			// where(time) == the location the moved disk moves to this turn 
+			// where(time) == the location the moved disc moves to this turn 
 			VXY_DOMAIN_FORMULA(where, LocationDomain, 1);
 			// Choose the destination to move to each turn
 			where(time).is(where.loc[LOCATION]).choice() <<= location(LOCATION); 
@@ -87,13 +87,6 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 			// Don't move the same disc twice in a row
 			Program::disallow(isDisc(DISC) && move(time).is(move.loc[DISC]) && move(time-1).is(move.loc[DISC]) && time < NUM_TURNS-1);
 
-			// Two things can't be on top of the same location at the same time
-			VXY_WILDCARD(DISC2);
-			Program::disallow(location(LOCATION) &&
-				discOn(time, DISC).is(discOn.loc[LOCATION]) && discOn(time, DISC2).is(discOn.loc[LOCATION]) &&
-				DISC != DISC2
-			);
-			
 			// Ensure we reach goal state
 			Program::disallow(end(DISC, LOCATION) && ~discOn(NUM_TURNS-1, DISC).is(discOn.loc[LOCATION]));
 
@@ -102,20 +95,37 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 		
 		auto timeGraph = make_shared<PlanarGridTopology>(NUM_TURNS, 1);
 
-		auto discOnData = make_shared<TTopologyVertexData<vector<VarID>>>(ITopology::adapt(timeGraph), vector<VarID>{}, TEXT("diskOn"));
+		//
+		// Create the variables for binding each potential discOn() pair
+		//
+		
+		auto discOnData = make_shared<TTopologyVertexData<vector<VarID>>>(ITopology::adapt(timeGraph), vector<VarID>{}, TEXT("discOn"));
 		for (int turn = 0; turn < NUM_TURNS; ++turn)
 		{
-			auto& diskOnThisTurn = discOnData->get(turn);
-			diskOnThisTurn.resize(NUM_DISKS);
-			for (int disc = 0; disc < NUM_DISKS; ++disc)
+			auto& discOnThisTurn = discOnData->get(turn);
+			discOnThisTurn.resize(NUM_DISCS);
+			for (int disc = 0; disc < NUM_DISCS; ++disc)
 			{
-				diskOnThisTurn[disc] = solver.makeVariable({wstring::CtorSprintf(), TEXT("discOn(%d, %d)"), turn, FIRST_DISC_IDX+disc}, LocationDomain::get()->getSolverDomain());
+				wstring varName;
+				varName.sprintf(TEXT("discOn(%d, %d)"), turn, FIRST_DISC_IDX+disc);
+				discOnThisTurn[disc] = solver.makeVariable(varName, LocationDomain::get()->getSolverDomain());
 			}
-		}
-		
-		auto moveData = solver.makeVariableGraph(TEXT("moves"), ITopology::adapt(timeGraph), LocationDomain::get()->getSolverDomain(), TEXT("move-"));
-		auto moveDestData = solver.makeVariableGraph(TEXT("moveDests"), ITopology::adapt(timeGraph), LocationDomain::get()->getSolverDomain(), TEXT("moveDest-"));
 
+			// CONSTRAINT: Ensure that every disc is on top of something unique each turn
+			solver.allDifferent(discOnThisTurn);
+		}
+
+		//
+		// Create the variables for binding move() and where()
+		//
+		
+		auto moveData = solver.makeVariableGraph(TEXT("move"), ITopology::adapt(timeGraph), LocationDomain::get()->getSolverDomain(), TEXT("move-"));
+		auto moveDestData = solver.makeVariableGraph(TEXT("where"), ITopology::adapt(timeGraph), LocationDomain::get()->getSolverDomain(), TEXT("moveDest-"));
+		
+		//
+		// Bind the formulas to the variables
+		//
+		
 		auto prgInst = prg(ITopology::adapt(timeGraph));
 		prgInst->getResult().move.bind([&](const ProgramSymbol& time)
 		{
@@ -129,6 +139,10 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 		{
 			return discOnData->get(time.getInt())[disc.getInt()-NUM_PEGS];
 		});
+
+		//
+		// Add the program and solve it!
+		//
 
 		solver.addProgram(prgInst);
 		
@@ -144,16 +158,16 @@ int TowersOfHanoiSolver::solve(int times, int seed, bool printVerbose)
 	return nErrorCount;
 }
 
-void TowersOfHanoiSolver::print(const ConstraintSolver* solver, const vector<VarID>& move, const vector<VarID>& moveDest, const vector<vector<VarID>>& diskOn)
+void TowersOfHanoiSolver::print(const ConstraintSolver* solver, const vector<VarID>& move, const vector<VarID>& moveDest, const vector<vector<VarID>>& discOn)
 {
 	for (int turn = 0; turn < NUM_TURNS; ++turn)
 	{
 		VERTEXY_LOG("Turn %d:", turn);
 		vector<int> onMe;
-		onMe.resize(NUM_DISKS+NUM_PEGS, -1);
-		for (int i = 0; i < NUM_DISKS; ++i)
+		onMe.resize(NUM_DISCS+NUM_PEGS, -1);
+		for (int i = 0; i < NUM_DISCS; ++i)
 		{
-			int on = solver->getSolvedValue(diskOn[turn][i]);
+			int on = solver->getSolvedValue(discOn[turn][i]);
 			onMe[on] = NUM_PEGS+i;
 		}
 

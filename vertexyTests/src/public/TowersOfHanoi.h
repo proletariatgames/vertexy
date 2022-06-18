@@ -16,7 +16,7 @@ public:
 	static int solve(int Times, int Seed, bool bPrint = true);
 
 	static int check(ConstraintSolver* Solver, const vector<vector<VarID>>* Vars);
-	static void print(const ConstraintSolver* solver, const vector<VarID>& move, const vector<VarID>& moveDest, const vector<vector<VarID>>& diskOn);
+	static void print(const ConstraintSolver* solver, const vector<VarID>& move, const vector<VarID>& moveDest, const vector<vector<VarID>>& discOn);
 
 };
 
