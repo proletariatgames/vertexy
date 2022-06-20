@@ -31,7 +31,7 @@ public:
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
 	virtual bool propagate(IVariableDatabase* db) override;
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const override;
 
 protected:
 	enum class EBodySatisfaction : uint8_t

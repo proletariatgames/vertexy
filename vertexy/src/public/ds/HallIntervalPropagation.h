@@ -88,6 +88,11 @@ protected:
 	mutable vector<int> m_sortedEdges;
 	mutable vector<int> m_intervalMinRank;
 	mutable vector<int> m_intervalMaxRank;
+
+	// reused storage:
+	mutable vector<int> m_predecessors;
+	mutable vector<int> m_capacities;
+	mutable vector<int> m_hallIntervalIndices;
 };
 
 } // namespace Vertexy

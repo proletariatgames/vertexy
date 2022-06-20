@@ -531,14 +531,14 @@ bool ReachabilityConstraint::processVertexVariableChange(IVariableDatabase* db, 
 		// If not reachable by any source, then fail
 		if (numReachableSources == 0)
 		{
-			bool success = db->constrainToValues(variable, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); });
+			bool success = db->constrainToValues(variable, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); });
 			vxy_assert(!success);
 			return false;
 		}
 		// If reachable by a single potential source, that single source must be definite
 		else if (numReachableSources == 1)
 		{
-			if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&](auto params) { return explainRequiredSource(params); }))
+			if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&](auto&& params, auto&& expl) { return explainRequiredSource(params, VarID::INVALID, expl); }))
 			{
 				return false;
 			}
@@ -626,7 +626,8 @@ bool ReachabilityConstraint::removeSource(IVariableDatabase* db, VarID source)
 				if (determination == EReachabilityDetermination::DefinitelyUnreachable)
 				{
 					sanityCheckUnreachable(db, vertex);
-					if (!db->constrainToValues(vertexVar, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
+					auto explainer = [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); };
+					if (!db->constrainToValues(vertexVar, m_notReachableMask, this, explainer))
 					{
 						failure = true;
 						return ETopologySearchResponse::Abort;
@@ -654,7 +655,8 @@ bool ReachabilityConstraint::removeSource(IVariableDatabase* db, VarID source)
 					vxy_assert(numReachableSources >= 1);
 					if (numReachableSources == 1)
 					{
-						if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, [&, source](auto params) { return explainRequiredSource(params, source); }))
+						auto explainer = [&, source](auto&& params, auto&& expl) { return explainRequiredSource(params, source, expl); };
+						if (!db->constrainToValues(lastReachableSource, m_sourceMask, this, explainer))
 						{
 							failure = true;
 							return ETopologySearchResponse::Abort;
@@ -766,7 +768,7 @@ void ReachabilityConstraint::onReachabilityChanged(int vertexIndex, VarID source
 			VarID var = m_sourceGraphData->get(vertexIndex);
 			sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
 
-			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto params) { return explainNoReachability(params); }))
+			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_notReachableMask, this, [&](auto&& params, auto&& expl) { return explainNoReachability(params, expl); }))
 			{
 				m_edgeChangeFailure = true;
 			}
@@ -856,7 +858,7 @@ void ReachabilityConstraint::onExplanationGraphEdgeChange(bool edgeWasAdded, int
 	vxy_fail();
 }
 
-vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExplanationParams& params) const
+void ReachabilityConstraint::explainNoReachability(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
 	// return FSolverVariableDatabase::DefaultExplainer(Params);
 
@@ -865,8 +867,8 @@ vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExp
 	auto db = params.database;
 	int conflictVertex = m_variableToSourceVertexIndex.find(params.propagatedVariable)->second;
 
-	vector<Literal> lits;
-	lits.push_back(Literal(params.propagatedVariable, m_notReachableMask));
+	outExplanation.clear();
+	outExplanation.push_back(Literal(params.propagatedVariable, m_notReachableMask));
 
 	static hash_set<VarID> edgeVarsRecorded;
 	edgeVarsRecorded.clear();
@@ -926,7 +928,7 @@ vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExp
 					edgeVarsRecorded.insert(edgeVar);
 
 					vxy_assert(!db->anyPossible(edgeVar, m_edgeOpenMask));
-					lits.push_back(Literal(edgeVar, m_edgeOpenMask));
+					outExplanation.push_back(Literal(edgeVar, m_edgeOpenMask));
 				}
 			}
 
@@ -958,14 +960,12 @@ vector<Literal> ReachabilityConstraint::explainNoReachability(const NarrowingExp
 		// was.
 		else
 		{
-			lits.push_back(Literal(potentialSource, m_sourceMask));
+			outExplanation.push_back(Literal(potentialSource, m_sourceMask));
 		}
 	}
-
-	return lits;
 }
 
-vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
+void ReachabilityConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource, vector<Literal>& outExplanation)
 {
 	vxy_assert(!m_explainingSourceRequirement);
 	TValueGuard<bool> guard(m_explainingSourceRequirement, true);
@@ -975,8 +975,8 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 
 	auto db = params.database;
 
-	vector<Literal> lits;
-	lits.push_back(Literal(sourceVar, m_sourceMask));
+	outExplanation.clear();
+	outExplanation.push_back(Literal(sourceVar, m_sourceMask));
 
 	m_maxGraph->rewindUntil(params.timestamp);
 
@@ -1016,7 +1016,7 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 		}
 		else if (potentialSource != sourceVar)
 		{
-			lits.push_back(Literal(potentialSource, m_sourceMask));
+			outExplanation.push_back(Literal(potentialSource, m_sourceMask));
 		}
 	}
 
@@ -1026,7 +1026,7 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 		// This became a required source because RemovedSource was removed, and some definitely-reachable vertices were
 		// only reachable by this source.
 		vxy_assert(!db->anyPossible(removedSource, m_sourceMask));
-		removedSourceLitIdx = indexOfPredicate(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == removedSource; });
+		removedSourceLitIdx = indexOfPredicate(outExplanation.begin(), outExplanation.end(), [&](auto& lit) { return lit.variable == removedSource; });
 		vxy_assert(removedSourceLitIdx >= 0);
 	}
 
@@ -1057,15 +1057,15 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 				{
 					vxy_assert(m_reachabilitySources[sourceVar].maxReachability->isReachable(vertex));
 					// make sure we don't add the same literal twice!
-					auto found = find_if(lits.begin(), lits.end(), [&](auto& lit) { return lit.variable == vertexVar; });
-					if (found != lits.end())
+					auto found = find_if(outExplanation.begin(), outExplanation.end(), [&](auto& lit) { return lit.variable == vertexVar; });
+					if (found != outExplanation.end())
 					{
 						vxy_assert(found->variable == vertexVar);
 						found->values.include(m_notReachableMask);
 					}
 					else
 					{
-						lits.push_back(Literal(vertexVar, m_notReachableMask));
+						outExplanation.push_back(Literal(vertexVar, m_notReachableMask));
 					}
 					foundSupports = true;
 				}
@@ -1086,7 +1086,6 @@ vector<Literal> ReachabilityConstraint::explainRequiredSource(const NarrowingExp
 	}
 
 	m_maxGraph->fastForward();
-	return lits;
 }
 
 

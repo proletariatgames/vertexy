@@ -82,31 +82,28 @@ bool HallIntervalPropagation::checkAndPrune(vector<Interval>& intervals, const f
 	// Update SortedEdges/IntervalMinRank/IntervalMaxRank
 	bool inverted = createUniqueEdges(intervals);
 
-	vector<int> predecessors;
-	predecessors.resize(m_sortedEdges.size());
-	vector<int> capacities;
-	capacities.resize(m_sortedEdges.size());
-	vector<int> hallIntervalIndices;
-	hallIntervalIndices.resize(m_sortedEdges.size());
+	m_predecessors.resize(m_sortedEdges.size());
+	m_capacities.resize(m_sortedEdges.size());
+	m_hallIntervalIndices.resize(m_sortedEdges.size());
 
-	capacities[0] = 0;
-	predecessors[0] = 0;
-	hallIntervalIndices[0] = 0;
+	m_capacities[0] = 0;
+	m_predecessors[0] = 0;
+	m_hallIntervalIndices[0] = 0;
 	for (int i = 1; i < m_sortedEdges.size(); ++i)
 	{
-		predecessors[i] = i - 1;
-		hallIntervalIndices[i] = i - 1;
+		m_predecessors[i] = i - 1;
+		m_hallIntervalIndices[i] = i - 1;
 
 		if (i == 1)
 		{
 			// handle head sentinel
 			if (!inverted)
 			{
-				capacities[i] = getCapacityForInterval(0, m_sortedEdges[i]) - m_sortedEdges[0] - 1;
+				m_capacities[i] = getCapacityForInterval(0, m_sortedEdges[i]) - m_sortedEdges[0] - 1;
 			}
 			else
 			{
-				capacities[i] = (-m_sortedEdges[i - 1] - m_maxValue - 1) + getCapacityForInterval(-m_sortedEdges[i], m_maxValue);
+				m_capacities[i] = (-m_sortedEdges[i - 1] - m_maxValue - 1) + getCapacityForInterval(-m_sortedEdges[i], m_maxValue);
 			}
 		}
 		else if (i == m_sortedEdges.size() - 1)
@@ -116,28 +113,28 @@ bool HallIntervalPropagation::checkAndPrune(vector<Interval>& intervals, const f
 			{
 				if (m_sortedEdges[i - 1] <= m_maxValue)
 				{
-					capacities[i] = (m_sortedEdges[i] - m_maxValue - 1) + getCapacityForInterval(m_sortedEdges[i - 1], m_maxValue);
+					m_capacities[i] = (m_sortedEdges[i] - m_maxValue - 1) + getCapacityForInterval(m_sortedEdges[i - 1], m_maxValue);
 				}
 				else
 				{
-					capacities[i] = m_sortedEdges[i] - m_sortedEdges[i - 1];
+					m_capacities[i] = m_sortedEdges[i] - m_sortedEdges[i - 1];
 				}
 			}
 			else
 			{
 				if (m_sortedEdges[i - 1] <= 0)
 				{
-					capacities[i] = m_sortedEdges[i] - 1 + getCapacityForInterval(0, -m_sortedEdges[i - 1]);
+					m_capacities[i] = m_sortedEdges[i] - 1 + getCapacityForInterval(0, -m_sortedEdges[i - 1]);
 				}
 				else
 				{
-					capacities[i] = m_sortedEdges[i] - m_sortedEdges[i - 1];
+					m_capacities[i] = m_sortedEdges[i] - m_sortedEdges[i - 1];
 				}
 			}
 		}
 		else
 		{
-			capacities[i] = getCapacityForInterval(m_sortedEdges[i - 1], m_sortedEdges[i] - 1);
+			m_capacities[i] = getCapacityForInterval(m_sortedEdges[i - 1], m_sortedEdges[i] - 1);
 		}
 	}
 
@@ -148,52 +145,52 @@ bool HallIntervalPropagation::checkAndPrune(vector<Interval>& intervals, const f
 		const int y = m_intervalMaxRank[i];
 
 		// Find the critical set the min bound lies in
-		int z = arrayTree_FollowPath(predecessors, x + 1);
-		const int j = predecessors[z];
+		int z = arrayTree_FollowPath(m_predecessors, x + 1);
+		const int j = m_predecessors[z];
 		// reduce the capacity of the set
-		capacities[z]--;
+		m_capacities[z]--;
 
 		// If we're out of capacity
-		if (capacities[z] == 0)
+		if (m_capacities[z] == 0)
 		{
 			// later interval dominated by earlier interval
-			predecessors[z] = z + 1;
-			z = arrayTree_FollowPath(predecessors, predecessors[z]);
-			predecessors[z] = j;
+			m_predecessors[z] = z + 1;
+			z = arrayTree_FollowPath(m_predecessors, m_predecessors[z]);
+			m_predecessors[z] = j;
 		}
 
 		const int boundaryWidth = m_sortedEdges[z] - m_sortedEdges[y];
 
 		// Path compression (just point everything from [x+1 - z] to point to z)
-		arrayTree_SetPath(predecessors, x + 1, z, z);
+		arrayTree_SetPath(m_predecessors, x + 1, z, z);
 
-		if (capacities[z] < boundaryWidth)
+		if (m_capacities[z] < boundaryWidth)
 		{
 			// over capacity in this interval.
 			return false;
 		}
 
-		if (hallIntervalIndices[x] > x)
+		if (m_hallIntervalIndices[x] > x)
 		{
 			//
 			// This is part of a hall interval; we need to exclude values inside the interval.
 			//
 
 			// Find the beginning of the hall interval
-			const int w = arrayTree_FollowPath(hallIntervalIndices, hallIntervalIndices[x]);
+			const int w = arrayTree_FollowPath(m_hallIntervalIndices, m_hallIntervalIndices[x]);
 			if (!callback(intervals[i].key, m_sortedEdges[w]))
 			{
 				return false;
 			}
 			// path compression
-			arrayTree_SetPath(hallIntervalIndices, x, w, w);
+			arrayTree_SetPath(m_hallIntervalIndices, x, w, w);
 		}
 
-		if (capacities[z] == boundaryWidth)
+		if (m_capacities[z] == boundaryWidth)
 		{
 			// New Hall Interval
-			arrayTree_SetPath(hallIntervalIndices, hallIntervalIndices[y], j - 1, y);
-			hallIntervalIndices[y] = j - 1;
+			arrayTree_SetPath(m_hallIntervalIndices, m_hallIntervalIndices[y], j - 1, y);
+			m_hallIntervalIndices[y] = j - 1;
 		}
 	}
 

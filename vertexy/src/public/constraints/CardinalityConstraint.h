@@ -41,7 +41,7 @@ public:
 	virtual void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 	virtual bool propagate(IVariableDatabase* db) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const override;
 
 protected:
 	using Interval = HallIntervalPropagation::Interval;
@@ -50,7 +50,7 @@ protected:
 	bool processLowerboundConstraint(IVariableDatabase* db);
 	bool lbcLow(IVariableDatabase* db, vector<Interval>& intervals);
 	bool lbcHi(IVariableDatabase* db, vector<Interval>& intervals);
-	vector<Literal> explainLowerBoundPropagation(const NarrowingExplanationParams& params) const;
+	void explainLowerBoundPropagation(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const;
 
 	bool getMaximalMatching(IVariableDatabase* db);
 	bool processChangedSCC(IVariableDatabase* db, int scc);

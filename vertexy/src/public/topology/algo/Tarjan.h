@@ -13,7 +13,7 @@ namespace Vertexy
 class TarjanAlgorithm
 {
 public:
-	using AdjacentCallback = const function<void(int /*NodeIndex*/, const function<void(int)>&) /*Recurse*/>&;
+	using AdjacentCallback = const function<void(int /*NodeIndex*/, const function<void(int)>&) /*Recurse*/>;
 
 	TarjanAlgorithm()
 	{

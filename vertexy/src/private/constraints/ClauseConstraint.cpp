@@ -378,15 +378,14 @@ void ClauseConstraint::getLiterals(vector<Literal>& outLiterals) const
 	}
 }
 
-vector<Literal> ClauseConstraint::getLiteralsCopy() const
+void ClauseConstraint::getLiteralsCopy(vector<Literal>& outLiterals) const
 {
-	vector<Literal> outLiterals;
+	outLiterals.clear();
 	outLiterals.reserve(m_numLiterals);
 	for (int i = 0; i < m_numLiterals; ++i)
 	{
 		outLiterals.push_back(m_literals[i]);
 	}
-	return outLiterals;
 }
 
 bool ClauseConstraint::isPromotableToGraph() const

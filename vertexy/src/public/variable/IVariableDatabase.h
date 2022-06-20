@@ -109,8 +109,10 @@ public:
 
 	IVariableDatabase()
 	{
-		// Add dummy for 0 (invalid) variable
-		m_states.push_back(EVariableState::Contradiction);
+		#if CONSTRAINT_USE_CACHED_STATES
+			// Add dummy for 0 (invalid) variable
+			m_states.push_back(EVariableState::Contradiction);
+		#endif
 	}
 
 	virtual ~IVariableDatabase()
@@ -355,7 +357,7 @@ protected:
 		}
 		return m_states[varID.raw()];
 		#else
-		return determineState(ID);
+		return determineState(varID);
 		#endif
 	}
 

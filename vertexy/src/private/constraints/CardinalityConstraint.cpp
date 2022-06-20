@@ -672,10 +672,10 @@ bool CardinalityConstraint::processChangedSCC(IVariableDatabase* db, int scc)
 				}
 			}
 
-			auto explainer = [&](auto params)
+			auto explainer = [&](auto&& params, auto&& expl)
 			{
 				ValueSet removedValues = params.database->getPotentialValues(params.propagatedVariable).excluding(params.propagatedValues);
-				return m_upperBoundExplainer.getExplanation(*params.database, params.propagatedVariable, removedValues);
+				return m_upperBoundExplainer.getExplanation(*params.database, params.propagatedVariable, removedValues, expl);
 			};
 
 			//
@@ -945,7 +945,7 @@ bool CardinalityConstraint::lbcLow(IVariableDatabase* db, vector<Interval>& inte
 		return false;
 	}
 
-	auto explainer = [&](auto params) { return explainLowerBoundPropagation(params); };
+	auto explainer = [&](auto&& params, auto&& expl) { return explainLowerBoundPropagation(params, expl); };
 
 	for (int i = 0; i < intervals.size(); ++i)
 	{
@@ -1066,7 +1066,7 @@ bool CardinalityConstraint::lbcHi(IVariableDatabase* db, vector<Interval>& inter
 		return false;
 	}
 
-	auto explainer = [&](auto params) { return explainLowerBoundPropagation(params); };
+	auto explainer = [&](auto&& params, auto&& expl) { return explainLowerBoundPropagation(params, expl); };
 
 	for (int i = 0; i < intervals.size(); ++i)
 	{
@@ -1085,7 +1085,7 @@ bool CardinalityConstraint::lbcHi(IVariableDatabase* db, vector<Interval>& inter
 	return true;
 }
 
-vector<Literal> CardinalityConstraint::explainLowerBoundPropagation(const NarrowingExplanationParams& params) const
+void CardinalityConstraint::explainLowerBoundPropagation(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
 	// TODO: This seems like a reasonable explanation, but maybe there is a better one?
 
@@ -1098,8 +1098,8 @@ vector<Literal> CardinalityConstraint::explainLowerBoundPropagation(const Narrow
 	const ValueSet constrainedVals = m_lowerBoundConstrainedValues.intersecting(params.propagatedValues);
 	vxy_assert(!constrainedVals.isZero());
 
-	vector<Literal> out;
-	out.push_back(Literal(params.propagatedVariable, constrainedVals));
+	outExplanation.clear();
+	outExplanation.push_back(Literal(params.propagatedVariable, constrainedVals));
 
 	//
 	// We would not have needed to propagate this if there were enough other variables that had the LBC values.
@@ -1114,11 +1114,9 @@ vector<Literal> CardinalityConstraint::explainLowerBoundPropagation(const Narrow
 		}
 		else if (db->getInitialValues(var).anyPossible(constrainedVals) && !db->anyPossible(var, constrainedVals))
 		{
-			out.push_back(Literal(var, constrainedVals));
+			outExplanation.push_back(Literal(var, constrainedVals));
 		}
 	}
-
-	return out;
 }
 
 
@@ -1158,12 +1156,11 @@ bool CardinalityConstraint::checkConflicting(IVariableDatabase* db) const
 	return false;
 }
 
-vector<Literal> CardinalityConstraint::explain(const NarrowingExplanationParams& params) const
+void CardinalityConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
-	vector<Literal> outClauses;
 	if (m_failedUpperBoundMatching)
 	{
-		outClauses = m_upperBoundExplainer.getExplanation(*params.database, VarID::INVALID, {});
+		m_upperBoundExplainer.getExplanation(*params.database, VarID::INVALID, {}, outExplanation);
 	}
 	else
 	{
@@ -1204,15 +1201,15 @@ vector<Literal> CardinalityConstraint::explain(const NarrowingExplanationParams&
 		}
 		vxy_assert(!violatedVals.isZero());
 
+		outExplanation.clear();
 		for (VarID var : m_lowerBoundVariables)
 		{
 			auto& initialVals = params.database->getInitialValues(var);
 			if (initialVals.anyPossible(violatedVals) && !params.database->anyPossible(var, violatedVals))
 			{
-				outClauses.push_back(Literal(var, initialVals.intersecting(violatedVals)));
+				outExplanation.push_back(Literal(var, initialVals.intersecting(violatedVals)));
 			}
 		}
-		vxy_assert(!outClauses.empty());
+		vxy_assert(!outExplanation.empty());
 	}
-	return outClauses;
 }
