@@ -2,6 +2,7 @@
 #pragma once
 #include <EASTL/string.h>
 #include <EASTL/vector.h>
+#include <EASTL/set.h>
 #include "topology/GraphRelations.h"
 #include "topology/GridTopology.h"
 
@@ -32,12 +33,14 @@ namespace Vertexy
 		ConstraintSolver* m_solver;
 		shared_ptr<PlanarGridTopology> m_grid;
 		shared_ptr<TTopologyVertexData<VarID>> m_tileData;
-		//input tiles
+		// Input tiles
 		vector<shared_ptr<Tile>> m_tiles;
-		// Sore unique prefabs
+		// Unique prefabs
 		vector<shared_ptr<Prefab>> m_prefabs;
-		// map to store frequency of each unique prefab
+		// Frequency of each unique prefab in the input
 		hash_map<int, int> m_prefabFreq;
+		// Allowed overlaps (prefab id => offset <x,y> => allowed neighbours)
+		hash_map<int, hash_map<tuple<int, int>, set<int>>> m_overlaps;
 		void createConstrains(const vector<vector<Tile>>& inputGrid);
 		void addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection);
 		void addUnique(shared_ptr<Prefab> p);

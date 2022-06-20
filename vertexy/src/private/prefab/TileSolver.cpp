@@ -12,6 +12,10 @@
 #include <EASTL/tuple.h>
 #include "util/Asserts.h"
 
+#include "topology/GridTopology.h"
+#include "topology/IPlanarTopology.h"
+
+
 using namespace Vertexy;
 using json = nlohmann::json;
 
@@ -64,22 +68,12 @@ void TileSolver::parseJsonString(string str)
 			inputGrid[y].push_back(Tile(*idMap[j["grid"][y][x]], j["config"][y][x]));
 		}
 	}
-	//DEBUG
-	//for (const auto& row : inputGrid)
-	//{
-	//	for (const auto& col : row)
-	//	{
-	//		printf("(% d, % d) ", col.id(), col.configuration());
-	//	}
-	//	printf("\n");
-	//}	
-	printf("Finished parsing\n");
 	createConstrains(inputGrid);
 }
 
 void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 {
-	// Get all unique kernels
+	// Scans through all positions in input grid and 
 	int h = inputGrid.size();
 	int w = inputGrid[0].size();
 	for (int y = 0; y < h; y++)
@@ -101,37 +95,25 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 			auto p = make_shared<Prefab>(m_prefabs.size() + 1, kernel);		
 			addUnique(p);
 			// If rotation/reflection is allowed, do the same for the prefab variants
-			if (m_allowRotation)
-			{
-				for (int k = 1; k < 4; k++) { addPrefabVariation(p, k, false); }
-				if (m_allowrefletion)
-				{
-					for (int k = 0; k < 4; k++) { addPrefabVariation(p, k, true); }
-				}
-			}
-			else if (m_allowrefletion)
+			if (m_allowrefletion)
 			{
 				addPrefabVariation(p, 0, true);
 			}
+			if (m_allowRotation)
+			{
+				for (int k = 1; k < 4; k++)
+				{
+					addPrefabVariation(p, k, false);
+					if (m_allowrefletion)
+					{
+						addPrefabVariation(p, k, true);
+					}
+				}
+			}
 		}
 	}
-	//DEBUG
-	//printf("Total Tiles: %d\n", m_prefabs.size());
-	//for (const auto& p : m_prefabs)
-	//{
-	//	printf("(%d) w:%d\n", p->id(), m_prefabFreq[p->id()]);
-	//	for (int i = 0; i < p->tiles().size(); i++)
-	//	{
-	//		for (int j = 0; j < p->tiles()[0].size(); j++)
-	//		{
-	//			printf("%d", p->tiles()[i][j].id());
-	//		}
-	//		printf("\n");
-	//	}
-	//}
 
-	// get possible overlaps for cardinal directions
-	hash_map<int, hash_map<tuple<int, int>, set<int>>> overlaps;
+	// Get possible overlaps for cardinal direction offsets.
 	for (int i = 0; i < m_prefabs.size(); i++)
 	{
 		for (int j = i; j < m_prefabs.size(); j++)
@@ -141,8 +123,8 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 				if (x == 0) { continue; }
 				if (m_prefabs[i]->canOverlap(*m_prefabs[j], x, 0))
 				{
-					overlaps[m_prefabs[i]->id()][tuple<int, int>(x, 0)].insert(m_prefabs[j]->id());
-					overlaps[m_prefabs[j]->id()][tuple<int, int>(-x, 0)].insert(m_prefabs[i]->id());
+					m_overlaps[m_prefabs[i]->id()][tuple<int, int>(x, 0)].insert(m_prefabs[j]->id());
+					m_overlaps[m_prefabs[j]->id()][tuple<int, int>(-x, 0)].insert(m_prefabs[i]->id());
 				}
 			}
 			for (int y = -(m_kernelSize - 1); y < m_kernelSize; y++)
@@ -150,41 +132,25 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 				if (y == 0) { continue; }
 				if (m_prefabs[i]->canOverlap(*m_prefabs[j], 0, y))
 				{
-					overlaps[m_prefabs[i]->id()][tuple<int, int>(0, y)].insert(m_prefabs[j]->id());
-					overlaps[m_prefabs[j]->id()][tuple<int, int>(0, -y)].insert(m_prefabs[i]->id());
+					m_overlaps[m_prefabs[i]->id()][tuple<int, int>(0, y)].insert(m_prefabs[j]->id());
+					m_overlaps[m_prefabs[j]->id()][tuple<int, int>(0, -y)].insert(m_prefabs[i]->id());
 				}
 			}
 		}
 	}
-	printf("Finished overlapping\n");
-	//DEBUG
-	//for (const auto& [id, val] : overlaps)
-	//{
-	//	printf("PREFAB %d:\n", id);
-	//	for (const auto& [dir, m_prefabs] : val)
-	//	{
-	//		printf("   (%d,%d):\n", get<0>(dir), get<1>(dir));
-	//		for (const auto& p : m_prefabs)
-	//		{
-	//			printf("   %d, ", p);
-	//		}
-	//		printf("\n");
-	//	}
-	//}
 
-	//create domain
+	//create domain and variable graphs
 	SolverVariableDomain domain(1, m_prefabs.size());
-	//make graph
-	m_tileData = m_solver->makeVariableGraph(TEXT("Vars"), ITopology::adapt(m_grid), domain, TEXT("varID"));
+	m_tileData = m_solver->makeVariableGraph(TEXT("Vars"), ITopology::adapt(m_grid), domain, TEXT("prefabID"));
 	
-	//create a map for offsets to graph relations
+	// Creates a map for grid offsets to graph relations
 	hash_map<tuple<int, int>, shared_ptr<TTopologyLinkGraphRelation<VarID>>> offsets;
 	auto igrid = ITopology::adapt(m_grid);
 	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(igrid, m_tileData);
 	for (int x = -(m_kernelSize - 1); x < m_kernelSize; x++)
 	{
 		if (x == 0) { continue; }
-		offsets[tuple<int, int>(x, 0)] = x < 0?
+		offsets[tuple<int, int>(x, 0)] = x < 0 ?
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveLeft(-x)) :
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));
 	}
@@ -197,7 +163,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 	}
 
 	// add overlap constraints
-	for (const auto& [id, dirOverlap] : overlaps)
+	for (const auto& [id, dirOverlap] : m_overlaps)
 	{
 		for (const auto& [dir, vars] : dirOverlap)
 		{
@@ -207,11 +173,11 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 			);
 		}
 	}
-	printf("Finished constraining\n");
 	//add frequency constraints
-
+	//!!!
 }
 
+// Creates a new prefab with rotation and reflection and try to add to a unique prefab list
 void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection)
 {
 	auto pr = make_shared<Prefab>(m_prefabs.size() + 1, prefab->tiles());
@@ -223,6 +189,8 @@ void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bo
 	addUnique(pr);
 }
 
+// Tries to add a prefab to a unique list, if the prefab with the same
+// configuration is already on the list, increase the weight for that prefab.
 void TileSolver::addUnique(shared_ptr<Prefab> p)
 {
 	int equalId = -1;
@@ -248,8 +216,8 @@ void TileSolver::addUnique(shared_ptr<Prefab> p)
 void TileSolver::exportJson(string path)
 {
 	json j;
-	j["grid_cols"] = m_grid->GetWidth();
-	j["grid_rows"] = m_grid->GetHeight();
+	j["grid_cols"] = m_grid->getWidth();
+	j["grid_rows"] = m_grid->getHeight();
 	auto tileArray = json::array();
 	for (auto const& tile : m_tiles)
 	{
@@ -258,18 +226,17 @@ void TileSolver::exportJson(string path)
 	j["tiles"] = tileArray;
 	auto gridArray = json::array();
 	auto configArray = json::array();
-	for (int y = 0; y < m_grid->GetHeight(); ++y)
+	for (int y = 0; y < m_grid->getHeight(); ++y)
 	{
 		auto gridRowArray = json::array();
 		auto configRowArray = json::array();
-		for (int x = 0; x < m_grid->GetHeight(); ++x)
+		for (int x = 0; x < m_grid->getHeight(); ++x)
 		{
 			int node = m_grid->coordinateToIndex(x, y);
 			vector<int> potentialValues = m_solver->getPotentialValues(m_tileData->get(node));
 			if (potentialValues.size() == 1)
 			{
 				int tileVal = potentialValues[0];
-				//int tileVal = m_solver->getSolvedValue(m_tileData->getData()[node]);
 				gridRowArray.push_back(m_prefabs[tileVal - 1]->tiles()[0][0].id());
 				configRowArray.push_back(m_prefabs[tileVal - 1]->tiles()[0][0].configuration());
 			}
