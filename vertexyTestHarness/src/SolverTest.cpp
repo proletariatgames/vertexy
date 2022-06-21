@@ -9,6 +9,7 @@
 #include <Sudoku.h>
 #include <TowersOfHanoi.h>
 #include <PrefabTest.h>
+#include <TileTests.h>
 
 #include "KnightTourSolver.h"
 #include "ds/ValueBitset.h"
@@ -58,5 +59,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("PrefabTest-Rot/Refl", []() { return PrefabTestSolver::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveUsingGraphProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TileTest-Basic", []() { return TileTests::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TileTest-Rot/Ref", []() { return TileTests::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	return Suite.Run();
 }
