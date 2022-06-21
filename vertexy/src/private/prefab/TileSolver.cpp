@@ -20,7 +20,7 @@ TileSolver::TileSolver(ConstraintSolver* solver, int numCols, int numRows, int k
 	m_solver(solver),
 	m_kernelSize(kernelSize),
 	m_allowRotation(rotation),
-	m_allowrefletion(reflection)
+	m_allowReflection(reflection)
 {
 	m_grid = make_shared<PlanarGridTopology>(numCols, numRows);
 }
@@ -65,10 +65,10 @@ void TileSolver::parseJsonString(string str)
 			inputGrid[y].push_back(Tile(*idMap[j["grid"][y][x]], j["config"][y][x]));
 		}
 	}
-	createConstrains(inputGrid);
+	createConstraints(inputGrid);
 }
 
-void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
+void TileSolver::createConstraints(const vector<vector<Tile>>& inputGrid)
 {
 	// Extract all NxN tiles from the input. 
 	int h = inputGrid.size();
@@ -92,7 +92,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 			auto p = make_shared<Prefab>(m_prefabs.size() + 1, kernel);		
 			addUnique(p);
 			// If rotation/reflection is allowed, do the same for the prefab variations.
-			if (m_allowrefletion)
+			if (m_allowReflection)
 			{
 				addPrefabVariation(p, 0, true);
 			}
@@ -101,7 +101,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 				for (int k = 1; k < 4; k++)
 				{
 					addPrefabVariation(p, k, false);
-					if (m_allowrefletion)
+					if (m_allowReflection)
 					{
 						addPrefabVariation(p, k, true);
 					}
@@ -120,8 +120,8 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 				if (x == 0) { continue; }
 				if (m_prefabs[i]->canOverlap(*m_prefabs[j], x, 0))
 				{
-					m_overlaps[m_prefabs[i]->id()][tuple<int, int>(x, 0)].insert(m_prefabs[j]->id());
-					m_overlaps[m_prefabs[j]->id()][tuple<int, int>(-x, 0)].insert(m_prefabs[i]->id());
+					m_overlaps[m_prefabs[i]->id()][make_tuple(x, 0)].insert(m_prefabs[j]->id());
+					m_overlaps[m_prefabs[j]->id()][make_tuple(-x, 0)].insert(m_prefabs[i]->id());
 				}
 			}
 			for (int y = -(m_kernelSize - 1); y < m_kernelSize; y++)
@@ -129,8 +129,8 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 				if (y == 0) { continue; }
 				if (m_prefabs[i]->canOverlap(*m_prefabs[j], 0, y))
 				{
-					m_overlaps[m_prefabs[i]->id()][tuple<int, int>(0, y)].insert(m_prefabs[j]->id());
-					m_overlaps[m_prefabs[j]->id()][tuple<int, int>(0, -y)].insert(m_prefabs[i]->id());
+					m_overlaps[m_prefabs[i]->id()][make_tuple(0, y)].insert(m_prefabs[j]->id());
+					m_overlaps[m_prefabs[j]->id()][make_tuple(0, -y)].insert(m_prefabs[i]->id());
 				}
 			}
 		}
@@ -149,7 +149,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 		if (x == 0) { continue; }
 		offsets[tuple<int, int>(x, 0)] = x < 0 ?
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveLeft(-x)) :
-			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));
+			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));	
 	}
 	for (int y = -(m_kernelSize - 1); y < m_kernelSize; y++)
 	{
@@ -173,7 +173,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 }
 
 // Creates a new prefab with rotation and reflection and try to add to a unique prefab list.
-void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection)
+void TileSolver::addPrefabVariation(const shared_ptr<Prefab>& prefab, int rotations, bool reflection)
 {
 	auto pr = make_shared<Prefab>(m_prefabs.size() + 1, prefab->tiles());
 	if (reflection)
@@ -186,7 +186,7 @@ void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bo
 
 // Tries to add a prefab to a list, if the prefab with the same configuration
 // already exists on the list, increase the frequency weight for that prefab.
-void TileSolver::addUnique(shared_ptr<Prefab> p)
+void TileSolver::addUnique(const shared_ptr<Prefab>& p)
 {
 	int equalId = -1;
 	for (const auto& prefab : m_prefabs)

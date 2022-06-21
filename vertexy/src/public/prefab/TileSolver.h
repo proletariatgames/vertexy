@@ -32,7 +32,7 @@ namespace Vertexy
 
 		// Allows rotation and reflection of the patterns
 		bool m_allowRotation;
-		bool m_allowrefletion;
+		bool m_allowReflection;
 
 		// Solver variables
 		ConstraintSolver* m_solver;
@@ -51,8 +51,8 @@ namespace Vertexy
 		// Allowed overlaps (prefab id => offset <x,y> => allowed neighbours)
 		hash_map<int, hash_map<tuple<int, int>, set<int>>> m_overlaps;
 
-		void createConstrains(const vector<vector<Tile>>& inputGrid);
-		void addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection);
-		void addUnique(shared_ptr<Prefab> p);
+		void createConstraints(const vector<vector<Tile>>& inputGrid);
+		void addPrefabVariation(const shared_ptr<Prefab>& prefab, int rotations, bool reflection);
+		void addUnique(const shared_ptr<Prefab>& p);
 	};
 }
