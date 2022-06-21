@@ -11,64 +11,27 @@ using namespace VertexyTests;
 
 static constexpr bool WRITE_BREADCRUMB_LOG = false;
 
-class DebugStrategy : public ISolverDecisionHeuristic
-{
-public:
-	DebugStrategy(ConstraintSolver& solver, TileSolver& tileSolver)
-		: m_tileSolver(tileSolver)
-		, m_solver(solver)
-	{
-	}
-
-	virtual bool getNextDecision(SolverDecisionLevel level, VarID& var, ValueSet& chosenValues) override
-	{
-		return false;
-	}
-
-	virtual void onVariableAssignment(VarID var, const ValueSet& prevValues, const ValueSet& newValues)
-	{
-		if (m_it % 100 == 0)
-		{
-			m_tileSolver.exportJson(to_string(m_count++) + ".json");
-		}
-		m_it++;
-	}
-
-protected:
-	int m_it = 0;
-	int m_count = 0;
-	TileSolver& m_tileSolver;
-	ConstraintSolver& m_solver;
-};
-
-int TileTests::solve(int times, int seed, string input, bool allowRotation, bool allowReflection, bool printVerbose /*= true*/)
+int TileTests::solve(int times, int seed, string input, int kernelSize, bool allowRotation, bool allowReflection, bool printVerbose /*= true*/)
 {
 	int nErrorCount = 0;
-	ConstraintSolver solver(TEXT("PatternTest"), seed);
-	TileSolver tilingSolver(&solver, 10, 10, 2, false, false);
+	ConstraintSolver solver(TEXT("TileTest"), seed);
+	TileSolver tilingSolver(&solver, 10, 10, kernelSize, allowRotation, allowReflection);
 	tilingSolver.parseJsonString(input);
-	//tilingSolver.parseJsonFile("W:\\Projetos\\Meus\\C++\\misc\\input.json");
 
 	shared_ptr<SolverDecisionLog> outputLog;
 	if constexpr (WRITE_BREADCRUMB_LOG)
 	{
 		outputLog = make_shared<SolverDecisionLog>();
 	}
-
 	if (outputLog != nullptr)
 	{
 		solver.setOutputLog(outputLog);
 	}
 
-	// DEBUG
-	// auto debugStrat = make_shared<DebugStrategy>(solver, tilingSolver);
-	// solver.addDecisionHeuristic(debugStrat);
-
 	for (int i = 0; i < times; ++i)
 	{
 		solver.solve();
 		solver.dumpStats(printVerbose);
-
 		EATEST_VERIFY(solver.getCurrentStatus() == EConstraintSolverResult::Solved);
 		if (printVerbose)
 		{
@@ -85,7 +48,7 @@ int TileTests::solve(int times, int seed, string input, bool allowRotation, bool
 	return nErrorCount;
 }
 
-int TileTests::solveBasic(int times, int seed, bool printVerbose)
+int TileTests::solveBasic(int times, int seed, bool printVerbose /*= true*/)
 {
 	string input = R"({
 		"tile_size": 10,
@@ -119,7 +82,7 @@ int TileTests::solveBasic(int times, int seed, bool printVerbose)
 			[0,0,0,0]
 		]
 	})";
-	return solve(times, seed, input, false, false, printVerbose);
+	return solve(times, seed, input, 2, false, false, printVerbose);
 }
 
 int TileTests::solveRotationReflection(int times, int seed, bool printVerbose /*= true*/)
@@ -159,7 +122,7 @@ int TileTests::solveRotationReflection(int times, int seed, bool printVerbose /*
 			[0,0,0,0,0,0,0,0]
 		]
 		})";
-	return solve(times, seed, input, true, true, printVerbose);
+	return solve(times, seed, input, 3, true, true, printVerbose);
 }
 
 

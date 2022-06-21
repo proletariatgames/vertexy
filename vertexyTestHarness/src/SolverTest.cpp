@@ -9,7 +9,6 @@
 #include <Sudoku.h>
 #include <TowersOfHanoi.h>
 #include <PrefabTest.h>
-#include <TileTests.h>
 
 #include "KnightTourSolver.h"
 #include "ds/ValueBitset.h"
@@ -23,9 +22,8 @@ static constexpr int MAZE_NUM_ROWS = 15;
 static constexpr int MAZE_NUM_COLS = 15;
 static constexpr int NQUEENS_SIZE = 25;
 static constexpr int SUDOKU_STARTING_HINTS = 0;
-static constexpr int TOWERS_NUM_DISCS = 3;
 static constexpr int KNIGHT_BOARD_DIM = 6;
-static constexpr bool PRINT_VERBOSE = true;
+static constexpr bool PRINT_VERBOSE = false;
 
 int main(int argc, char* argv[])
 {
@@ -33,9 +31,6 @@ int main(int argc, char* argv[])
 	using namespace VertexyTests;
 
 	TestApplication Suite("Solver Tests", argc, argv);
-	/*Suite.AddTest("ValueBitset", test_ValueBitset);
-	Suite.AddTest("Digraph", test_Digraph);
-	Suite.AddTest("RuleSCCs", test_ruleSCCs);
 	Suite.AddTest("ValueBitset", TestSolvers::bitsetTests);
 	Suite.AddTest("Digraph", TestSolvers::digraphTests);
 	Suite.AddTest("RuleSCCs", TestSolvers::ruleSCCTests);
@@ -53,9 +48,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("Rules-HamiltonianGraph", []() { return TestSolvers::solveProgram_hamiltonianGraph(FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Sum-Basic", []() { return TestSolvers::solveSumBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Sudoku", []() { return SudokuSolver::solve(NUM_TIMES, SUDOKU_STARTING_HINTS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersGrid(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solveTowersDiskBased(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solverTowersDiskBasedGraph(NUM_TIMES, TOWERS_NUM_DISCS, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("TowersOfHanoi", []() { return TowersOfHanoiSolver::solve(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("KnightTour", []() { return KnightTourSolver::solve(NUM_TIMES, KNIGHT_BOARD_DIM, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-AllDifferent", []() { return NQueensSolvers::solveUsingAllDifferent(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("NQueens-Table", []() { return NQueensSolvers::solveUsingTable(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
@@ -63,12 +56,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("PrefabTest-Basic", []() { return PrefabTestSolver::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Json", []() { return PrefabTestSolver::solveJson(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Rot/Refl", []() { return PrefabTestSolver::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Maze", []() { return MazeSolver::solveKeyDoor(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
-	
 	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveUsingGraphProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });*/
-	Suite.AddTest("TilingImplicit", []() { return TileTests::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
-	Suite.AddTest("TilingImplicit", []() { return TileTests::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	return Suite.Run();
 }

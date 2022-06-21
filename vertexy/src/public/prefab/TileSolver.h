@@ -20,27 +20,37 @@ namespace Vertexy
 		void parseJsonString(string str);
 		void exportJson(string path);
 
-		// getters
+		// Getters
 		const auto& grid() const { return m_grid; };
 		const auto& tileData() const { return m_tileData; };
 		const auto kernelSize() const { return m_kernelSize; };
 		const auto& prefabs() const { return m_prefabs; };
 
 	private:
+		// Size of the kernel to be used to extract the patterns from the input.
 		int m_kernelSize;
+
+		// Allows rotation and reflection of the patterns
 		bool m_allowRotation;
 		bool m_allowrefletion;
+
+		// Solver variables
 		ConstraintSolver* m_solver;
 		shared_ptr<PlanarGridTopology> m_grid;
 		shared_ptr<TTopologyVertexData<VarID>> m_tileData;
+
 		// Input tiles
 		vector<shared_ptr<Tile>> m_tiles;
+
 		// Unique prefabs
 		vector<shared_ptr<Prefab>> m_prefabs;
+
 		// Frequency of each unique prefab in the input
 		hash_map<int, int> m_prefabFreq;
+
 		// Allowed overlaps (prefab id => offset <x,y> => allowed neighbours)
 		hash_map<int, hash_map<tuple<int, int>, set<int>>> m_overlaps;
+
 		void createConstrains(const vector<vector<Tile>>& inputGrid);
 		void addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection);
 		void addUnique(shared_ptr<Prefab> p);

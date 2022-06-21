@@ -1,20 +1,17 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #include "prefab/TileSolver.h"
 #include "ConstraintSolver.h"
-#include <fstream>
-#include <sstream>
-#include <nlohmann/json.hpp>
-#include "prefab/Tile.h"
-#include "prefab/Prefab.h"
-
 #include <EASTL/vector.h>
 #include <EASTL/set.h>
 #include <EASTL/tuple.h>
-#include "util/Asserts.h"
-
+#include <fstream>
+#include <nlohmann/json.hpp>
+#include "prefab/Tile.h"
+#include "prefab/Prefab.h"
+#include <sstream>
 #include "topology/GridTopology.h"
 #include "topology/IPlanarTopology.h"
-
+#include "util/Asserts.h"
 
 using namespace Vertexy;
 using json = nlohmann::json;
@@ -45,7 +42,7 @@ void TileSolver::parseJsonString(string str)
 {
 	auto j = json::parse(str.c_str());
 
-	// Parse Tiles
+	// Parse Tiles.
 	hash_map<int, shared_ptr<Tile>> idMap;
 	for (const auto& elem : j["tiles"])
 	{
@@ -58,7 +55,7 @@ void TileSolver::parseJsonString(string str)
 		idMap[elem["id"].get<int>()] = tile;
 	}
 
-	// Parse input grid
+	// Parse input grid.
 	vector<vector<Tile>> inputGrid;
 	for (int y = 0; y < j["grid"].size(); y++)
 	{
@@ -73,7 +70,7 @@ void TileSolver::parseJsonString(string str)
 
 void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 {
-	// Scans through all positions in input grid and 
+	// Extract all NxN tiles from the input. 
 	int h = inputGrid.size();
 	int w = inputGrid[0].size();
 	for (int y = 0; y < h; y++)
@@ -91,10 +88,10 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 					kernel[i].push_back(inputGrid[ri][rj]);
 				}
 			}
-			// add prefab to a list, if it is not unique, increment the frequency weight
+			// Add prefab to a list. If it is not unique, increment the frequency weight.
 			auto p = make_shared<Prefab>(m_prefabs.size() + 1, kernel);		
 			addUnique(p);
-			// If rotation/reflection is allowed, do the same for the prefab variants
+			// If rotation/reflection is allowed, do the same for the prefab variations.
 			if (m_allowrefletion)
 			{
 				addPrefabVariation(p, 0, true);
@@ -139,11 +136,11 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 		}
 	}
 
-	//create domain and variable graphs
+	// Create domain and variable graphs.
 	SolverVariableDomain domain(1, m_prefabs.size());
 	m_tileData = m_solver->makeVariableGraph(TEXT("Vars"), ITopology::adapt(m_grid), domain, TEXT("prefabID"));
 	
-	// Creates a map for grid offsets to graph relations
+	// Create a map for grid offsets to graph relations.
 	hash_map<tuple<int, int>, shared_ptr<TTopologyLinkGraphRelation<VarID>>> offsets;
 	auto igrid = ITopology::adapt(m_grid);
 	auto selfTile = make_shared<TVertexToDataGraphRelation<VarID>>(igrid, m_tileData);
@@ -162,7 +159,7 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveDown(y));
 	}
 
-	// add overlap constraints
+	// Add overlap constraints.
 	for (const auto& [id, dirOverlap] : m_overlaps)
 	{
 		for (const auto& [dir, vars] : dirOverlap)
@@ -173,11 +170,9 @@ void TileSolver::createConstrains(const vector<vector<Tile>>& inputGrid)
 			);
 		}
 	}
-	//add frequency constraints
-	//!!!
 }
 
-// Creates a new prefab with rotation and reflection and try to add to a unique prefab list
+// Creates a new prefab with rotation and reflection and try to add to a unique prefab list.
 void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bool reflection)
 {
 	auto pr = make_shared<Prefab>(m_prefabs.size() + 1, prefab->tiles());
@@ -189,8 +184,8 @@ void TileSolver::addPrefabVariation(shared_ptr<Prefab> prefab, int rotations, bo
 	addUnique(pr);
 }
 
-// Tries to add a prefab to a unique list, if the prefab with the same
-// configuration is already on the list, increase the weight for that prefab.
+// Tries to add a prefab to a list, if the prefab with the same configuration
+// already exists on the list, increase the frequency weight for that prefab.
 void TileSolver::addUnique(shared_ptr<Prefab> p)
 {
 	int equalId = -1;
