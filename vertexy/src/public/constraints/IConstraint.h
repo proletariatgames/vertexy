@@ -73,7 +73,7 @@ public:
 	virtual bool checkConflicting(IVariableDatabase* db) const = 0;
 
 	// Explain (as a set of clause disjunctions) why a propagation happened
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const;
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const;
 
 	inline int getID() const { return m_id; }
 

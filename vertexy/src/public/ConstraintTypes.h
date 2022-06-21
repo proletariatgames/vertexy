@@ -57,7 +57,7 @@ enum class EBinaryOperatorType
 
 // If set, VariableDBs will cache the state of each variable (solved/unsolved/contradiction), only updating when
 // the variable changes. Otherwise it will be recalculated each query.
-#define CONSTRAINT_USE_CACHED_STATES 1
+#define CONSTRAINT_USE_CACHED_STATES 0
 
 // Reference to a variable. Top bit encodes whether that variable is part of a graph in the context it's being used.
 class VarID
@@ -271,7 +271,7 @@ public:
 	virtual const class SolverVariableDomain& getDomain(VarID varID) const = 0;
 };
 
-using ExplainerFunction = function<vector<Literal>(const NarrowingExplanationParams&)>;
+using ExplainerFunction = function<void(const NarrowingExplanationParams&, vector<Literal>&)>;
 
 using WatcherHandle = uint32_t;
 constexpr WatcherHandle INVALID_WATCHER_HANDLE = -1;

@@ -13,14 +13,12 @@ using namespace Vertexy;
 // maximal matching of all vertices excluding it has been found.
 bool BipartiteGraph::incrementalMaximalMatching(int leftVertexToDeprioritize)
 {
-	vector<int> leftEdges;
-
 	m_bfsEdges.resize(m_numLeft + m_numRight);
 
 	int bfsRet;
-	while ((bfsRet = hopcroftBfs(leftVertexToDeprioritize, leftEdges)) == 1)
+	while ((bfsRet = hopcroftBfs(leftVertexToDeprioritize)) == 1)
 	{
-		for (int left : leftEdges)
+		for (int left : m_freeLeft)
 		{
 			vxy_assert(left != leftVertexToDeprioritize && getMatchedRightSide(left) < 0);
 			findAugmentingPath(left);
@@ -52,9 +50,9 @@ void BipartiteGraph::computeMaximalMatching(int leftVertexToDeprioritize)
 	incrementalMaximalMatching(leftVertexToDeprioritize);
 }
 
-int BipartiteGraph::hopcroftBfs(int deprioritize, vector<int>& freeLeft)
+int BipartiteGraph::hopcroftBfs(int deprioritize)
 {
-	freeLeft.clear();
+	m_freeLeft.clear();
 
 	m_seenVertex.clear();
 	m_seenVertex.resize(m_numLeft + m_numRight, false);
@@ -72,7 +70,7 @@ int BipartiteGraph::hopcroftBfs(int deprioritize, vector<int>& freeLeft)
 		{
 			vxy_sanity(!m_queue.full());
 			m_queue.push_back(left);
-			freeLeft.push_back(left);
+			m_freeLeft.push_back(left);
 			m_bfsEdges[left].clear();
 		}
 	}

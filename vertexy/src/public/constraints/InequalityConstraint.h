@@ -28,7 +28,7 @@ public:
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const override;
 
 protected:
 	bool applyOperator(IVariableDatabase* db, EConstraintOperator op, VarID lhs);

@@ -30,7 +30,7 @@ public:
 	virtual bool propagate(IVariableDatabase* db) override;
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override;
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const override;
 	virtual void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 
 	// ICommittableVariableDatabaseOwner
@@ -46,7 +46,7 @@ public:
 protected:
 	inline CommittableVariableDatabase createCommittableDB(IVariableDatabase* db, int innerConsIndex);
 	bool forwardVariableNarrowed(IVariableDatabase* db, IVariableWatchSink* innerSink, int innerConsIndex, VarID var, const ValueSet& previousValue, bool& removeHandle);
-	vector<Literal> explainInner(const NarrowingExplanationParams& params, int innerConsIndex, const ExplainerFunction& innerExpl) const;
+	void explainInner(const NarrowingExplanationParams& params, int innerConsIndex, const ExplainerFunction& innerExpl, vector<Literal>& outExplanation) const;
 	bool markUnsat(const CommittableVariableDatabase& cdb, int innerConsIndex, VarID contradictingVar=VarID::INVALID, const ExplainerFunction& innerExpl = nullptr);
 
 	IConstraint* m_innerCons[2];

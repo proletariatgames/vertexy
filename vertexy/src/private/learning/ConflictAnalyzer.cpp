@@ -35,18 +35,18 @@ SolverDecisionLevel ConflictAnalyzer::analyzeConflict(SolverTimestamp conflictTs
 	// constraint for a general explanation for its failure.
 	//
 
-	vector<Literal> explanation;
+	static vector<Literal> explanation;
 	if (!contradictingVariable.isValid())
 	{
 		HistoricalVariableDatabase hdb(&m_solver.m_variableDB, conflictTs);
 		NarrowingExplanationParams params(&m_solver, &hdb, conflictingConstraint, VarID::INVALID, {}, conflictTs);
-		explanation = conflictingConstraint->explain(params);
+		conflictingConstraint->explain(params, explanation);
 	}
 	else
 	{
 		// VERTEXY_LOG("** Contradiction on %s", Solver.VariableDB.GetVariableName(ContradictingVariable).c_str());
 		vxy_sanity(m_solver.m_variableDB.isInContradiction(contradictingVariable));
-		explanation = m_solver.getExplanationForModification(m_solver.m_variableDB.getLastModificationTimestamp(contradictingVariable));
+		m_solver.getExplanationForModification(m_solver.m_variableDB.getLastModificationTimestamp(contradictingVariable), explanation);
 	}
 	if constexpr (LOG_CONFLICTS)
 	{
@@ -159,7 +159,9 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 	//
 
 	int mostRecentNodeIndex = findMostRecentNodeIndex();
-	ConstraintGraphRelationInfo relationInfo;
+	static ConstraintGraphRelationInfo relationInfo;
+
+	static vector<Literal> explToResolve;
 	while (!m_nodes.empty() && (m_numTopLevelNodes > 1 || m_nodes[mostRecentNodeIndex].time > mostRecentDecisionAssignment))
 	{
 		const VarID pivotVar = m_nodes[mostRecentNodeIndex].var;
@@ -197,7 +199,7 @@ SolverDecisionLevel ConflictAnalyzer::searchImplicationGraph(vector<Literal>& in
 		// Ask the constraint why it made this modification
 		//
 
-		vector<Literal> explToResolve = m_solver.getExplanationForModification(lastModificationTime);
+		m_solver.getExplanationForModification(lastModificationTime, explToResolve);
 		//VERTEXY_LOG("Antecedent constraint explanation on pivot %s at %d: %s", *db.GetVariableName(PivotVar).ToString(), LastModificationTime, *Solver.LiteralArrayToString(ExplToResolve));
 
 		//
@@ -781,6 +783,7 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 	auto& db = m_solver.m_variableDB;
 	auto& stack = db.getAssignmentStack().getStack();
 
+	static vector<Literal> reason;
 	if constexpr (REDUNDANCY_CHECKING_LEVEL == 1)
 	{
 		// !!FIXME!! I don't think this is quite right... It's checking for variables but not values.
@@ -789,7 +792,7 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 
 		// Simple/cheaper version of redundancy check that just sees if the reason for this literal's propagation
 		// is a subset of the constraint we're learning. If so, it's redundant.
-		vector<Literal> reason = m_solver.getExplanationForModification(m_nodes[litIndex].time);
+		m_solver.getExplanationForModification(m_nodes[litIndex].time, reason);
 		for (auto& reasonLit : reason)
 		{
 			if (db.getModificationTimePriorTo(reasonLit.variable, m_nodes[litIndex].time) >= 0)
@@ -828,6 +831,7 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 	vxy_assert(m_nodes[litIndex].var == explanation[litIndex].variable);
 	m_redundancyStack.push_back(ImplicationNode{explanation[litIndex].variable, m_nodes[litIndex].time, -1});
 
+	static vector<Literal> reasons;
 	while (!m_redundancyStack.empty())
 	{
 		ImplicationNode curNode = m_redundancyStack.back();
@@ -838,7 +842,7 @@ bool ConflictAnalyzer::checkRedundant(const vector<Literal>& explanation, int li
 			vxy_assert(stack[curNode.time].variable == curNode.var);
 			vxy_assert(stack[curNode.time].constraint != nullptr);
 
-			vector<Literal> reasons = m_solver.getExplanationForModification(curNode.time);
+			m_solver.getExplanationForModification(curNode.time, reasons);
 			for (auto& reason : reasons)
 			{
 				// Check if we've seen this variable and all its values
@@ -1000,6 +1004,7 @@ void ConflictAnalyzer::markActivity(const vector<Literal>& resolvedExplanation, 
 
 	if (wantsReasonActivity)
 	{
+		static vector<Literal> reasons;
 		for (auto& node : m_nodes)
 		{
 			SolverTimestamp explanationTime = node.time;
@@ -1013,7 +1018,7 @@ void ConflictAnalyzer::markActivity(const vector<Literal>& resolvedExplanation, 
 				continue;
 			}
 
-			vector<Literal> reasons = m_solver.getExplanationForModification(explanationTime);
+			m_solver.getExplanationForModification(explanationTime, reasons);
 			for (auto& lit : reasons)
 			{
 				if (seenSet.find(lit.variable) != seenSet.end())

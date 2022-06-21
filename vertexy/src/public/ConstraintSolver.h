@@ -476,7 +476,7 @@ protected:
 
 	// Given a timestamp, return the reason the variable was changed at that timestamp.
 	// Asserts if the timestamp represents a decision point.
-	vector<Literal> getExplanationForModification(SolverTimestamp modificationTime) const;
+	void getExplanationForModification(SolverTimestamp modificationTime, vector<Literal>& outExplanation) const;
 	void sanityCheckExplanation(SolverTimestamp modificationTime, const vector<Literal>& explanation) const;
 
 	inline SolverTimestamp getTimestampForCurrentDecisionLevel() const

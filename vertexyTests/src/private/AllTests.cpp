@@ -23,5 +23,5 @@ void AllTests::runAllTests(int seed, int numTimes)
 	NQueensSolvers::solveUsingAllDifferent(numTimes, 25, seed, false);
 	MazeSolver::solveUsingRawConstraints(numTimes, 9, 9, seed, false);
 	SudokuSolver::solve(numTimes, 0, seed, false);
-	TowersOfHanoiSolver::solveTowersGrid(numTimes, 3, seed, false);
+	TowersOfHanoiSolver::solve(numTimes, seed, false);
 }

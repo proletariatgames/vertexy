@@ -309,6 +309,8 @@ public:
 
 	TValueBitset& operator=(const TValueBitset& copy)
 	{
+		if (this == &copy) return *this;
+		
 		setSize(copy.m_numBits);
 		memcpy(m_dataPtr, copy.m_dataPtr, numWordsRequired(m_numBits) * sizeof(WORD_TYPE));
 		return *this;

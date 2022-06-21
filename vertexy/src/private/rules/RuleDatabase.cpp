@@ -520,7 +520,7 @@ void RuleDatabase::addRule(const AtomLiteral& head, bool isChoice, const vector<
         {
             vxy_assert(head.getRelationInfo() != nullptr);
             auto truthStatus = isFact ? ETruthStatus::True : ETruthStatus::Undetermined;
-            absHeadInfo->abstractLiterals.insert({head, truthStatus});
+            absHeadInfo->abstractLiterals.insert({head.unmasked(), truthStatus});
         }
         else if (isFact)
         {
@@ -1594,7 +1594,7 @@ void RuleDatabase::groundAtomToConcrete(const AtomLiteral& oldAtom, GroundingDat
     }
 
     vxy_assert(!oldAbstractAtom->isExternal);
-    auto litEntry = oldAbstractAtom->abstractLiterals.find(oldAtom);
+    auto litEntry = oldAbstractAtom->abstractLiterals.find(oldAtom.unmasked());
 
     auto& relationInfo = oldAtom.getRelationInfo();
     auto atomRel = relationInfo->literalRelation;
