@@ -149,7 +149,7 @@ void TileSolver::createConstraints(const vector<vector<Tile>>& inputGrid)
 		if (x == 0) { continue; }
 		offsets[tuple<int, int>(x, 0)] = x < 0 ?
 			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveLeft(-x)) :
-			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));	
+			make_shared<TTopologyLinkGraphRelation<VarID>>(igrid, m_tileData, PlanarGridTopology::moveRight(x));
 	}
 	for (int y = -(m_kernelSize - 1); y < m_kernelSize; y++)
 	{
