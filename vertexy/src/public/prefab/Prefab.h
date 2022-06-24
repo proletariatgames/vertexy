@@ -36,6 +36,13 @@ namespace Vertexy
 		// Mirror the prefab horizontally
 		void reflect();
 
+		// Check if prefab has the same tile configuration as the other prefab
+		bool isEqual(const Prefab& other);
+
+		// Check if another prefab overlaps given a offset
+		bool canOverlap(const Prefab& other, int dx, int dy);
+
+
 		// Getters
 		const int id() const { return m_id; };
 		const vector<Position>& positions() const { return m_positions; };
