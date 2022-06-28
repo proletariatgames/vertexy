@@ -94,6 +94,11 @@ void ProgramCompiler::rewriteMath(const vector<RelationalRuleStatement>& stateme
 
         stmt.statement->replace<BinaryOpTerm>([&](BinaryOpTerm* opTerm) -> UTerm
         {
+            if (getBinOpType(opTerm) != BinOpType::Math)
+            {
+                return nullptr;
+            }
+            
             ProgramSymbol eff = opTerm->eval(AbstractOverrideMap{}, {});
             if (eff.isValid())
             {

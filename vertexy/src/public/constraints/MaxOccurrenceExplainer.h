@@ -16,11 +16,13 @@ public:
 	MaxOccurrenceExplainer();
 
 	void initialize(const IVariableDatabase& db, const vector<VarID>& variables, int minDomainValue, int maxDomainValue, const vector<int>& maxOccurrencesByValue, bool useBoundsConsistency=false);
-	vector<Literal> getExplanation(const IVariableDatabase& db, VarID variableToExplain, const ValueSet& removedValuesToExplain);
+	void getExplanation(const IVariableDatabase& db, VarID variableToExplain, const ValueSet& removedValuesToExplain, vector<Literal>& outExplanation);
 
 protected:
 	using NodeIndex = int;
-	void recurseAndMarkVisited(NodeIndex nodeIndex, const TarjanAlgorithm::AdjacentCallback& callback);
+
+	template<typename T>
+	void recurseAndMarkVisited(NodeIndex nodeIndex, T&& callback);
 
 	vector<VarID> m_variables;
 	int m_numValueNodes = -1;
@@ -48,6 +50,10 @@ protected:
 
 	vector<VarID> m_workingVariables;
 	ValueSet m_constrainedValues;
+
+	// working data:
+	vector<NodeIndex> m_nodeStack;
+	vector<NodeIndex> m_explainingValueNodes;
 
 	inline int variableIndexToNodeIndex(int n) const { return n; }
 	inline int variableNodeToVariableIndex(int n) const { return n; }

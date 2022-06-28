@@ -74,11 +74,6 @@ public:
 	virtual void markConstraintFullySatisfied(IConstraint* constraint) override;
 
 protected:
-	static vector<Literal> defaultWrapper(const ExplainerFunction& explainerFn, const NarrowingExplanationParams& params)
-	{
-		return explainerFn(params);
-	}
-
 	IVariableDatabase* m_parent;
 	IConstraint* m_outerCons;
 	ICommittableVariableDatabaseOwner* m_outerSink;

@@ -164,7 +164,7 @@ bool InequalityConstraint::applyOperator(IVariableDatabase* db, EConstraintOpera
 	return true;
 }
 
-vector<Literal> InequalityConstraint::explain(const NarrowingExplanationParams& params) const
+void InequalityConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
 	auto db = params.database;
 
@@ -220,7 +220,9 @@ vector<Literal> InequalityConstraint::explain(const NarrowingExplanationParams& 
 		break;
 	}
 
-	return {Literal(lhs, lhsVals), Literal(rhs, rhsVals)};
+	outExplanation.clear();
+	outExplanation.push_back(Literal(lhs, lhsVals));
+	outExplanation.push_back(Literal(rhs, rhsVals));
 }
 
 bool InequalityConstraint::checkConflicting(IVariableDatabase* db) const

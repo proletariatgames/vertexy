@@ -1454,11 +1454,11 @@ SolverDecisionLevel ConstraintSolver::getDecisionLevelForTimestamp(SolverTimesta
 	return found;
 }
 
-vector<Literal> ConstraintSolver::getExplanationForModification(SolverTimestamp modificationTime) const
+void ConstraintSolver::getExplanationForModification(SolverTimestamp modificationTime, vector<Literal>& outExplanation) const
 {
 	vxy_assert(modificationTime >= 0);
 
-	vector<Literal> explanation;
+	outExplanation.clear();
 	auto& mod = m_variableDB.getAssignmentStack().getStack()[modificationTime];
 	vxy_assert(mod.constraint != nullptr);
 
@@ -1467,16 +1467,14 @@ vector<Literal> ConstraintSolver::getExplanationForModification(SolverTimestamp 
 	NarrowingExplanationParams params(this, &priorDB, mod.constraint, mod.variable, valueAfterPropagation, modificationTime);
 	if (mod.explanation != nullptr)
 	{
-		explanation = mod.explanation(params);
+		mod.explanation(params, outExplanation);
 	}
 	else
 	{
-		explanation = mod.constraint->explain(params);
+		mod.constraint->explain(params, outExplanation);
 	}
 
-	sanityCheckExplanation(modificationTime, explanation);
-
-	return explanation;
+	sanityCheckExplanation(modificationTime, outExplanation);
 }
 
 void ConstraintSolver::sanityCheckExplanation(SolverTimestamp modificationTime, const vector<Literal>& explanation) const

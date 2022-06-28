@@ -249,7 +249,7 @@ public:
 	bool incrementalMaximalMatching(int leftVertexToDeprioritize = -1);
 
 protected:
-	int hopcroftBfs(int deprioritize, vector<int>& leftEdges);
+	int hopcroftBfs(int deprioritize);
 	bool findAugmentingPath(int left);
 
 	inline int getRightCapacity(int rightVertex) const
@@ -302,6 +302,9 @@ protected:
 	vector<vector<int>> m_bfsEdges;
 	// For each vertex, a bit for whether we've seen it during BFS
 	vector<bool> m_seenVertex;
+
+	// Temp data
+	vector<int> m_freeLeft;
 
 	// Total number of edges
 	int m_numEdges = 0;

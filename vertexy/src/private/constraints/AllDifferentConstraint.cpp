@@ -115,7 +115,8 @@ bool AllDifferentConstraint::onVariableNarrowed(IVariableDatabase* db, VarID nar
 bool AllDifferentConstraint::propagate(IVariableDatabase* db)
 {
 	vxy_assert(!m_useWeakPropagation);
-	vector<VarID> unsolvedVariables;
+	static vector<VarID> unsolvedVariables;
+	unsolvedVariables.clear();
 	unsolvedVariables.reserve(m_variables.size());
 
 	for (VarID var : m_variables)
@@ -126,7 +127,7 @@ bool AllDifferentConstraint::propagate(IVariableDatabase* db)
 		}
 	}
 
-	if (unsolvedVariables.size() > 0)
+	if (!unsolvedVariables.empty())
 	{
 		if (!checkBoundsConsistency(db, unsolvedVariables))
 		{
@@ -272,12 +273,12 @@ void AllDifferentConstraint::calculateBounds(const IVariableDatabase* db, const 
 	}
 }
 
-vector<Literal> AllDifferentConstraint::explain(const NarrowingExplanationParams& params) const
+void AllDifferentConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
 	ValueSet removedValues;
 	if (params.propagatedVariable.isValid())
 	{
 		removedValues = params.database->getPotentialValues(params.propagatedVariable).excluding(params.propagatedValues);
 	}
-	return m_explainer.getExplanation(*params.database, params.propagatedVariable, removedValues);
+	m_explainer.getExplanation(*params.database, params.propagatedVariable, removedValues, outExplanation);
 }

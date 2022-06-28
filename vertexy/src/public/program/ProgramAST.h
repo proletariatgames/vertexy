@@ -144,6 +144,8 @@ public:
     virtual bool visit(const function<EVisitResponse(const Term*)>& visitor) const override;
     virtual void replace(const function<unique_ptr<Term>(Term*)>& visitor) override {}
     virtual UTerm clone() const override;
+    virtual bool containsAbstracts() const override;
+    virtual bool match(const ProgramSymbol& matchSym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex) override;
     virtual ProgramSymbol eval(const AbstractOverrideMap&, const ProgramSymbol& boundVertex) const override  { return sym; }
     virtual UInstantiator instantiate(ProgramCompiler& compiler, bool canBeAbstract, const ITopologyPtr& topology) override;
     virtual bool operator==(const LiteralTerm& rhs) const override;

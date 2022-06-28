@@ -352,10 +352,10 @@ IffConstraint::EBodySatisfaction IffConstraint::getBodySatisfaction(IVariableDat
 	}
 }
 
-vector<Literal> IffConstraint::explain(const NarrowingExplanationParams& params) const
+void IffConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
-	vector<Literal> output;
-
+	outExplanation.clear();
+	
 	auto db = params.database;
 	if (params.propagatedVariable == m_head)
 	{
@@ -363,21 +363,21 @@ vector<Literal> IffConstraint::explain(const NarrowingExplanationParams& params)
 		if (prevVals.anyPossible(m_headValue) && !params.propagatedValues.anyPossible(m_headValue))
 		{
 			// Head became false because all body literals were false.
-			output.push_back(Literal(m_head, m_headValue.inverted()));
-			output.insert(output.end(), m_body.begin(), m_body.end());
+			outExplanation.push_back(Literal(m_head, m_headValue.inverted()));
+			outExplanation.insert(outExplanation.end(), m_body.begin(), m_body.end());
 		}
 		else
 		{
 			// Head became true because at least one body literal was true.
-			output.push_back(Literal(m_head, m_headValue));
+			outExplanation.push_back(Literal(m_head, m_headValue));
 			for (auto& bodyLit : m_body)
 			{
 				if (db->getPotentialValues(bodyLit.variable).isSubsetOf(bodyLit.values))
 				{
-					output.push_back(Literal(bodyLit.variable, bodyLit.values.inverted()));
+					outExplanation.push_back(Literal(bodyLit.variable, bodyLit.values.inverted()));
 				}
 			}
-			vxy_assert(output.size() > 1);
+			vxy_assert(outExplanation.size() > 1);
 		}
 	}
 	else
@@ -389,15 +389,14 @@ vector<Literal> IffConstraint::explain(const NarrowingExplanationParams& params)
 		if (prevVals.anyPossible(it->values) && !params.propagatedValues.anyPossible(it->values))
 		{
 			// Body became false because head was false.
-			output.push_back(Literal(m_head, m_headValue));
-			output.push_back(Literal(it->variable, it->values.inverted()));
+			outExplanation.push_back(Literal(m_head, m_headValue));
+			outExplanation.push_back(Literal(it->variable, it->values.inverted()));
 		}
 		else
 		{
 			// Body became true because head was true, and all other bodies were false.
-			output.push_back(Literal(m_head, m_headValue.inverted()));
-			output.insert(output.end(), m_body.begin(), m_body.end());
+			outExplanation.push_back(Literal(m_head, m_headValue.inverted()));
+			outExplanation.insert(outExplanation.end(), m_body.begin(), m_body.end());
 		}
 	}
-	return output;
 }

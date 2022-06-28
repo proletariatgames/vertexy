@@ -69,7 +69,7 @@ void MaxOccurrenceExplainer::initialize(const IVariableDatabase& db, const vecto
 	m_hasUnconstrainedValues = m_constrainedValues.indexOf(false) >= 0;
 }
 
-vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& db, VarID variableToExplain, const ValueSet& removedValuesToExplain)
+void MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& db, VarID variableToExplain, const ValueSet& removedValuesToExplain, vector<Literal>& outExplanation)
 {
 	int indexOfVariableToExplain = -1;
 
@@ -259,8 +259,8 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 		}
 	}
 
-	vector<NodeIndex> nodeStack;
-	vector<NodeIndex> explainingValueNodes;
+	m_nodeStack.clear();
+	m_explainingValueNodes.clear();
 
 	// Start search from the nodes that represent values removed that we're trying to explain.
 	for (int value = m_minDomainValue; value <= m_maxDomainValue; ++value)
@@ -273,33 +273,35 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 			{
 				for (int i = 0; i < max; ++i)
 				{
-					nodeStack.push_back(baseNode + i);
+					m_nodeStack.push_back(baseNode + i);
 				}
 			}
 			else
 			{
-				nodeStack.push_back(baseNode);
+				m_nodeStack.push_back(baseNode);
 			}
-			explainingValueNodes.push_back(baseNode);
+			m_explainingValueNodes.push_back(baseNode);
 		}
 	}
 
 	// removedValuesToExplain might be empty (when propagation failed to find a matching).
 	// In that case, start search from the first variable that is not in the matching
-	if (nodeStack.empty())
+	if (m_nodeStack.empty())
 	{
 		vxy_sanity(indexOfVariableToExplain >= 0);
-		nodeStack.push_back(indexOfVariableToExplain);
+		m_nodeStack.push_back(indexOfVariableToExplain);
 	}
 
-	vector<NodeIndex> explainingVariableNodes;
+	static vector<NodeIndex> explainingVariableNodes;
+	explainingVariableNodes.clear();
+	
 	explainingVariableNodes.push_back(indexOfVariableToExplain);
 	const int explainedVariableScc = m_nodeToScc[explainingVariableNodes.back()];
 
-	while (!nodeStack.empty())
+	while (!m_nodeStack.empty())
 	{
-		NodeIndex node = nodeStack.back();
-		nodeStack.pop_back();
+		NodeIndex node = m_nodeStack.back();
+		m_nodeStack.pop_back();
 
 		m_visited[node] = true;
 
@@ -323,8 +325,8 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 								m_nodeToScc[valueNode] != explainedVariableScc &&
 								m_valueNodeToMatchedNode[valueNode - numVariables] != node)
 							{
-								nodeStack.push_back(valueNode);
-								explainingValueNodes.push_back(valueNode);
+								m_nodeStack.push_back(valueNode);
+								m_explainingValueNodes.push_back(valueNode);
 							}
 						}
 					}
@@ -332,8 +334,8 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 					{
 						if (!m_visited[baseValueNode] && m_nodeToScc[baseValueNode] != explainedVariableScc)
 						{
-							nodeStack.push_back(baseValueNode);
-							explainingValueNodes.push_back(baseValueNode);
+							m_nodeStack.push_back(baseValueNode);
+							m_explainingValueNodes.push_back(baseValueNode);
 						}
 					}
 				}
@@ -348,7 +350,7 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 			if (varNode >= 0 && !m_visited[varNode] && m_nodeToScc[varNode] != explainedVariableScc)
 			{
 				vxy_assert(isVariableNode(varNode));
-				nodeStack.push_back(varNode);
+				m_nodeStack.push_back(varNode);
 				explainingVariableNodes.push_back(varNode);
 			}
 		}
@@ -363,7 +365,7 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 	// Note that there might be duplicate values here - that's fine/expected.
 	//
 	ValueSet explainingValues(m_domainSize, true);
-	for (NodeIndex valueNode : explainingValueNodes)
+	for (NodeIndex valueNode : m_explainingValueNodes)
 	{
 		const int value = valueNodeToValue(valueNode);
 		explainingValues[value] = false;
@@ -371,17 +373,17 @@ vector<Literal> MaxOccurrenceExplainer::getExplanation(const IVariableDatabase& 
 
 	// Create the literals for the explanation: those we reached during the previous recursion
 	// (including variableToExplain)
-	vector<Literal> explanation;
+	outExplanation.clear();
+	outExplanation.reserve(explainingVariableNodes.size());
 	for (NodeIndex varNode : explainingVariableNodes)
 	{
 		int varIndex = variableNodeToVariableIndex(varNode);
-		explanation.push_back(Literal(m_workingVariables[varIndex], explainingValues));
+		outExplanation.push_back(Literal(m_workingVariables[varIndex], explainingValues));
 	}
-	return explanation;
 }
 
-
-void MaxOccurrenceExplainer::recurseAndMarkVisited(NodeIndex nodeIndex, TarjanAlgorithm::AdjacentCallback callback)
+template<typename T>
+void MaxOccurrenceExplainer::recurseAndMarkVisited(NodeIndex nodeIndex, T&& callback)
 {
 	m_visited[nodeIndex] = true;
 	callback(nodeIndex, [&](int dest)

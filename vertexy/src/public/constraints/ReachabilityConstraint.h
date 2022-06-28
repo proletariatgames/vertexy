@@ -62,8 +62,8 @@ public:
 	virtual bool getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outRelations) const override;
 
 protected:
-	vector<Literal> explainNoReachability(const NarrowingExplanationParams& params) const;
-	vector<Literal> explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource = VarID::INVALID);
+	void explainNoReachability(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const;
+	void explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource, vector<Literal>& outExplanation);
 
 	enum class EReachabilityDetermination : uint8_t
 	{

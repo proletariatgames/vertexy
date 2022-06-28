@@ -58,7 +58,7 @@ public:
 	virtual bool initialize(IVariableDatabase* db, IConstraint* outerConstraint) override;
 	virtual void reset(IVariableDatabase* db) override;
 	virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
-	virtual vector<Literal> explain(const NarrowingExplanationParams& params) const override { return getLiteralsCopy(); }
+	virtual void explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const override { getLiteralsCopy(outExplanation); }
 	virtual bool checkConflicting(IVariableDatabase* db) const override;
 
 	virtual ClauseConstraint* asClauseConstraint() override
@@ -122,7 +122,7 @@ public:
 
 	void getLiterals(vector<Literal>& outLiterals) const;
 	const Literal* getLiterals() const { return m_literals; }
-	vector<Literal> getLiteralsCopy() const;
+	void getLiteralsCopy(vector<Literal>& outLiterals) const;
 
 	inline float getActivity() const
 	{

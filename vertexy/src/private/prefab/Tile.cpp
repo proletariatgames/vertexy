@@ -55,6 +55,18 @@ Tile::Tile(int id, string name, char symmetry, int configuration):
 	}
 }
 
+Tile::Tile(const Tile& tile, int configuration) :
+	m_id(tile.m_id),
+	m_name(tile.m_name),
+	m_symmetry(tile.m_symmetry),
+	m_cardinality(tile.m_cardinality),
+	m_a(tile.m_a),
+	m_b(tile.m_b),
+	m_configuration(configuration)
+{
+	m_configuration = configuration < 0 ? tile.m_configuration : configuration;
+}
+
 void Tile::rotate()
 {
 	m_configuration = m_a(m_configuration);

@@ -41,7 +41,7 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, const vector<vector<Tile>> inTiles, const NeighborData& neighborData);
+		Prefab(int inID, const vector<vector<Tile>> inTiles, const NeighborData& neighborData = NeighborData());
 
 		// Returns the <x,y> grid position for the index-th tile in this prefab
 		const Position& getPositionForIndex(int index);
@@ -57,6 +57,13 @@ namespace Vertexy
 
 		// Mirror the prefab horizontally
 		void reflect();
+
+		// Check if prefab has the same tile configuration as the other prefab
+		bool isEqual(const Prefab& other);
+
+		// Check if another prefab overlaps given a offset
+		bool canOverlap(const Prefab& other, int dx, int dy);
+
 
 		// Getters
 		const int id() const { return m_id; };

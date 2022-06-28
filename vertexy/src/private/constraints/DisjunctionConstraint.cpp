@@ -136,15 +136,14 @@ void DisjunctionConstraint::backtrack(const IVariableDatabase* db, SolverDecisio
 	}
 }
 
-vector<Literal> DisjunctionConstraint::explain(const NarrowingExplanationParams& params) const
+void DisjunctionConstraint::explain(const NarrowingExplanationParams& params, vector<Literal>& outExplanation) const
 {
 	vxy_assert(m_unsatInfo[0].isUnsat() && m_unsatInfo[1].isUnsat());
 
-	vector<Literal> outClauses;
-	outClauses.reserve(m_unsatInfo[0].explanation.size() + m_unsatInfo[1].explanation.size());
-	outClauses.insert(outClauses.end(), m_unsatInfo[0].explanation.begin(), m_unsatInfo[0].explanation.end());
-	outClauses.insert(outClauses.end(), m_unsatInfo[1].explanation.begin(), m_unsatInfo[1].explanation.end());
-	return outClauses;
+	outExplanation.clear();
+	outExplanation.reserve(m_unsatInfo[0].explanation.size() + m_unsatInfo[1].explanation.size());
+	outExplanation.insert(outExplanation.end(), m_unsatInfo[0].explanation.begin(), m_unsatInfo[0].explanation.end());
+	outExplanation.insert(outExplanation.end(), m_unsatInfo[1].explanation.begin(), m_unsatInfo[1].explanation.end());
 }
 
 bool DisjunctionConstraint::checkConflicting(IVariableDatabase* db) const
@@ -170,11 +169,11 @@ bool DisjunctionConstraint::markUnsat(const CommittableVariableDatabase& cdb, in
 		NarrowingExplanationParams explParams(cdb.getSolver(), &hdb, m_innerCons[innerConsIndex], contradictingVar, cdb.getPotentialValues(contradictingVar).isZero(), m_lastPropagation[innerConsIndex]);
 		if (explainer != nullptr)
 		{
-			literals = explainer(explParams);
+			explainer(explParams, literals);
 		}
 		else
 		{
-			literals = m_innerCons[innerConsIndex]->explain(explParams);
+			m_innerCons[innerConsIndex]->explain(explParams, literals);
 		}
 
 		m_unsatInfo[innerConsIndex].markUnsat(cdb.getDecisionLevel(), literals);
@@ -258,9 +257,9 @@ void DisjunctionConstraint::committableDatabaseRemoveWatchRequest(const Committa
 ExplainerFunction DisjunctionConstraint::committableDatabaseWrapExplanation(const CommittableVariableDatabase& db, const ExplainerFunction& innerExpl)
 {
 	int innerConsIndex = db.getOuterSinkID();
-	return [this, innerConsIndex, innerExpl](const NarrowingExplanationParams& params)
+	return [this, innerConsIndex, innerExpl](auto&& params, auto&& expl)
 	{
-		return explainInner(params, innerConsIndex, innerExpl);
+		return explainInner(params, innerConsIndex, innerExpl, expl);
 	};
 }
 
@@ -283,7 +282,7 @@ void DisjunctionConstraint::committableDatabaseQueueRequest(const CommittableVar
 	db.getParent()->queueConstraintPropagation(this);
 }
 
-vector<Literal> DisjunctionConstraint::explainInner(const NarrowingExplanationParams& params, int innerConsIndex, const ExplainerFunction& innerExpl) const
+void DisjunctionConstraint::explainInner(const NarrowingExplanationParams& params, int innerConsIndex, const ExplainerFunction& innerExpl, vector<Literal>& outExplanation) const
 {
 	vxy_sanity(innerConsIndex == 0 || innerConsIndex == 1);
 	int otherConsIndex = (innerConsIndex == 0) ? 1 : 0;
@@ -292,15 +291,13 @@ vector<Literal> DisjunctionConstraint::explainInner(const NarrowingExplanationPa
 	vector<Literal> expl;
 	if (auto clauseCons = m_innerCons[innerConsIndex]->asClauseConstraint())
 	{
-		expl = clauseCons->getLiteralsCopy();
+		clauseCons->getLiteralsCopy(expl);
 	}
 	else
 	{
 		NarrowingExplanationParams explParams(params.solver, params.database, m_innerCons[innerConsIndex], params.propagatedVariable, params.propagatedValues, params.timestamp);
-		expl = innerExpl(explParams);
+		innerExpl(explParams, expl);
 	}
 	expl.reserve(expl.size() + m_unsatInfo[otherConsIndex].explanation.size());
 	expl.insert(expl.end(), m_unsatInfo[otherConsIndex].explanation.begin(), m_unsatInfo[otherConsIndex].explanation.end());
-
-	return expl;
 }

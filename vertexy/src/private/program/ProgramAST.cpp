@@ -250,6 +250,21 @@ UTerm SymbolTerm::clone() const
     return make_unique<SymbolTerm>(sym);
 }
 
+bool SymbolTerm::containsAbstracts() const
+{
+    return sym.containsAbstract();
+}
+
+bool SymbolTerm::match(const ProgramSymbol& matchSym, AbstractOverrideMap& overrideMap, ProgramSymbol& boundVertex)
+{
+    auto evalSym = eval(overrideMap, boundVertex);
+    if (evalSym.isAbstract() && matchSym.isAbstract())
+    {
+        return true;
+    }
+    return evalSym.isValid() && matchSym == evalSym;
+}
+
 VertexTerm::VertexTerm()
 {
 }

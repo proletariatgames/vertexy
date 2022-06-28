@@ -22,7 +22,8 @@ namespace Vertexy
 	{
 	public:
 		Tile(int id, string name = "", char symmetry = 'X', int configuration = 0);
-		
+		Tile(const Tile& tile, int configuration = -1);
+
 		//rotate tile 90 degrees clockwise
 		void rotate();
 
@@ -32,6 +33,8 @@ namespace Vertexy
 		// getters
 		const int id() const { return m_id; };
 		const int configuration() const { return m_configuration; };
+		const string& name() const { return m_name; };
+		const char symmetry() const { return m_symmetry; };
 
 	private:
 		int m_id;
