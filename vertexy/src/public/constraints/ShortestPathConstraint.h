@@ -1,7 +1,7 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 #include "ConstraintTypes.h"
-#include "TopologySearchConstraint.h"
+#include "TopologyConnectionConstraint.h"
 #include "IConstraint.h"
 #include "SignedClause.h"
 #include "ds/ESTree.h"
@@ -24,7 +24,7 @@ namespace Vertexy
  *  All destination nodes must have at least 1 shortest path to at least 1 source node
  *  this shortest path must have a relation with 'distance'
  */
-class ShortestPathConstraint : public ITopologySearchConstraint
+class ShortestPathConstraint : public TopologyConnectionConstraint
 {
 public:
 	ShortestPathConstraint(const ConstraintFactoryParams& params,
@@ -34,7 +34,7 @@ public:
 		const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 		const ValueSet& edgeBlockedMask,
 		EConstraintOperator op,
-		VarID distance
+		int distance
 	);
 
 	struct ShortestPathFactory
@@ -54,7 +54,7 @@ public:
 			// How to compare distance
 			EConstraintOperator op,
 			// The variable that stores the distance
-			VarID distance);
+			int distance);
 	};
 
 	using Factory = ShortestPathFactory;
@@ -72,12 +72,13 @@ protected:
 	virtual EventListenerHandle addMinCallback(RamalRepsType& minReachable, const IVariableDatabase* db, VarID source) override;
 	virtual EventListenerHandle addMaxCallback(RamalRepsType& maxReachable, const IVariableDatabase* db, VarID source) override;
 	virtual vector<Literal> explainInvalid(const NarrowingExplanationParams& params) override;
+	virtual void sanityCheckInvalid(IVariableDatabase* db, int vertexIndex) override;
 	virtual void createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const override;
 	void onVertexChanged(int vertexIndex, VarID sourceVar, bool inMinGraph);
 	void backtrack(const IVariableDatabase* db, SolverDecisionLevel level) override;
 
 	EConstraintOperator m_op;
-	VarID m_distance;
+	int m_distance;
 
 	// used to determine the path that is either too long or too short when explaning
 	ShortestPathAlgorithm m_shortestPathAlgo;

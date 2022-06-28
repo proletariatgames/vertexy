@@ -58,7 +58,7 @@ ReachabilityConstraint::ReachabilityConstraint(
 	const ValueSet& requireReachableMask,
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 	const ValueSet& edgeBlockedMask)
-	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
+	: TopologyConnectionConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
 {
 
 }
@@ -126,7 +126,7 @@ void ReachabilityConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, b
 		if (determineValidity(m_edgeChangeDb, vertexIndex) == EValidityDetermination::DefinitelyUnreachable)
 		{
 			VarID var = m_sourceGraphData->get(vertexIndex);
-			//sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
+			sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
 
 			if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
 			{

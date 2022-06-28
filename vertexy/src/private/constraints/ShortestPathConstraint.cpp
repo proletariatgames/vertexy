@@ -20,7 +20,7 @@ ShortestPathConstraint* ShortestPathConstraint::ShortestPathFactory::construct(
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeData,
 	const vector<int>& edgeBlockedValues,
 	EConstraintOperator op,
-	VarID distance)
+	int distance)
 {
 	// Get an example graph variable
 	VarID graphVar;
@@ -61,8 +61,8 @@ ShortestPathConstraint::ShortestPathConstraint(
 	const shared_ptr<TTopologyVertexData<VarID>>& edgeGraphData,
 	const ValueSet& edgeBlockedMask,
 	EConstraintOperator op,
-	VarID distance)
-	: ITopologySearchConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
+	int distance)
+	: TopologyConnectionConstraint(params, sourceGraphData, sourceMask, requireReachableMask, edgeGraphData, edgeBlockedMask)
 	, m_op(op)
 	, m_distance(distance)
 {
@@ -83,13 +83,13 @@ bool ShortestPathConstraint::isValidDistance(const IVariableDatabase* db, int di
 	switch (m_op)
 	{
 	case EConstraintOperator::GreaterThan:
-		return dist > db->getMinimumPossibleDomainValue(m_distance);
+		return dist > m_distance;
 	case EConstraintOperator::GreaterThanEq:
-		return dist >= db->getMinimumPossibleDomainValue(m_distance);
+		return dist >= m_distance;
 	case EConstraintOperator::LessThan:
-		return dist < db->getMaximumPossibleDomainValue(m_distance);
+		return dist < m_distance;
 	case EConstraintOperator::LessThanEq:
-		return dist <= db->getMaximumPossibleDomainValue(m_distance);
+		return dist <= m_distance;
 	}
 
 	vxy_assert(false); //NotEqual not supported
@@ -142,7 +142,7 @@ bool ShortestPathConstraint::isPossiblyValid(const IVariableDatabase* db, const 
 	return false;
 }
 
-ITopologySearchConstraint::EValidityDetermination ShortestPathConstraint::determineValidityHelper(
+TopologyConnectionConstraint::EValidityDetermination ShortestPathConstraint::determineValidityHelper(
 	const IVariableDatabase* db,
 	const ReachabilitySourceData& src,
 	int vertex,
@@ -234,7 +234,7 @@ EventListenerHandle ShortestPathConstraint::addMaxCallback(RamalRepsType& maxRea
 vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingExplanationParams& params)
 {
 	// if we are here, it means that the path was reachable, but we marked it as invalid because of the distance constraint
-	vxy_assert_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
+	vxy_sanity_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
 
 	auto db = params.database;
 	int conflictVertex = m_variableToSourceVertexIndex.find(params.propagatedVariable)->second;
@@ -414,9 +414,43 @@ vector<Literal> Vertexy::ShortestPathConstraint::explainInvalid(const NarrowingE
 	return lits;
 }
 
+void Vertexy::ShortestPathConstraint::sanityCheckInvalid(IVariableDatabase* db, int vertexIndex)
+{
+	#if SANITY_CHECKS
+	// For each source that could possibly exist...
+	bool foundInvalid = false;
+	for (VarID potentialSource : m_initialPotentialSources)
+	{
+		int sourceVertex = m_variableToSourceVertexIndex[potentialSource];
+		// If this is currently a potential source...
+		if (db->getPotentialValues(potentialSource).anyPossible(m_sourceMask) || m_reachabilitySources.find(potentialSource) != m_reachabilitySources.end())
+		{
+			vector<int> path;
+			if (m_op == EConstraintOperator::GreaterThan || m_op == EConstraintOperator::GreaterThanEq)
+			{
+				if (m_shortestPathAlgo.find<BacktrackingDigraphTopology>(*m_explanationMinGraph, sourceVertex, vertexIndex, path))
+				{
+					foundInvalid = true;
+					vxy_assert(!isValidDistance(db, path.size() - 1));
+				}
+			}
+			else
+			{
+				if (m_shortestPathAlgo.find<BacktrackingDigraphTopology>(*m_explanationMaxGraph, sourceVertex, vertexIndex, path))
+				{
+					foundInvalid = true;
+					vxy_assert(!isValidDistance(db, path.size() - 1));
+				}
+			}
+		}
+	}
+	vxy_assert(foundInvalid);
+	#endif
+}
+
 void Vertexy::ShortestPathConstraint::createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const
 {
-	ITopologySearchConstraint::createTempSourceData(data, vertexIndex);
+	TopologyConnectionConstraint::createTempSourceData(data, vertexIndex);
 #if REACHABILITY_USE_RAMAL_REPS
 	data.minReachability = make_shared<RamalRepsType>(m_minGraph, false, false, false);
 #else
@@ -443,47 +477,14 @@ void ShortestPathConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, b
 	m_queuedVertexChanges.insert(vertexIndex);
 	auto reachability = determineValidity(m_edgeChangeDb, vertexIndex);
 
-	// TODO understand why uncommenting both of these make everything run much, much slower
-	//if (reachability == EValidityDetermination::DefinitelyValid)
-	//{
-	//	// vertexIndex became unreachable in the max graph
-	//	VarID var = m_sourceGraphData->get(vertexIndex);
-
-	//	if (var.isValid() && m_edgeChangeDb->getPotentialValues(var).anyPossible(m_requireValidMask))
-	//	{
-	//		auto ret = m_edgeChangeDb->constrainToValues(var, m_requireValidMask, this);
-	//		vxy_assert(ret);
-	//	}
-	//}
-	//else if (reachability == EValidityDetermination::PossiblyValid)
-	//{
-	//	// vertexIndex became unreachable in the max graph
-	//	VarID var = m_sourceGraphData->get(vertexIndex);
-
-	//	m_edgeChangeDb->
-	//	if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask.inverted(), this))
-	//	{
-	//		m_edgeChangeFailure = true;
-	//	}
-	//}
 	if (reachability == EValidityDetermination::DefinitelyUnreachable)
 	{
 		// vertexIndex became unreachable in the max graph
 		VarID var = m_sourceGraphData->get(vertexIndex);
-		//sanityCheckUnreachable(db, vertexIndex);
+		// we cannot sanity check now because not all RamalReps have been updated - see processQueuedVertexChanges
+		sanityCheckUnreachable(m_edgeChangeDb, vertexIndex);
 
 		if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
-		{
-			m_edgeChangeFailure = true;
-		}
-	}
-	else if (reachability == EValidityDetermination::DefinitelyInvalid)
-	{
-		// vertexIndex became unreachable in the max graph
-		VarID var = m_sourceGraphData->get(vertexIndex);
-		//sanityCheckUnreachable(db, vertexIndex);
-
-		if (var.isValid() && !m_edgeChangeDb->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
 		{
 			m_edgeChangeFailure = true;
 		}
@@ -494,7 +495,7 @@ void ShortestPathConstraint::onVertexChanged(int vertexIndex, VarID sourceVar, b
 void ShortestPathConstraint::backtrack(const IVariableDatabase* db, SolverDecisionLevel level)
 {
 	auto stamp = db->getTimestamp();
-	ITopologySearchConstraint::backtrack(db, level);
+	TopologyConnectionConstraint::backtrack(db, level);
 
 	// TODO optimize: make a better data structure so we don't need to touch all vertices just to backtrack the ones that can be backtracked
 	for (auto& vertexData : m_lastValidTimestamp)
@@ -511,28 +512,10 @@ void ShortestPathConstraint::commitValidTimestamps(const IVariableDatabase* db)
 	for (auto& toCommitDest : m_validTimestampsToCommit)
 	{
 		auto& found = m_lastValidTimestamp.find(toCommitDest.first);
-		hash_map<int, TBacktrackableValue<SolverTimestamp>>* validTimestamp;
-		if (found == m_lastValidTimestamp.end())
-		{
-			m_lastValidTimestamp[toCommitDest.first] = hash_map<int, TBacktrackableValue<SolverTimestamp>>();
-			validTimestamp = &m_lastValidTimestamp[toCommitDest.first];
-		}
-		else
-		{
-			validTimestamp = &found->second;
-		}
+		auto validTimestamp = m_lastValidTimestamp.insert(toCommitDest.first).first;
 		for (auto& value : toCommitDest.second)
 		{
-			if (validTimestamp->find(value.first) == validTimestamp->end())
-			{
-				TBacktrackableValue<SolverTimestamp> val;
-				val.set(value.second, value.second);
-				(*validTimestamp)[value.first] = val;
-			}
-			else
-			{
-				(*validTimestamp)[value.first].set(value.second, value.second);
-			}
+			validTimestamp->second.insert(value.first).first->second.set(value.second, value.second);
 		}
 	}
 }
@@ -556,6 +539,7 @@ void ShortestPathConstraint::addTimestampToCommit(const IVariableDatabase* db, i
 		return;
 	}
 
+	#if VERTEXY_SANITY_CHECKS
 	auto timestamp = db->getTimestamp();
 	if (m_lastValidTimestamp.find(destVertex) != m_lastValidTimestamp.end() &&
 		m_lastValidTimestamp[destVertex].find(sourceVertex) != m_lastValidTimestamp[destVertex].end())
@@ -566,6 +550,7 @@ void ShortestPathConstraint::addTimestampToCommit(const IVariableDatabase* db, i
 			vxy_assert(val.getTimestamp() <= timestamp);
 		}
 	}
+	#endif
 
 	if (m_validTimestampsToCommit.find(destVertex) == m_validTimestampsToCommit.end())
 	{
@@ -587,7 +572,31 @@ void Vertexy::ShortestPathConstraint::processQueuedVertexChanges(IVariableDataba
 	for (auto vertexIndex : m_queuedVertexChanges)
 	{
 		// we need to run determineValidity again for all these vertices so we can update our valid timestamps
-		determineValidity(db, vertexIndex);
+		auto validity = determineValidity(db, vertexIndex);
+		if (validity == EValidityDetermination::DefinitelyValid)
+		{
+			// vertexIndex became unreachable in the max graph
+			VarID var = m_sourceGraphData->get(vertexIndex);
+
+			if (var.isValid() && !db->constrainToValues(var, m_requireValidMask, this))
+			{
+				m_edgeChangeFailure = true;
+				break;
+			}
+		}
+		else if (validity == EValidityDetermination::DefinitelyInvalid)
+		{
+			// vertexIndex became unreachable in the max graph
+			VarID var = m_sourceGraphData->get(vertexIndex);
+			// we cannot sanity check now because not all RamalReps have been updated - see processQueuedVertexChanges
+			sanityCheckInvalid(db, vertexIndex);
+
+			if (var.isValid() && !db->constrainToValues(var, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
+			{
+				m_edgeChangeFailure = true;
+				break;
+			}
+		}
 	}
 	m_queuedVertexChanges.clear();
 }

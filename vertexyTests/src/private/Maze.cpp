@@ -91,9 +91,6 @@ int MazeSolver::solveSimple(int times, int numCols, int seed, bool printVerbose)
 		solver.setInitialValues(tileData->get(node), vector<int>{0, 1, 2});
 	}
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 5 });
-
-	//
 //
 // CONSTRAINT: Exactly one entrance, one exit,
 //
@@ -121,7 +118,7 @@ int MazeSolver::solveSimple(int times, int numCols, int seed, bool printVerbose)
 
 	auto edgeNodeToEdgeVarRel = make_shared<TVertexToDataGraphRelation<VarID>>(stepEdgeData);
 
-	solver.makeConstraint<ShortestPathConstraint>(tileData, cell_Entrance, cell_Exit, stepEdgeData, edge_Solid, EConstraintOperator::LessThan, shortestPathDistance);
+	solver.makeConstraint<ShortestPathConstraint>(tileData, cell_Entrance, cell_Exit, stepEdgeData, edge_Solid, EConstraintOperator::GreaterThan, 5);
 
 
 	//
@@ -256,7 +253,6 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 	auto downTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown());
 	auto downRightTile = make_shared<TTopologyLinkGraphRelation<VarID>>(tileData, PlanarGridTopology::moveDown().combine(PlanarGridTopology::moveRight()));
 
-	auto shortestPathDistance = solver.makeVariable(TEXT("DIST"), vector{ 20 });
 	//
 	// DECLARE CONSTRAINTS
 	//
@@ -470,7 +466,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		{
 			solver.makeGraphConstraint<ClauseConstraint>(grid, ENoGood::NoGood,
 				GraphRelationClause(selfStepDoorTile, step_ReachableOrOrigin),
-				GraphRelationClause(selfTile, cell_Wall)
+				GraphRelationClause(selfStepTile, EClauseSign::Outside, step_ReachableOrOrigin)
 			);
 		}
 
@@ -573,7 +569,7 @@ int MazeSolver::solve(int times, int numRows, int numCols, int seed, bool printV
 		// Ensure reachability for this step: all Step_Reachable cells must be reachable from Step_Origin cells.
 		if (TEST_SHORTEST_PATH)
 		{
-			solver.makeConstraint<ShortestPathConstraint>(stepDoorData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::LessThan, shortestPathDistance);
+			solver.makeConstraint<ShortestPathConstraint>(stepDoorData, step_Origin, step_Reachable, stepEdgeData, edge_Solid, EConstraintOperator::LessThan, 10);
 			solver.makeConstraint<ReachabilityConstraint>(stepData, step_Origin, step_Reachable, stepEdgeData, edge_Solid);
 		}
 		else

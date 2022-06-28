@@ -1,5 +1,5 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
-#include "constraints/TopologySearchConstraint.h"
+#include "constraints/TopologyConnectionConstraint.h"
 
 #include "variable/IVariableDatabase.h"
 #include "topology/GraphRelations.h"
@@ -12,7 +12,7 @@ static constexpr int OPEN_EDGE_FLOW = INT_MAX >> 1;
 static constexpr int CLOSED_EDGE_FLOW = 1;
 static constexpr bool USE_RAMAL_REPS_BATCHING = true;
 
-ITopologySearchConstraint::ITopologySearchConstraint(
+TopologyConnectionConstraint::TopologyConnectionConstraint(
 	const ConstraintFactoryParams& params,
 	const shared_ptr<TTopologyVertexData<VarID>>& sourceGraphData,
 	const ValueSet& sourceMask,
@@ -57,7 +57,7 @@ ITopologySearchConstraint::ITopologySearchConstraint(
 	}
 }
 
-bool ITopologySearchConstraint::getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outRelations) const
+bool TopologyConnectionConstraint::getGraphRelations(const vector<Literal>& literals, ConstraintGraphRelationInfo& outRelations) const
 {
 	// First search through all provided literals to find the minimum graph vertex.
 	// Note: some vertices will be edges, some will be tiles.
@@ -180,7 +180,7 @@ bool ITopologySearchConstraint::getGraphRelations(const vector<Literal>& literal
 	return true;
 }
 
-bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
+bool TopologyConnectionConstraint::initialize(IVariableDatabase* db)
 {
 	// Add all vertices to min/max graphs
 	for (int vertexIndex = 0; vertexIndex < m_sourceGraph->getNumVertices(); ++vertexIndex)
@@ -377,7 +377,7 @@ bool ITopologySearchConstraint::initialize(IVariableDatabase* db)
 	return true;
 }
 
-void ITopologySearchConstraint::reset(IVariableDatabase* db)
+void TopologyConnectionConstraint::reset(IVariableDatabase* db)
 {
 	for (auto it = m_vertexWatchHandles.begin(), itEnd = m_vertexWatchHandles.end(); it != itEnd; ++it)
 	{
@@ -392,7 +392,7 @@ void ITopologySearchConstraint::reset(IVariableDatabase* db)
 	m_edgeWatchHandles.clear();
 }
 
-bool ITopologySearchConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch)
+bool TopologyConnectionConstraint::onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& prevValue, bool& removeWatch)
 {
 	const ValueSet& newValue = db->getPotentialValues(variable);
 
@@ -408,7 +408,7 @@ bool ITopologySearchConstraint::onVariableNarrowed(IVariableDatabase* db, VarID 
 	return true;
 }
 
-bool ITopologySearchConstraint::EdgeWatcher::onVariableNarrowed(IVariableDatabase* db, VarID var, const ValueSet& prevValue, bool& removeHandle)
+bool TopologyConnectionConstraint::EdgeWatcher::onVariableNarrowed(IVariableDatabase* db, VarID var, const ValueSet& prevValue, bool& removeHandle)
 {
 	const ValueSet& newValue = db->getPotentialValues(var);
 	if ((prevValue.anyPossible(m_parent.m_edgeBlockedMask) && !newValue.anyPossible(m_parent.m_edgeBlockedMask)) ||
@@ -420,7 +420,7 @@ bool ITopologySearchConstraint::EdgeWatcher::onVariableNarrowed(IVariableDatabas
 	return true;
 }
 
-bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
+bool TopologyConnectionConstraint::propagate(IVariableDatabase* db)
 {
 	vxy_assert(!m_edgeChangeFailure);
 	ValueGuard<bool> guardEdgeChangeFailure(m_edgeChangeFailure, false);
@@ -487,7 +487,7 @@ bool ITopologySearchConstraint::propagate(IVariableDatabase* db)
 	return true;
 }
 
-bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* db, VarID variable)
+bool TopologyConnectionConstraint::processVertexVariableChange(IVariableDatabase* db, VarID variable)
 {
 	if (!db->anyPossible(variable, m_sourceMask))
 	{
@@ -540,7 +540,7 @@ bool ITopologySearchConstraint::processVertexVariableChange(IVariableDatabase* d
 	return true;
 }
 
-void ITopologySearchConstraint::addSource(const IVariableDatabase* db, VarID source)
+void TopologyConnectionConstraint::addSource(const IVariableDatabase* db, VarID source)
 {
 	int vertex = m_variableToSourceVertexIndex[source];
 
@@ -561,7 +561,7 @@ void ITopologySearchConstraint::addSource(const IVariableDatabase* db, VarID sou
 	m_reachabilitySources[source] = { minReachable, maxReachable, minHandle, maxHandle, vertex };
 }
 
-bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source)
+bool TopologyConnectionConstraint::removeSource(IVariableDatabase* db, VarID source)
 {
 	if (m_reachabilitySources.find(source) == m_reachabilitySources.end())
 	{
@@ -601,7 +601,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 
 				if (determination == EValidityDetermination::DefinitelyUnreachable)
 				{
-					//sanityCheckUnreachable(db, vertex);
+					sanityCheckUnreachable(db, vertex);
 					if (!db->constrainToValues(vertexVar, m_invalidMask, this, [&](auto params) { return explainNoReachability(params); }))
 					{
 						failure = true;
@@ -610,7 +610,7 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 				}
 				else if (determination == EValidityDetermination::DefinitelyInvalid)
 				{
-					//sanityCheckUnreachable(db, vertex);
+					sanityCheckInvalid(db, vertex);
 					if (!db->constrainToValues(vertexVar, m_invalidMask, this, [&](auto params) { return explainInvalid(params); }))
 					{
 						failure = true;
@@ -660,13 +660,13 @@ bool ITopologySearchConstraint::removeSource(IVariableDatabase* db, VarID source
 	return !failure;
 }
 
-bool Vertexy::ITopologySearchConstraint::isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex)
+bool Vertexy::TopologyConnectionConstraint::isPossiblyValid(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex)
 {
 	// in the default implementation, it is always valid. implementors can override this for their invalid implementation
 	return true;
 }
 
-ITopologySearchConstraint::EValidityDetermination Vertexy::ITopologySearchConstraint::determineValidityHelper(
+TopologyConnectionConstraint::EValidityDetermination Vertexy::TopologyConnectionConstraint::determineValidityHelper(
 	const IVariableDatabase* db,
 	const ReachabilitySourceData& src,
 	int vertex,
@@ -691,7 +691,7 @@ ITopologySearchConstraint::EValidityDetermination Vertexy::ITopologySearchConstr
 	return EValidityDetermination::DefinitelyUnreachable;
 }
 
-void Vertexy::ITopologySearchConstraint::createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const
+void Vertexy::TopologyConnectionConstraint::createTempSourceData(ReachabilitySourceData& data, int vertexIndex) const
 {
 #if REACHABILITY_USE_RAMAL_REPS
 	data.maxReachability = make_shared<RamalRepsType>(m_maxGraph, false, false, false);
@@ -701,7 +701,7 @@ void Vertexy::ITopologySearchConstraint::createTempSourceData(ReachabilitySource
 	data.maxReachability->initialize(vertexIndex, &m_reachabilityEdgeLookup, m_totalNumEdges);
 }
 
-void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable)
+void TopologyConnectionConstraint::updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable)
 {
 	vxy_assert(!m_inEdgeChange);
 	vxy_assert(!m_edgeChangeFailure);
@@ -768,7 +768,7 @@ void ITopologySearchConstraint::updateGraphsForEdgeChange(IVariableDatabase* db,
 	}
 }
 
-void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDecisionLevel level)
+void TopologyConnectionConstraint::backtrack(const IVariableDatabase* db, SolverDecisionLevel level)
 {
 	vxy_assert(!m_edgeChangeFailure);
 	m_edgeProcessList.clear();
@@ -807,7 +807,7 @@ void ITopologySearchConstraint::backtrack(const IVariableDatabase* db, SolverDec
 	#endif
 }
 
-ITopologySearchConstraint::EValidityDetermination ITopologySearchConstraint::determineValidity(const IVariableDatabase* db, int vertexIndex)
+TopologyConnectionConstraint::EValidityDetermination TopologyConnectionConstraint::determineValidity(const IVariableDatabase* db, int vertexIndex)
 {
 	VarID vertexVar = m_sourceGraphData->get(vertexIndex);
 	bool hadAnyInvalid = false;
@@ -837,7 +837,7 @@ ITopologySearchConstraint::EValidityDetermination ITopologySearchConstraint::det
 }
 
 // Called whenever an edge is added or removed from the explanation graph, including during backtracking
-void ITopologySearchConstraint::onExplanationMaxGraphEdgeChange(bool edgeWasAdded, int from, int to)
+void TopologyConnectionConstraint::onExplanationMaxGraphEdgeChange(bool edgeWasAdded, int from, int to)
 {
 	// Keep the edge capacities in sync.
 	for (int i = get<0>(m_flowGraphLookup[from]); i < get<1>(m_flowGraphLookup[from]); ++i)
@@ -851,7 +851,7 @@ void ITopologySearchConstraint::onExplanationMaxGraphEdgeChange(bool edgeWasAdde
 	vxy_fail();
 }
 
-vector<Literal> ITopologySearchConstraint::explainNoReachability(const NarrowingExplanationParams& params, ValueSet* alreadyVisitedSources) const
+vector<Literal> TopologyConnectionConstraint::explainNoReachability(const NarrowingExplanationParams& params, ValueSet* alreadyVisitedSources) const
 {
 	vxy_assert_msg(m_variableToSourceVertexIndex.find(params.propagatedVariable) != m_variableToSourceVertexIndex.end(), "Not a vertex variable?");
 
@@ -967,7 +967,7 @@ vector<Literal> ITopologySearchConstraint::explainNoReachability(const Narrowing
 	return lits;
 }
 
-vector<Literal> ITopologySearchConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
+vector<Literal> TopologyConnectionConstraint::explainRequiredSource(const NarrowingExplanationParams& params, VarID removedSource)
 {
 	//return IVariableDatabase::defaultExplainer(params);
 
@@ -1088,12 +1088,12 @@ vector<Literal> ITopologySearchConstraint::explainRequiredSource(const Narrowing
 	return lits;
 }
 
-bool ITopologySearchConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
+bool TopologyConnectionConstraint::isPossiblyReachable(const IVariableDatabase* db, const ReachabilitySourceData& src, int vertex) const
 {
 	return src.maxReachability->isReachable(vertex);
 }
 
-void ITopologySearchConstraint::sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex)
+void TopologyConnectionConstraint::sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex)
 {
 	#if SANITY_CHECKS
 	// For each source that could possibly exist...
@@ -1110,7 +1110,7 @@ void ITopologySearchConstraint::sanityCheckUnreachable(IVariableDatabase* db, in
 }
 
 
-vector<VarID> ITopologySearchConstraint::getConstrainingVariables() const
+vector<VarID> TopologyConnectionConstraint::getConstrainingVariables() const
 {
 	vector<VarID> out;
 	for (int i = 0; i < m_sourceGraph->getNumVertices(); ++i)
@@ -1134,7 +1134,7 @@ vector<VarID> ITopologySearchConstraint::getConstrainingVariables() const
 	return out;
 }
 
-bool ITopologySearchConstraint::checkConflicting(IVariableDatabase* db) const
+bool TopologyConnectionConstraint::checkConflicting(IVariableDatabase* db) const
 {
 	// TODO
 	return false;

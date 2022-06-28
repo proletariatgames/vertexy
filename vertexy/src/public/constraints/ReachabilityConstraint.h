@@ -1,7 +1,7 @@
 ﻿// Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 #include "ConstraintTypes.h"
-#include "TopologySearchConstraint.h"
+#include "TopologyConnectionConstraint.h"
 #include "IBacktrackingSolverConstraint.h"
 #include "IConstraint.h"
 #include "SignedClause.h"
@@ -23,7 +23,7 @@ namespace Vertexy
  *  Any variable that is definitely one of SourceValues is considered a reachability source.
  *  Any variable that is definitely on of NeedReachableValues is considered a destination that must remain reachable from AT LEAST one source.
  */
-class ReachabilityConstraint : public ITopologySearchConstraint
+class ReachabilityConstraint : public TopologyConnectionConstraint
 {
 public:
 	ReachabilityConstraint(const ConstraintFactoryParams& params,

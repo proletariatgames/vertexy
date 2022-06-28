@@ -19,10 +19,10 @@ namespace Vertexy
 
 /** Base class for ReachabilityConstraint and ShortestPathConstraint
  */
-class ITopologySearchConstraint : public IBacktrackingSolverConstraint
+class TopologyConnectionConstraint : public IBacktrackingSolverConstraint
 {
 public:
-	ITopologySearchConstraint(const ConstraintFactoryParams& params,
+	TopologyConnectionConstraint(const ConstraintFactoryParams& params,
 		const shared_ptr<TTopologyVertexData<VarID>>& sourceGraphData,
 		const ValueSet& sourceMask,
 		const ValueSet& requireReachableMask,
@@ -66,6 +66,10 @@ protected:
 	//used by propagate
 	void updateGraphsForEdgeChange(IVariableDatabase* db, VarID variable);
 	void sanityCheckUnreachable(IVariableDatabase* db, int vertexIndex);
+	virtual void sanityCheckInvalid(IVariableDatabase* db, int vertexIndex)
+	{
+		vxy_fail(); // override me!
+	}
 
 	void onExplanationMaxGraphEdgeChange(bool edgeWasAdded, int from, int to);
 
@@ -135,7 +139,7 @@ protected:
 	class EdgeWatcher : public IVariableWatchSink
 	{
 	public:
-		EdgeWatcher(ITopologySearchConstraint& parent)
+		EdgeWatcher(TopologyConnectionConstraint& parent)
 			: m_parent(parent)
 		{
 		}
@@ -144,7 +148,7 @@ protected:
 		virtual bool onVariableNarrowed(IVariableDatabase* db, VarID variable, const ValueSet& previousValue, bool& removeWatch) override;
 
 	protected:
-		ITopologySearchConstraint& m_parent;
+		TopologyConnectionConstraint& m_parent;
 	};
 
 	EdgeWatcher m_edgeWatcher;
