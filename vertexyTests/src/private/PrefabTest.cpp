@@ -168,8 +168,8 @@ int PrefabTestSolver::solveNeighbor(int times, int seed, bool printVerbose)
 	constexpr int BLANK_IDX = 0;
 	constexpr int WALL_IDX = 1;
 
-	int numRows = 3;
-	int numCols = 4;
+	int numRows = 5;
+	int numCols = 6;
 
 	for (int time = 0; time < times; ++time)
 	{
@@ -194,8 +194,9 @@ int PrefabTestSolver::solveNeighbor(int times, int seed, bool printVerbose)
 		// Generate the prefab constraints
 		prefabManager->generatePrefabConstraints(tileData);
 
-		// Set some initial values
-		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[5], prefabManager->getPrefabIdsByName(TEXT("test3")));
+		// Set some initial values to ensure the test3 prefab is in the middle of the grid, allowing space for neighbors
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[8], prefabManager->getPrefabIdsByName(TEXT("test3")));
+		solver.setInitialValues(prefabManager->getTilePrefabData()->getData()[20], prefabManager->getPrefabIdsByName(TEXT("test3")));
 
 		shared_ptr<SolverDecisionLog> outputLog;
 		if constexpr (WRITE_BREADCRUMB_LOG)
@@ -375,7 +376,10 @@ int PrefabTestSolver::check(ConstraintSolver* solver, shared_ptr<TTopologyVertex
 // Pass in a row, column, or square to ensure every valid value is represented exactly once
 int PrefabTestSolver::checkNeighbor(ConstraintSolver* solver, shared_ptr<TTopologyVertexData<VarID>> tileData, const shared_ptr<PrefabManager>& prefabManager)
 {
-	bool hasNeighbor = false;
+	bool hasRightNeighbor = false;
+	bool hasLeftNeighbor = false;
+	bool hasAboveNeighbor = false;
+	bool hasBelowNeighbor = false;
 
 	// Iterate over the graph
 	for (int x = 0; x < tileData->getData().size(); x++)
@@ -386,16 +390,28 @@ int PrefabTestSolver::checkNeighbor(ConstraintSolver* solver, shared_ptr<TTopolo
 		{
 			continue;
 		}
-		auto prefab = prefabManager->getPrefabs()[solvedPrefab - 1];
 
 		// Whenever we encounter our target prefab, check the right neighbor
-		int neighborPrefab = solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x+1]);
-		if (neighborPrefab == 2)
+		if (solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x + 1]) == 2)
 		{
-			hasNeighbor = true;
+			hasRightNeighbor = true;
 		}
-		
+
+		if (solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x - 1]) == 2)
+		{
+			hasLeftNeighbor = true;
+		}
+
+		if (solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x - 6]) == 2)
+		{
+			hasAboveNeighbor = true;
+		}
+
+		if (solver->getSolvedValue(prefabManager->getTilePrefabData()->getData()[x + 6]) == 2)
+		{
+			hasBelowNeighbor = true;
+		}
 	}
 
-	return !hasNeighbor;
+	return !(hasRightNeighbor && hasLeftNeighbor && hasAboveNeighbor && hasBelowNeighbor);
 }

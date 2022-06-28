@@ -12,6 +12,28 @@ namespace Vertexy
 		int x, y;
 	};
 
+	struct NeighborData
+	{
+		const wstring right, left, above, below;
+		vector<int> rightTiles, leftTiles, aboveTiles, belowTiles;
+
+		NeighborData(const wstring& inRight, const wstring& inLeft, const wstring& inAbove, const wstring& inBelow) :
+			right(inRight),
+			left(inLeft),
+			above(inAbove),
+			below(inBelow)
+		{
+		};
+
+		NeighborData() :
+			right(TEXT("")),
+			left(TEXT("")),
+			above(TEXT("")),
+			below(TEXT(""))
+		{
+		};
+	};
+
 	class Prefab
 	{
 	public:
@@ -19,7 +41,7 @@ namespace Vertexy
 		static const int NO_PREFAB_ID = 0;
 		static const int NO_PREFAB_POS = 0;
 
-		Prefab(int inID, const vector<vector<Tile>> inTiles, const wstring& rightNeighbor = TEXT(""));
+		Prefab(int inID, const vector<vector<Tile>> inTiles, const NeighborData& neighborData);
 
 		// Returns the <x,y> grid position for the index-th tile in this prefab
 		const Position& getPositionForIndex(int index);
@@ -40,8 +62,7 @@ namespace Vertexy
 		const int id() const { return m_id; };
 		const vector<Position>& positions() const { return m_positions; };
 		const vector<vector<Tile>>& tiles() const { return m_tiles; };
-		const wstring& rightNeighbor() const { return m_rightNeighbor; };
-		const vector<int>& rightTiles() const { return m_rightTiles; };
+		const NeighborData& neighborData() const { return m_neighborData; };
 
 	private:
 		// This prefab's identifier, uniquely assigned by its manager
@@ -53,10 +74,8 @@ namespace Vertexy
 		// A vector of {x,y} positions; each element of this vector represents the position at which that index's tile in the prefab is found
 		vector<Position> m_positions;
 
-		wstring m_rightNeighbor;
-
-		// 
-		vector<int> m_rightTiles;
+		// Stores this prefab's neighbors and the tiles that can have adjacent prefabs
+		NeighborData m_neighborData;
 
 		// Transpose the prefab
 		void transpose();
@@ -66,5 +85,8 @@ namespace Vertexy
 
 		// Set m_positions
 		void updatePositions();
+
+		// Set neighbor tiles in m_neighborData
+		void updateNeighbors();
 	};
 }

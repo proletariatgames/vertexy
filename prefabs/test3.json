@@ -8,6 +8,9 @@
     ],
     "neighbors":
     {
-        "right":"test4"
+        "right":"test4",
+        "left":"test4",
+        "above":"test4",
+        "below":"test4"
     }
 }

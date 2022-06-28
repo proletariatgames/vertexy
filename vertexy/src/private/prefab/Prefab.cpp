@@ -6,10 +6,10 @@
 
 using namespace Vertexy;
 
-Prefab::Prefab(int inID, const vector<vector<Tile>> inTiles, const wstring& rightNeighbor) :
+Prefab::Prefab(int inID, const vector<vector<Tile>> inTiles, const NeighborData& inNeighborData) :
 	m_id(inID),
 	m_tiles(inTiles),
-	m_rightNeighbor(rightNeighbor)
+	m_neighborData(inNeighborData)
 {
 	updatePositions();
 }
@@ -89,32 +89,64 @@ void Prefab::reverse()
 void Prefab::updatePositions()
 {
 	m_positions.clear();
-	m_rightTiles.clear();
 
 	for (int x = 0; x < m_tiles.size(); x++)
 	{
-		int rightTile = -1;
-
 		for (int y = 0; y < m_tiles[x].size(); y++)
 		{
 			// Skip elements that aren't in the prefab
 			if (m_tiles[x][y].id() == INVALID_TILE)
 			{
-				if (rightTile != -1)
-				{
-					m_rightTiles.push_back(rightTile);
-					rightTile = -1;
-				}
 				continue;
 			}
 			m_positions.push_back(Position{ x,y });
-			rightTile = m_positions.size() - 1;
 		}
+	}
 
-		if (rightTile != -1)
+	updateNeighbors();
+}
+
+void Prefab::updateNeighbors()
+{
+	// Clear neighbor tiles
+	m_neighborData.rightTiles.clear();
+	m_neighborData.leftTiles.clear();
+	m_neighborData.aboveTiles.clear();
+	m_neighborData.belowTiles.clear();
+
+	int positionIndex = 0;
+
+	for (int x = 0; x < m_tiles.size(); x++)
+	{
+		for (int y = 0; y < m_tiles[x].size(); y++)
 		{
-			m_rightTiles.push_back(rightTile);
+			// Skip gaps in the prefab
+			if (m_tiles[x][y].id() == INVALID_TILE)
+			{
+				continue;
+			}
+
+			if (x == 0 || m_tiles[x - 1][y].id() == INVALID_TILE)
+			{
+				m_neighborData.aboveTiles.push_back(positionIndex);
+			}
+			
+			if (x == m_tiles.size() - 1 || m_tiles[x + 1][y].id() == INVALID_TILE)
+			{
+				m_neighborData.belowTiles.push_back(positionIndex);
+			}
+
+			if (y == 0 || m_tiles[x][y - 1].id() == INVALID_TILE)
+			{
+				m_neighborData.leftTiles.push_back(positionIndex);
+			}
+
+			if (y == m_tiles[x].size() - 1 || m_tiles[x][y + 1].id() == INVALID_TILE)
+			{
+				m_neighborData.rightTiles.push_back(positionIndex);
+			}
+
+			positionIndex++;
 		}
-		
 	}
 }
