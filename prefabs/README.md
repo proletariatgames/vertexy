@@ -7,3 +7,8 @@ This folder contains sample json files that can be used to create prefabs that t
 * allowRotation: Boolean argument. If true, this prefab can be rotated. Optional argument; defaults to false.
 * allowReflection: Boolean argument. If true, this prefab can be reflected. Optional argument; defaults to false.
 * tiles: A 2D array of integers representing tiles. A -1 value represents an empty tile that isn't a part of this prefab. This argument is mandatory.
+* neighbors: An array of direction:string pairs representing prefab neighbors. For any of these directions, it will mandate that at least one tile in this prefab has the neighbor prefab in the appropriate direction. Optional argument, and all the neighbors are optional as well.
+    * right: String argument. Optional argument; defaults to "".
+    * left: String argument. Optional argument; defaults to "".
+    * above: String argument. Optional argument; defaults to "".
+    * below: String argument. Optional argument; defaults to "".
