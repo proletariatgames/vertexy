@@ -339,7 +339,6 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 					GraphRelationClause(directionShift->map(selfTilePrefab), EClauseSign::Outside, getPrefabIdsByName(neighborName))
 				};
 
-				// Handle prefab right neighbors
 				for (int x = 1; x < edgeTiles.size(); x++)
 				{
 					Position anchorPos = prefab->getPositionForIndex(anchorTile);
@@ -352,7 +351,7 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 					clauseVec.push_back(GraphRelationClause(directionShift->map(horizontalShift)->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, getPrefabIdsByName(neighborName)));
 				}
 
-				m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional(clauseVec));
+				m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional(clauseVec.begin(), clauseVec.end()));
 			}
 		}
 		
