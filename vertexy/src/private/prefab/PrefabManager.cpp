@@ -4,7 +4,6 @@
 #include "topology/IPlanarTopology.h"
 #include "ConstraintSolver.h"
 #include "ConstraintTypes.h"
-#include "prefab/Prefab.h"
 #include "variable/SolverVariableDomain.h"
 #include "prefab/Tile.h"
 
@@ -35,10 +34,10 @@ PrefabManager::PrefabManager(ConstraintSolver* inSolver, const shared_ptr<Planar
 	m_grid = inGrid;
 }
 
-void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name /* "" */, bool allowRotation /* false */, bool allowReflection /* false */)
+void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name /* "" */, bool allowRotation /* false */, bool allowReflection /* false */, const NeighborData& neighborData /* NeighborData()*/)
 {
 	// Create the prefab with its unique ID
-	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, inTiles);
+	shared_ptr<Prefab> prefab = make_shared<Prefab>(m_prefabs.size() + 1, inTiles, neighborData);
 
 	// Update the largest size for the domain
 	if (prefab->getNumTiles() > m_maxPrefabSize)
@@ -65,7 +64,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstr
 	vector<shared_ptr<Prefab>> temp;
 	if (allowRotation && allowReflection)
 	{
-		for (int i = 0; i < 7; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
+		for (int i = 0; i < 7; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles, neighborData)); }
 		temp[0]->rotate(1);
 		temp[1]->rotate(2);
 		temp[2]->rotate(3);
@@ -76,7 +75,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstr
 	}
 	else if (allowRotation && !allowReflection)
 	{
-		for (int i = 0; i < 3; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
+		for (int i = 0; i < 3; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles, neighborData)); }
 		temp[0]->rotate(1);
 		temp[1]->rotate(2);
 		temp[2]->rotate(3);
@@ -84,7 +83,7 @@ void PrefabManager::createPrefab(const vector<vector<Tile>>& inTiles, const wstr
 	else
 	{
 		//Create horizontal and vertical reflections.
-		for (int i = 0; i < 2; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles)); }
+		for (int i = 0; i < 2; i++) { temp.push_back(make_shared<Prefab>(m_prefabs.size() + 1 + i, inTiles, neighborData)); }
 		temp[0]->reflect();
 		temp[1]->rotate(2);
 		temp[1]->reflect();
@@ -148,6 +147,10 @@ void PrefabManager::createPrefabFromJsonString(const wstring& jsonString)
 	wstring name = TEXT("");
 	bool allowRotation = false;
 	bool allowReflection = false;
+	wstring rightNeighbor = TEXT("");
+	wstring leftNeighbor = TEXT("");
+	wstring aboveNeighbor = TEXT("");
+	wstring belowNeighbor = TEXT("");
 
 	if (j.contains("name"))
 	{
@@ -165,7 +168,33 @@ void PrefabManager::createPrefabFromJsonString(const wstring& jsonString)
 		allowReflection = j["allowReflection"];
 	}
 
-	createPrefab(tiles, name, allowRotation, allowReflection);
+	if (j.contains("neighbors"))
+	{
+		if (j["neighbors"].contains("right"))
+		{
+			std::wstring neighbor = strConverter.from_bytes(j["neighbors"]["right"]);
+			rightNeighbor = neighbor.c_str();
+		}
+		if (j["neighbors"].contains("left"))
+		{
+			std::wstring neighbor = strConverter.from_bytes(j["neighbors"]["left"]);
+			leftNeighbor = neighbor.c_str();
+		}
+		if (j["neighbors"].contains("above"))
+		{
+			std::wstring neighbor = strConverter.from_bytes(j["neighbors"]["above"]);
+			aboveNeighbor = neighbor.c_str();
+		}
+		if (j["neighbors"].contains("below"))
+		{
+			std::wstring neighbor = strConverter.from_bytes(j["neighbors"]["below"]);
+			belowNeighbor = neighbor.c_str();
+		}
+	}
+
+	NeighborData neighborData(rightNeighbor, leftNeighbor, aboveNeighbor, belowNeighbor);
+
+	createPrefab(tiles, name, allowRotation, allowReflection, neighborData);
 }
 
 void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexData<VarID>>& tileData)
@@ -206,6 +235,7 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 			);
 		}
 
+		// Build out the prefab
 		for (int pos = 0; pos < prefab->positions().size(); pos++)
 		{
 			Position currLoc = prefab->positions()[pos];
@@ -262,6 +292,69 @@ void PrefabManager::generatePrefabConstraints(const shared_ptr<TTopologyVertexDa
 				}));
 			}
 		}
+
+		// Obtain prefab neighbor data and handle neighbor constraints
+		NeighborData neighborData = prefab->neighborData();
+
+		for (int x = 0; x < 4; x++)
+		{
+			shared_ptr<TopologyLinkIndexGraphRelation> directionShift;
+			wstring neighborName;
+			vector<int> edgeTiles;
+
+			switch (x)
+			{
+			case 0:
+				directionShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), PlanarGridTopology::moveRight());
+				neighborName = neighborData.right;
+				edgeTiles = neighborData.rightTiles;
+				break;
+			case 1:
+				directionShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), PlanarGridTopology::moveLeft());
+				neighborName = neighborData.left;
+				edgeTiles = neighborData.leftTiles;
+				break;
+			case 2:
+				directionShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), PlanarGridTopology::moveUp());
+				neighborName = neighborData.above;
+				edgeTiles = neighborData.aboveTiles;
+				break;
+			case 3:
+				directionShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), PlanarGridTopology::moveDown());
+				neighborName = neighborData.below;
+				edgeTiles = neighborData.belowTiles;
+				break;
+			default:
+				vxy_assert_msg(false, "Error! Invalid direction for neighbor constraint generation");
+				break;
+			}
+
+			if (!neighborName.empty())
+			{
+				int anchorTile = edgeTiles[0];
+
+				vector<GraphRelationClause> clauseVec = {
+					GraphRelationClause(selfTilePrefab, { prefab->id() }),
+					GraphRelationClause(selfTilePrefabPos, { anchorTile + 1 }),
+					GraphRelationClause(directionShift->map(selfTilePrefab), EClauseSign::Outside, getPrefabIdsByName(neighborName))
+				};
+
+				for (int x = 1; x < edgeTiles.size(); x++)
+				{
+					Position anchorPos = prefab->getPositionForIndex(anchorTile);
+					Position edgePos = prefab->getPositionForIndex(edgeTiles[x]);
+					int diffX = anchorPos.x - edgePos.x;
+					int diffY = anchorPos.y - edgePos.y;
+					auto horizontalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), (diffY >= 0 ? PlanarGridTopology::moveLeft(diffY) : PlanarGridTopology::moveRight(-diffY)));
+					auto verticalShift = make_shared<TopologyLinkIndexGraphRelation>(ITopology::adapt(m_grid), (diffX >= 0 ? PlanarGridTopology::moveUp(diffX) : PlanarGridTopology::moveDown(-diffX)));
+
+					clauseVec.push_back(GraphRelationClause(directionShift->map(horizontalShift)->map(verticalShift)->map(selfTilePrefab), EClauseSign::Outside, getPrefabIdsByName(neighborName)));
+				}
+
+				m_solver->makeGraphConstraint<ClauseConstraint>(m_grid, ENoGood::NoGood, GraphCulledVector<GraphRelationClause>::allOptional(clauseVec.begin(), clauseVec.end()));
+			}
+		}
+		
 	}
 }
 

@@ -1,11 +1,11 @@
 // Copyright Proletariat, Inc. All Rights Reserved.
 #pragma once
 #include "topology/TopologyVertexData.h"
+#include "prefab/Prefab.h"
 #include <EASTL/hash_map.h>
 
 namespace Vertexy
 {
-	class Prefab;
 	class Tile;
 	class PlanarGridTopology;
 
@@ -19,7 +19,7 @@ namespace Vertexy
 		static shared_ptr<PrefabManager> create(ConstraintSolver* inSolver, const shared_ptr<PlanarGridTopology>& inGrid);
 		
 		// Creates a prefab and associates it with this manager
-		void createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name = TEXT(""), bool allowRotation = false, bool allowReflection = false);
+		void createPrefab(const vector<vector<Tile>>& inTiles, const wstring& name = TEXT(""), bool allowRotation = false, bool allowReflection = false, const NeighborData& neighborData = NeighborData());
 
 		// Creates a prefab from a json file identified by fileName
 		void createPrefabFromJson(const wstring& fileName);

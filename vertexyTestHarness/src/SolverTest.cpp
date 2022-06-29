@@ -32,6 +32,7 @@ int main(int argc, char* argv[])
 	using namespace VertexyTests;
 
 	TestApplication Suite("Solver Tests", argc, argv);
+
 	Suite.AddTest("ValueBitset", TestSolvers::bitsetTests);
 	Suite.AddTest("Digraph", TestSolvers::digraphTests);
 	Suite.AddTest("RuleSCCs", TestSolvers::ruleSCCTests);
@@ -56,6 +57,7 @@ int main(int argc, char* argv[])
 	Suite.AddTest("NQueens-Graph", []() { return NQueensSolvers::solveUsingGraph(NUM_TIMES, NQUEENS_SIZE, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Basic", []() { return PrefabTestSolver::solveBasic(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Json", []() { return PrefabTestSolver::solveJson(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
+	Suite.AddTest("PrefabTest-Neighbor", []() { return PrefabTestSolver::solveNeighbor(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("PrefabTest-Rot/Refl", []() { return PrefabTestSolver::solveRotationReflection(NUM_TIMES, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("MazeProgram", []() { return MazeSolver::solveUsingGraphProgram(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
 	Suite.AddTest("Maze", []() { return MazeSolver::solveUsingRawConstraints(NUM_TIMES, MAZE_NUM_ROWS, MAZE_NUM_COLS, FORCE_SEED, PRINT_VERBOSE); });
