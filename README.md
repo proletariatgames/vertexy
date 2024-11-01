@@ -10,6 +10,14 @@ The primary distinguishing feature of Vertexy apart from other constraint solver
 
 Vertexy is still a work-in-progress and is missing many planned features and optimizations.
 
+## Submodules
+
+This project utilizes submodules. After pulling the repository, they must be initialized:
+```
+git submodule init
+git submodule update
+```
+
 ## Current Features
 
 * Integer variables with finite domain
